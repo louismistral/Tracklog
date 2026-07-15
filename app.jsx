@@ -101,6 +101,7 @@ function App({ session }){
   const [selectedTracker, setSelectedTracker] = useState(null); // for quick-add filter / chart focus
   const [newTrackerOpen, setNewTrackerOpen] = useState(false);
   const [editTracker, setEditTracker] = useState(null);
+  const [editEntry, setEditEntry] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -124,6 +125,13 @@ function App({ session }){
   const deleteEntry = async (id) => {
     const { error } = await supabase.from('entries').delete().eq('id', id);
     if (!error) setEntries(s => s.filter(e => e.id !== id));
+  };
+  const updateEntry = async (id, patch) => {
+    const current = entries.find(e => e.id === id);
+    if (!current) return;
+    const updated = { ...current, ...patch };
+    const { error } = await supabase.from('entries').update(entryToRow(updated, userId)).eq('id', id);
+    if (!error) setEntries(s => s.map(e => e.id===id ? updated : e));
   };
   const addTracker = async (t) => {
     const tracker = { id: uid('t_'), createdAt: Date.now(), ...t };
@@ -181,6 +189,7 @@ function App({ session }){
           selectedTracker={selectedTracker}
           onAddEntry={addEntry}
           onDeleteEntry={deleteEntry}
+          onEditEntry={(e)=>setEditEntry(e)}
         />
       ) : (
         <VuesView
@@ -207,6 +216,15 @@ function App({ session }){
           onClose={()=>setEditTracker(null)}
           onSave={(t)=>{ updateTracker(editTracker.id, t); setEditTracker(null); }}
           onDelete={()=>{ removeTracker(editTracker.id); setEditTracker(null); }}
+        />
+      )}
+      {editEntry && (
+        <EntryModal
+          entry={editEntry}
+          tracker={trackerById[editEntry.trackerId]}
+          onClose={()=>setEditEntry(null)}
+          onSave={(patch)=>{ updateEntry(editEntry.id, patch); setEditEntry(null); }}
+          onDelete={()=>{ deleteEntry(editEntry.id); setEditEntry(null); }}
         />
       )}
     </div>
@@ -245,7 +263,7 @@ function TrackerRail({ trackers, selected, onSelect, onAdd, onEdit }){
 /* ============================================================
    Log view
    ============================================================ */
-function LogView({ trackers, trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry }){
+function LogView({ trackers, trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry, onEditEntry }){
   // Filter entries
   const filtered = useMemo(() => {
     let es = entries.slice().sort((a,b) => b.ts - a.ts);
@@ -306,6 +324,7 @@ function LogView({ trackers, trackerById, entries, selectedTracker, onAddEntry, 
                           {unit && <span className="u">{unit}</span>}
                         </div>
                         <div className="actions">
+                          <button onClick={()=>onEditEntry(e)}>modifier</button>
                           <button onClick={()=>onDeleteEntry(e.id)}>supprimer</button>
                         </div>
                       </div>
@@ -1198,6 +1217,123 @@ function GridSummary({ trackers, entries, rangeDays }){
         </div>
       ))}
       {cards.length === 0 && <div className="empty"><span className="em-serif">Pas de tracker.</span></div>}
+    </div>
+  );
+}
+
+/* ============================================================
+   Entry modal (edit an existing entry)
+   ============================================================ */
+function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
+  const t = tracker;
+  const [num, setNum]     = useState(t.type==='number' ? String(entry.value ?? '') : '');
+  const [scale, setScale] = useState(t.type==='scale' ? entry.value : null);
+  const [bool, setBool]   = useState(t.type==='boolean' ? entry.value : null);
+  const [durH, setDurH]   = useState(t.type==='duration' ? String(Math.floor((entry.value||0)/60)) : '');
+  const [durM, setDurM]   = useState(t.type==='duration' ? String((entry.value||0)%60) : '');
+  const [text, setText]   = useState(t.type==='text' ? String(entry.value ?? '') : '');
+  const [note, setNote]   = useState(entry.note || '');
+  const [day, setDay]     = useState(() => {
+    const d = new Date(entry.ts);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  });
+  const [at, setAt] = useState(() => {
+    const d = new Date(entry.ts);
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  });
+
+  const canSave = useMemo(() => {
+    switch (t.type){
+      case 'number':   return num !== '' && !isNaN(parseFloat(num));
+      case 'scale':    return scale != null;
+      case 'boolean':  return bool != null;
+      case 'duration': return (durH !== '' || durM !== '') && (parseInt(durH||'0',10) + parseInt(durM||'0',10) > 0);
+      case 'text':     return text.trim().length > 0;
+    }
+    return false;
+  }, [t.type, num, scale, bool, durH, durM, text]);
+
+  const submit = () => {
+    if (!canSave) return;
+    let value;
+    switch (t.type){
+      case 'number':   value = parseFloat(num); break;
+      case 'scale':    value = scale; break;
+      case 'boolean':  value = bool; break;
+      case 'duration': value = parseInt(durH||'0',10)*60 + parseInt(durM||'0',10); break;
+      case 'text':     value = text.trim(); break;
+    }
+    const [yy, mo, dd] = day.split('-').map(x=>parseInt(x,10));
+    const [hh, mm] = at.split(':').map(x=>parseInt(x,10));
+    const ts = new Date(yy, (mo||1)-1, dd||1, hh||0, mm||0).getTime();
+    onSave({ value, note: note.trim(), ts });
+  };
+
+  return (
+    <div className="scrim" onClick={onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        <h2>Modifier l'entrée</h2>
+        <div className="modal-sub"><span className="dot" style={{display:'inline-block',width:8,height:8,borderRadius:'50%',background:t.color,marginRight:6}}></span>{t.name}</div>
+
+        <div className="field">
+          <label>Valeur</label>
+          <div style={{flex:1}}>
+            {t.type === 'number' && (
+              <div style={{display:'flex',alignItems:'baseline'}}>
+                <input type="number" step="any" autoFocus value={num} onChange={e=>setNum(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==='Enter') submit(); }} placeholder="0" style={{width:'100%'}} />
+                {t.unit && <span className="unit">{t.unit}</span>}
+              </div>
+            )}
+            {t.type === 'scale' && (
+              <div className="scale">
+                {Array.from({length: t.scaleMax||5}).map((_,i)=>(
+                  <button key={i} className={scale===i+1?'on':''} onClick={()=>setScale(i+1)}>{i+1}</button>
+                ))}
+              </div>
+            )}
+            {t.type === 'boolean' && (
+              <div className="bool">
+                <button className={bool===true?'on':''} onClick={()=>setBool(true)}>Oui</button>
+                <button className={bool===false?'on':''} onClick={()=>setBool(false)}>Non</button>
+              </div>
+            )}
+            {t.type === 'duration' && (
+              <div style={{display:'flex',gap:8,alignItems:'baseline'}}>
+                <input type="number" min="0" placeholder="0" value={durH} onChange={e=>setDurH(e.target.value)} style={{width:50,textAlign:'right'}} />
+                <span className="unit">h</span>
+                <input type="number" min="0" max="59" placeholder="00" value={durM} onChange={e=>setDurM(e.target.value)} style={{width:50,textAlign:'right'}} />
+                <span className="unit">min</span>
+              </div>
+            )}
+            {t.type === 'text' && (
+              <textarea value={text} onChange={e=>setText(e.target.value)} rows={2} style={{width:'100%'}} />
+            )}
+          </div>
+        </div>
+
+        <div className="field">
+          <label>Date</label>
+          <input type="date" value={day} max={new Date().toISOString().slice(0,10)} onChange={e=>setDay(e.target.value)} />
+        </div>
+
+        <div className="field">
+          <label>Heure</label>
+          <input type="time" value={at} onChange={e=>setAt(e.target.value)} />
+        </div>
+
+        <div className="field" style={{borderBottom:'none'}}>
+          <label>Note</label>
+          <input value={note} onChange={e=>setNote(e.target.value)}
+            onKeyDown={e=>{ if(e.key==='Enter') submit(); }} placeholder="optionnel" />
+        </div>
+
+        <div className="modal-actions">
+          <button className="danger" onClick={()=>{ if(confirm('Supprimer cette entrée ?')) onDelete(); }}>Supprimer</button>
+          <button className="ghost" onClick={onClose}>Annuler</button>
+          <button className="primary" disabled={!canSave} onClick={submit}>Enregistrer</button>
+        </div>
+      </div>
     </div>
   );
 }

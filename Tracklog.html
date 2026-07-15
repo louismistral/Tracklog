@@ -90,10 +90,11 @@
   .entry .note{font-size:13px;color:var(--ink-3);line-height:1.45}
   .entry .val{font-family:"Geist Mono",monospace;font-size:15px;font-feature-settings:"tnum";font-weight:500}
   .entry .val .u{color:var(--ink-3);font-weight:400;font-size:12px;margin-left:3px}
-  .entry .actions{opacity:0;transition:opacity .12s}
+  .entry .actions{opacity:0;transition:opacity .12s;display:flex;gap:2px}
   .entry:hover .actions{opacity:1}
   .entry .actions button{font-size:11px;color:var(--ink-3);padding:3px 6px;border-radius:4px}
-  .entry .actions button:hover{color:var(--warn);background:var(--bg-2)}
+  .entry .actions button:hover{color:var(--ink);background:var(--bg-2)}
+  .entry .actions button:last-child:hover{color:var(--warn)}
 
   .day-group{margin-bottom:6px}
   .day-head{font-size:11px;color:var(--ink-3);letter-spacing:0.12em;text-transform:uppercase;padding:18px 4px 8px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between}
