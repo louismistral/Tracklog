@@ -102,6 +102,7 @@ function App({ session }){
   const [newTrackerOpen, setNewTrackerOpen] = useState(false);
   const [editTracker, setEditTracker] = useState(null);
   const [editEntry, setEditEntry] = useState(null);
+  const [pwOpen, setPwOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -169,6 +170,7 @@ function App({ session }){
             <button className={tab==='log'?'active':''} onClick={()=>setTab('log')}>Log</button>
             <button className={tab==='vues'?'active':''} onClick={()=>setTab('vues')}>Vues</button>
           </div>
+          <button onClick={()=>setPwOpen(true)} style={{fontSize:12,color:'var(--ink-3)'}}>Mot de passe</button>
           <button onClick={()=>supabase.auth.signOut()} style={{fontSize:12,color:'var(--ink-3)'}}>Déconnexion</button>
         </div>
       </header>
@@ -227,6 +229,7 @@ function App({ session }){
           onDelete={()=>{ deleteEntry(editEntry.id); setEditEntry(null); }}
         />
       )}
+      {pwOpen && <PasswordModal onClose={()=>setPwOpen(false)} />}
     </div>
   );
 }
@@ -1422,20 +1425,50 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
 }
 
 /* ============================================================
-   Auth — magic-link sign-in gate
+   Auth — email + password (magic link as fallback)
    ============================================================ */
 function SignIn(){
+  const [mode, setMode] = useState('signin'); // signin | signup
   const [email, setEmail] = useState('');
-  const [sent, setSent] = useState(false);
+  const [password, setPassword] = useState('');
   const [err, setErr] = useState('');
+  const [info, setInfo] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const canSubmit = email.trim() && password.length >= 6;
 
   const submit = async () => {
-    setErr('');
+    if (!canSubmit || busy) return;
+    setErr(''); setInfo(''); setBusy(true);
+    if (mode === 'signup'){
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(), password,
+        options: { emailRedirectTo: window.location.href },
+      });
+      if (error) setErr(error.message);
+      else if (!data.session) setInfo("Compte créé. Vérifiez vos e-mails pour confirmer, puis connectez-vous.");
+      // if a session comes back, onAuthStateChange logs us in automatically
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (error) setErr("E-mail ou mot de passe incorrect.");
+    }
+    setBusy(false);
+  };
+
+  const magicLink = async () => {
+    if (!email.trim()){ setErr("Entrez votre e-mail d'abord."); return; }
+    setErr(''); setInfo('');
     const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: { emailRedirectTo: window.location.href },
+      email: email.trim(), options: { emailRedirectTo: window.location.href },
     });
-    if (error) setErr(error.message); else setSent(true);
+    if (error) setErr(error.message); else setInfo(`Lien de connexion envoyé à ${email}.`);
+  };
+
+  const forgot = async () => {
+    if (!email.trim()){ setErr("Entrez votre e-mail d'abord."); return; }
+    setErr(''); setInfo('');
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.href });
+    if (error) setErr(error.message); else setInfo(`E-mail de réinitialisation envoyé à ${email}.`);
   };
 
   return (
@@ -1445,28 +1478,93 @@ function SignIn(){
         <h1>Tracklog</h1>
       </div>
       <div className="card">
-        {sent ? (
+        <h3 style={{margin:0,fontSize:15,fontWeight:500}}>{mode==='signup' ? 'Créer un compte' : 'Connexion'}</h3>
+        <p style={{fontSize:13,color:'var(--ink-3)',marginTop:6,marginBottom:6}}>
+          {mode==='signup' ? 'Choisissez un e-mail et un mot de passe.' : 'Entrez votre e-mail et votre mot de passe.'}
+        </p>
+        <div className="field">
+          <label>Email</label>
+          <input type="email" autoFocus value={email}
+            onChange={e=>setEmail(e.target.value)}
+            onKeyDown={e=>{ if(e.key==='Enter') submit(); }}
+            placeholder="vous@exemple.com" />
+        </div>
+        <div className="field" style={{borderBottom:'none'}}>
+          <label>Mot de passe</label>
+          <input type="password" value={password}
+            onChange={e=>setPassword(e.target.value)}
+            onKeyDown={e=>{ if(e.key==='Enter') submit(); }}
+            placeholder="au moins 6 caractères" />
+        </div>
+        {err && <div style={{color:'var(--warn)', fontSize:12, marginTop:10}}>{err}</div>}
+        {info && <div style={{color:'var(--accent)', fontSize:12, marginTop:10}}>{info}</div>}
+        <div className="save">
+          <span className="hint">
+            {mode==='signin' && <button style={{fontSize:12,color:'var(--ink-3)'}} onClick={forgot}>Mot de passe oublié ?</button>}
+          </span>
+          <button className="primary" disabled={!canSubmit || busy} onClick={submit}>
+            {busy ? '…' : (mode==='signup' ? 'Créer' : 'Se connecter')}
+          </button>
+        </div>
+        <hr className="thin" />
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:12,color:'var(--ink-3)'}}>
+          {mode==='signup' ? (
+            <button style={{fontSize:12,color:'var(--ink-2)'}} onClick={()=>{setMode('signin');setErr('');setInfo('');}}>← J'ai déjà un compte</button>
+          ) : (
+            <button style={{fontSize:12,color:'var(--ink-2)'}} onClick={()=>{setMode('signup');setErr('');setInfo('');}}>Créer un compte</button>
+          )}
+          <button style={{fontSize:12,color:'var(--ink-3)'}} onClick={magicLink}>Recevoir un lien par e-mail</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   Set / change password (used while logged in and after reset link)
+   ============================================================ */
+function PasswordModal({ recovery, onClose }){
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [err, setErr] = useState('');
+  const [done, setDone] = useState(false);
+  const canSave = password.length >= 6 && password === confirm;
+
+  const submit = async () => {
+    if (!canSave) return;
+    setErr('');
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) setErr(error.message); else setDone(true);
+  };
+
+  return (
+    <div className="scrim" onClick={recovery ? undefined : onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:380}}>
+        <h2>{recovery ? 'Nouveau mot de passe' : 'Définir un mot de passe'}</h2>
+        <div className="modal-sub">Vous pourrez ensuite vous connecter avec votre e-mail et ce mot de passe.</div>
+        {done ? (
           <>
-            <h3 style={{margin:0,fontSize:15,fontWeight:500}}>Vérifiez vos e-mails</h3>
-            <p style={{fontSize:13,color:'var(--ink-3)',marginTop:6}}>Un lien de connexion a été envoyé à {email}.</p>
+            <p style={{fontSize:13,color:'var(--accent)',margin:'10px 0 0'}}>Mot de passe enregistré ✓</p>
+            <div className="modal-actions">
+              <button className="primary" onClick={onClose}>Fermer</button>
+            </div>
           </>
         ) : (
           <>
-            <h3 style={{margin:0,fontSize:15,fontWeight:500}}>Connexion</h3>
-            <p style={{fontSize:13,color:'var(--ink-3)',marginTop:6,marginBottom:14}}>Entrez votre e-mail pour recevoir un lien de connexion.</p>
-            <div className="field" style={{borderBottom:'none'}}>
-              <label>Email</label>
-              <input
-                type="email" autoFocus value={email}
-                onChange={e=>setEmail(e.target.value)}
-                onKeyDown={e=>{ if(e.key==='Enter') submit(); }}
-                placeholder="vous@exemple.com"
-              />
+            <div className="field">
+              <label>Mot de passe</label>
+              <input type="password" autoFocus value={password} onChange={e=>setPassword(e.target.value)} placeholder="au moins 6 caractères" />
             </div>
-            {err && <div style={{color:'var(--warn)', fontSize:12, marginTop:8}}>{err}</div>}
-            <div className="save">
-              <span className="hint"></span>
-              <button className="primary" disabled={!email.trim()} onClick={submit}>Envoyer le lien</button>
+            <div className="field" style={{borderBottom:'none'}}>
+              <label>Confirmer</label>
+              <input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)}
+                onKeyDown={e=>{ if(e.key==='Enter') submit(); }} placeholder="retapez le mot de passe" />
+            </div>
+            {err && <div style={{color:'var(--warn)', fontSize:12, marginTop:10}}>{err}</div>}
+            {password && confirm && password !== confirm && <div style={{color:'var(--warn)', fontSize:12, marginTop:10}}>Les mots de passe ne correspondent pas.</div>}
+            <div className="modal-actions">
+              {!recovery && <button className="ghost" onClick={onClose}>Annuler</button>}
+              <button className="primary" disabled={!canSave} onClick={submit}>Enregistrer</button>
             </div>
           </>
         )}
@@ -1477,14 +1575,19 @@ function SignIn(){
 
 function Root(){
   const [session, setSession] = useState(undefined); // undefined = loading, null = signed out
+  const [recovery, setRecovery] = useState(false);   // arrived via password-reset link
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      setSession(s);
+      if (event === 'PASSWORD_RECOVERY') setRecovery(true);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
   if (session === undefined) return <div className="empty"><span className="em-serif">Chargement…</span></div>;
+  if (recovery && session) return <PasswordModal recovery onClose={()=>setRecovery(false)} />;
   if (!session) return <SignIn />;
   return <App session={session} />;
 }
