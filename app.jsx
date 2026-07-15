@@ -25,43 +25,25 @@ const TYPES = [
   { id:'text',     label:'Texte',    desc:'note libre' },
 ];
 
-const SEED_TRACKERS = [
-  { id:'t_sleep',  name:'Sommeil', type:'duration', unit:'min', color:'oklch(0.55 0.10 250)' },
-  { id:'t_mood',   name:'Humeur',  type:'scale',    scaleMax:5, color:'oklch(0.55 0.10 80)' },
-  { id:'t_weight', name:'Poids',   type:'number',   unit:'kg',  color:'#1c1b18' },
-  { id:'t_run',    name:'Course',  type:'boolean',  color:'oklch(0.55 0.10 150)' },
-  { id:'t_water',  name:'Eau',     type:'number',   unit:'L',   color:'oklch(0.55 0.10 250)' },
-];
+/* ============================================================
+   Supabase — cloud persistence + auth
+   ============================================================ */
+const SUPABASE_URL = 'https://drrmqrhsfgermgblndzz.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRycm1xcmhzZmdlcm1nYmxuZHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxMTI1NzMsImV4cCI6MjA5OTY4ODU3M30.NOV3tKFH2vGI043cGZhB2yu9IlqFUVoXXP4JaXA-9vE';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-function seedEntries() {
-  const out = [];
-  const now = Date.now();
-  const DAY = 86400000;
-  for (let d = 0; d < 60; d++) {
-    const dayTs = now - d*DAY;
-    // sleep — minutes, around 7h with noise
-    out.push({ id:`e_s_${d}`, trackerId:'t_sleep', value: Math.round(420 + (Math.sin(d/3)*40) + (Math.random()*30 - 15)), note:'', ts: dayTs - 3600000*8 });
-    // mood — 1..5
-    if (d % 1 === 0) out.push({ id:`e_m_${d}`, trackerId:'t_mood', value: Math.max(1,Math.min(5, Math.round(3 + Math.sin(d/5)*1.5 + (Math.random()-.5)))), note:'', ts: dayTs - 3600000*2 });
-    // weight every ~2 days
-    if (d % 2 === 0) out.push({ id:`e_w_${d}`, trackerId:'t_weight', value: +(72 - d*0.02 + (Math.random()-.5)*0.4).toFixed(1), note:'', ts: dayTs - 3600000*9 });
-    // run roughly every 3 days
-    if (d % 3 === 1) out.push({ id:`e_r_${d}`, trackerId:'t_run', value: 1, note: d%6===1?'10 km tranquille':'', ts: dayTs - 3600000*6 });
-    // water
-    out.push({ id:`e_water_${d}`, trackerId:'t_water', value: +(1.5 + Math.random()*1.2).toFixed(1), note:'', ts: dayTs - 3600000*4 });
-  }
-  return out;
+function trackerFromRow(r){
+  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, color:r.color, createdAt:r.created_at };
 }
-
-const LS_KEY = 'tracklog_v1';
-function loadState(){
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (raw){ const s = JSON.parse(raw); if(s.trackers && s.entries) return s; }
-  } catch(e){}
-  return { trackers: SEED_TRACKERS, entries: seedEntries() };
+function trackerToRow(t, userId){
+  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, color:t.color, created_at:t.createdAt };
 }
-function saveState(s){ try{ localStorage.setItem(LS_KEY, JSON.stringify(s)); }catch(e){} }
+function entryFromRow(r){
+  return { id:r.id, trackerId:r.tracker_id, value:r.value, note:r.note || '', ts:r.ts };
+}
+function entryToRow(e, userId){
+  return { id:e.id, user_id:userId, tracker_id:e.trackerId, value:e.value, note:e.note || '', ts:e.ts };
+}
 
 /* ============================================================ */
 
@@ -110,38 +92,61 @@ function uid(p){ return p + Math.random().toString(36).slice(2,9); }
    App
    ============================================================ */
 
-function App(){
-  const [state, setState] = useState(loadState);
+function App({ session }){
+  const userId = session.user.id;
+  const [trackers, setTrackers] = useState([]);
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('log');
   const [selectedTracker, setSelectedTracker] = useState(null); // for quick-add filter / chart focus
   const [newTrackerOpen, setNewTrackerOpen] = useState(false);
   const [editTracker, setEditTracker] = useState(null);
 
-  useEffect(() => { saveState(state); }, [state]);
+  useEffect(() => {
+    (async () => {
+      const [{ data: tr, error: e1 }, { data: en, error: e2 }] = await Promise.all([
+        supabase.from('trackers').select('*').order('created_at', { ascending: true }),
+        supabase.from('entries').select('*').order('ts', { ascending: false }),
+      ]);
+      if (!e1 && tr) setTrackers(tr.map(trackerFromRow));
+      if (!e2 && en) setEntries(en.map(entryFromRow));
+      setLoading(false);
+    })();
+  }, []);
 
-  const trackerById = useMemo(() => Object.fromEntries(state.trackers.map(t => [t.id, t])), [state.trackers]);
+  const trackerById = useMemo(() => Object.fromEntries(trackers.map(t => [t.id, t])), [trackers]);
 
-  const addEntry = (entry) => {
-    setState(s => ({ ...s, entries: [{ id: uid('e_'), ts: Date.now(), note:'', ...entry }, ...s.entries] }));
+  const addEntry = async (entry) => {
+    const e = { id: uid('e_'), ts: Date.now(), note:'', ...entry };
+    const { error } = await supabase.from('entries').insert(entryToRow(e, userId));
+    if (!error) setEntries(s => [e, ...s]);
   };
-  const deleteEntry = (id) => {
-    setState(s => ({ ...s, entries: s.entries.filter(e => e.id !== id) }));
+  const deleteEntry = async (id) => {
+    const { error } = await supabase.from('entries').delete().eq('id', id);
+    if (!error) setEntries(s => s.filter(e => e.id !== id));
   };
-  const addTracker = (t) => {
+  const addTracker = async (t) => {
     const tracker = { id: uid('t_'), createdAt: Date.now(), ...t };
-    setState(s => ({ ...s, trackers: [...s.trackers, tracker] }));
-    setSelectedTracker(tracker.id);
+    const { error } = await supabase.from('trackers').insert(trackerToRow(tracker, userId));
+    if (!error){ setTrackers(s => [...s, tracker]); setSelectedTracker(tracker.id); }
   };
-  const updateTracker = (id, patch) => {
-    setState(s => ({ ...s, trackers: s.trackers.map(t => t.id===id ? {...t, ...patch} : t) }));
+  const updateTracker = async (id, patch) => {
+    const updated = { ...trackerById[id], ...patch };
+    const { error } = await supabase.from('trackers').update(trackerToRow(updated, userId)).eq('id', id);
+    if (!error) setTrackers(s => s.map(t => t.id===id ? updated : t));
   };
-  const removeTracker = (id) => {
-    setState(s => ({
-      trackers: s.trackers.filter(t => t.id !== id),
-      entries:  s.entries.filter(e => e.trackerId !== id),
-    }));
-    setSelectedTracker(prev => prev === id ? null : prev);
+  const removeTracker = async (id) => {
+    const { error } = await supabase.from('trackers').delete().eq('id', id);
+    if (!error){
+      setTrackers(s => s.filter(t => t.id !== id));
+      setEntries(s => s.filter(e => e.trackerId !== id));
+      setSelectedTracker(prev => prev === id ? null : prev);
+    }
   };
+
+  if (loading){
+    return <div className="empty"><span className="em-serif">Chargement…</span></div>;
+  }
 
   return (
     <div className="app">
@@ -151,14 +156,17 @@ function App(){
           <h1>Tracklog</h1>
           <span className="by serif">— suivez n'importe quoi.</span>
         </div>
-        <div className="tabs" role="tablist">
-          <button className={tab==='log'?'active':''} onClick={()=>setTab('log')}>Log</button>
-          <button className={tab==='vues'?'active':''} onClick={()=>setTab('vues')}>Vues</button>
+        <div style={{display:'flex', alignItems:'center', gap:16}}>
+          <div className="tabs" role="tablist">
+            <button className={tab==='log'?'active':''} onClick={()=>setTab('log')}>Log</button>
+            <button className={tab==='vues'?'active':''} onClick={()=>setTab('vues')}>Vues</button>
+          </div>
+          <button onClick={()=>supabase.auth.signOut()} style={{fontSize:12,color:'var(--ink-3)'}}>Déconnexion</button>
         </div>
       </header>
 
       <TrackerRail
-        trackers={state.trackers}
+        trackers={trackers}
         selected={selectedTracker}
         onSelect={setSelectedTracker}
         onAdd={()=>setNewTrackerOpen(true)}
@@ -167,24 +175,24 @@ function App(){
 
       {tab === 'log' ? (
         <LogView
-          trackers={state.trackers}
+          trackers={trackers}
           trackerById={trackerById}
-          entries={state.entries}
+          entries={entries}
           selectedTracker={selectedTracker}
           onAddEntry={addEntry}
           onDeleteEntry={deleteEntry}
         />
       ) : (
         <VuesView
-          trackers={state.trackers}
+          trackers={trackers}
           trackerById={trackerById}
-          entries={state.entries}
+          entries={entries}
           selectedTracker={selectedTracker}
         />
       )}
 
       <footer className="footer-note">
-        <span className="mono">tracklog</span> · données stockées localement
+        <span className="mono">tracklog</span> · connecté en tant que {session.user.email}
       </footer>
 
       {newTrackerOpen && (
@@ -1268,6 +1276,74 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
   );
 }
 
+/* ============================================================
+   Auth — magic-link sign-in gate
+   ============================================================ */
+function SignIn(){
+  const [email, setEmail] = useState('');
+  const [sent, setSent] = useState(false);
+  const [err, setErr] = useState('');
+
+  const submit = async () => {
+    setErr('');
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: window.location.href },
+    });
+    if (error) setErr(error.message); else setSent(true);
+  };
+
+  return (
+    <div className="app" style={{maxWidth:400, paddingTop:80}}>
+      <div className="brand" style={{marginBottom:28}}>
+        <span className="mark"></span>
+        <h1>Tracklog</h1>
+      </div>
+      <div className="card">
+        {sent ? (
+          <>
+            <h3 style={{margin:0,fontSize:15,fontWeight:500}}>Vérifiez vos e-mails</h3>
+            <p style={{fontSize:13,color:'var(--ink-3)',marginTop:6}}>Un lien de connexion a été envoyé à {email}.</p>
+          </>
+        ) : (
+          <>
+            <h3 style={{margin:0,fontSize:15,fontWeight:500}}>Connexion</h3>
+            <p style={{fontSize:13,color:'var(--ink-3)',marginTop:6,marginBottom:14}}>Entrez votre e-mail pour recevoir un lien de connexion.</p>
+            <div className="field" style={{borderBottom:'none'}}>
+              <label>Email</label>
+              <input
+                type="email" autoFocus value={email}
+                onChange={e=>setEmail(e.target.value)}
+                onKeyDown={e=>{ if(e.key==='Enter') submit(); }}
+                placeholder="vous@exemple.com"
+              />
+            </div>
+            {err && <div style={{color:'var(--warn)', fontSize:12, marginTop:8}}>{err}</div>}
+            <div className="save">
+              <span className="hint"></span>
+              <button className="primary" disabled={!email.trim()} onClick={submit}>Envoyer le lien</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Root(){
+  const [session, setSession] = useState(undefined); // undefined = loading, null = signed out
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  if (session === undefined) return <div className="empty"><span className="em-serif">Chargement…</span></div>;
+  if (!session) return <SignIn />;
+  return <App session={session} />;
+}
+
 /* ============================================================ */
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+ReactDOM.createRoot(document.getElementById('root')).render(<Root />);
