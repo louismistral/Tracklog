@@ -3,7 +3,11 @@
 <head>
 <meta charset="utf-8" />
 <title>Tracklog</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="theme-color" content="#f6f4ef" />
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
 <meta http-equiv="Pragma" content="no-cache" />
 <meta http-equiv="Expires" content="0" />
@@ -25,8 +29,9 @@
     --radius: 10px;
   }
   *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation;overflow-x:hidden}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:"Geist",ui-sans-serif,system-ui,sans-serif;font-feature-settings:"ss01","cv11";-webkit-font-smoothing:antialiased}
-  body{min-height:100vh}
+  body{min-height:100vh;overflow-x:hidden;touch-action:manipulation}
   .mono{font-family:"Geist Mono",ui-monospace,monospace;font-feature-settings:"tnum"}
   .serif{font-family:"Instrument Serif",serif;font-style:italic;font-weight:400}
   button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;padding:0}
@@ -43,6 +48,8 @@
   .tabs{display:flex;gap:2px;background:var(--bg-2);padding:3px;border-radius:8px;border:1px solid var(--line)}
   .tabs button{padding:6px 14px;border-radius:6px;font-size:13px;color:var(--ink-2);font-weight:500;letter-spacing:-0.005em}
   .tabs button.active{background:var(--bg);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.04),0 0 0 1px var(--line)}
+  .topbar-actions{display:flex;align-items:center;gap:16px}
+  .account-btn{font-size:12px;color:var(--ink-3)}
 
   /* Tracker rail */
   .rail{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:14px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-bottom:24px}
@@ -71,7 +78,7 @@
   .field input,.field select,.field textarea{flex:1;font-size:14px}
   .field .unit{color:var(--ink-3);font-size:13px;margin-left:6px}
   .field textarea{resize:none;min-height:20px;line-height:1.4}
-  .scale{display:flex;gap:6px}
+  .scale{display:flex;gap:6px;flex-wrap:wrap}
   .scale button{width:32px;height:32px;border-radius:8px;border:1px solid var(--line);font-size:13px;color:var(--ink-2);font-family:"Geist Mono",monospace}
   .scale button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
   .bool{display:flex;gap:6px}
@@ -246,6 +253,52 @@
   hr.thin{border:none;border-top:1px solid var(--line);margin:18px 0}
 
   .footer-note{margin-top:28px;font-size:12px;color:var(--ink-3);text-align:center}
+
+  /* ============================================================
+     Mobile — used as a webapp on phones: no pinch/double-tap zoom
+     (see viewport meta + touch-action above), inputs kept at 16px
+     to stop iOS auto-zoom-on-focus, and layouts that could overflow
+     the viewport width are forced to stack/wrap instead.
+     ============================================================ */
+  @media (max-width: 640px){
+    .app{padding:16px 16px 70px}
+
+    /* Inputs must stay >=16px or iOS Safari zooms in on focus */
+    input,select,textarea,
+    .field input,.field select,.field textarea,
+    .tc-input input,.tc-input textarea{font-size:16px}
+
+    /* Header: stack brand / tabs / account actions instead of one row */
+    .topbar{flex-direction:column;align-items:stretch;gap:12px;margin-bottom:24px}
+    .brand .by{display:none}
+    .topbar-actions{flex-wrap:wrap;justify-content:space-between;gap:10px 16px}
+    .tabs{flex:1 1 100%;order:1}
+    .tabs button{flex:1;text-align:center;padding:8px 6px}
+
+    /* Rows of controls that could overflow narrow screens */
+    .vue-controls{flex-wrap:wrap;gap:10px 14px}
+    .layout-bar{flex-wrap:wrap;gap:8px 14px}
+    .chart-head{flex-direction:column;align-items:flex-start;gap:8px}
+    .chart-head .stats{flex-wrap:wrap;gap:6px 16px}
+    .trackers-head{flex-wrap:wrap;gap:10px}
+
+    /* Fixed min-widths that force horizontal overflow on narrow screens */
+    .chart-grid-layout{grid-template-columns:1fr}
+    .today-grid{grid-template-columns:1fr}
+    .trackers-grid{grid-template-columns:1fr}
+    .gridview{grid-template-columns:repeat(2,1fr)}
+
+    /* Entry rows: tighten spacing, always show actions (no hover on touch) */
+    .entry{grid-template-columns:64px 1fr auto;gap:10px}
+    .entry .actions{opacity:1}
+    .entry .actions button{padding:6px 8px;font-size:12px}
+
+    /* Quick-add / tracker form fields: narrower label frees up room for the input */
+    .field label{width:62px}
+
+    .modal{padding:20px}
+    .typegrid{grid-template-columns:repeat(2,1fr)}
+  }
 </style>
 </head>
 <body>
@@ -256,6 +309,6 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 
-<script type="text/babel" src="app.jsx?v=9"></script>
+<script type="text/babel" src="app.jsx?v=10"></script>
 </body>
 </html>

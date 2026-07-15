@@ -197,14 +197,14 @@ function App({ session }){
           <h1>Tracklog</h1>
           <span className="by serif">— suivez n'importe quoi.</span>
         </div>
-        <div style={{display:'flex', alignItems:'center', gap:16}}>
+        <div className="topbar-actions">
           <div className="tabs" role="tablist">
             <button className={tab==='log'?'active':''} onClick={()=>setTab('log')}>Log</button>
             <button className={tab==='trackers'?'active':''} onClick={()=>setTab('trackers')}>Trackers</button>
             <button className={tab==='vues'?'active':''} onClick={()=>setTab('vues')}>Vues</button>
           </div>
-          <button onClick={()=>setPwOpen(true)} style={{fontSize:12,color:'var(--ink-3)'}}>Mot de passe</button>
-          <button onClick={()=>supabase.auth.signOut()} style={{fontSize:12,color:'var(--ink-3)'}}>Déconnexion</button>
+          <button className="account-btn" onClick={()=>setPwOpen(true)}>Mot de passe</button>
+          <button className="account-btn" onClick={()=>supabase.auth.signOut()}>Déconnexion</button>
         </div>
       </header>
 
