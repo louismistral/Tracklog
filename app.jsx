@@ -98,7 +98,7 @@ function App({ session }){
   const [trackers, setTrackers] = useState([]);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('log');
+  const [tab, setTab] = useState('jour');
   const [selectedTracker, setSelectedTracker] = useState(null); // for quick-add filter / chart focus
   const [newTrackerOpen, setNewTrackerOpen] = useState(false);
   const [editTracker, setEditTracker] = useState(null);
@@ -183,6 +183,7 @@ function App({ session }){
         </div>
         <div style={{display:'flex', alignItems:'center', gap:16}}>
           <div className="tabs" role="tablist">
+            <button className={tab==='jour'?'active':''} onClick={()=>setTab('jour')}>Jour</button>
             <button className={tab==='log'?'active':''} onClick={()=>setTab('log')}>Log</button>
             <button className={tab==='vues'?'active':''} onClick={()=>setTab('vues')}>Vues</button>
           </div>
@@ -199,7 +200,13 @@ function App({ session }){
         onEdit={(t)=>setEditTracker(t)}
       />
 
-      {tab === 'log' ? (
+      {tab === 'jour' ? (
+        <TodayView
+          trackers={trackers}
+          entries={entries}
+          onAddEntry={addEntry}
+        />
+      ) : tab === 'log' ? (
         <LogView
           trackers={trackers}
           trackerById={trackerById}
@@ -275,6 +282,160 @@ function TrackerRail({ trackers, selected, onSelect, onAdd, onEdit }){
         </button>
       ))}
       <button className="pill add" onClick={onAdd}>＋ Nouveau tracker</button>
+    </div>
+  );
+}
+
+/* ============================================================
+   Today view — fill every tracker for the current day at a glance
+   ============================================================ */
+function TodayView({ trackers, entries, onAddEntry }){
+  const todayKey = dayKey(Date.now());
+
+  const byTracker = useMemo(() => {
+    const m = {};
+    for (const t of trackers) m[t.id] = [];
+    for (const e of entries){
+      if (dayKey(e.ts) === todayKey && m[e.trackerId]) m[e.trackerId].push(e);
+    }
+    return m;
+  }, [entries, trackers, todayKey]);
+
+  if (!trackers.length){
+    return (
+      <div className="empty">
+        <span className="em-serif">Aucun tracker.</span>
+        Créez-en un pour commencer à remplir votre journée.
+      </div>
+    );
+  }
+
+  const dailyTrackers = trackers.filter(t => t.daily);
+  const dailyDone = dailyTrackers.filter(t => (byTracker[t.id]||[]).length > 0).length;
+  const todayLabel = new Date().toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' });
+
+  return (
+    <div>
+      <div className="today-head">
+        <p className="section-label" style={{textTransform:'capitalize',margin:0}}>{todayLabel}</p>
+        {dailyTrackers.length > 0 && (
+          <span className="today-progress">{dailyDone}/{dailyTrackers.length} quotidien{dailyTrackers.length>1?'s':''}</span>
+        )}
+      </div>
+      <div className="today-grid">
+        {trackers.map(t => (
+          <TodayCard key={t.id} tracker={t} todayEntries={byTracker[t.id] || []} onAddEntry={onAddEntry} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TodayCard({ tracker, todayEntries, onAddEntry }){
+  const t = tracker;
+  const daily = !!t.daily;
+  const existing = daily && todayEntries.length ? todayEntries[0] : null;
+  const count = todayEntries.length;
+
+  const [num, setNum]     = useState('');
+  const [scale, setScale] = useState(null);
+  const [bool, setBool]   = useState(null);
+  const [durH, setDurH]   = useState('');
+  const [durM, setDurM]   = useState('');
+  const [text, setText]   = useState('');
+  const [flash, setFlash] = useState(false);
+
+  // Prefill inputs for a daily tracker already logged today (so it reads as editable)
+  useEffect(() => {
+    if (!existing) return;
+    switch (t.type){
+      case 'number':   setNum(String(existing.value ?? '')); break;
+      case 'scale':    setScale(existing.value ?? null); break;
+      case 'boolean':  setBool(typeof existing.value === 'boolean' ? existing.value : null); break;
+      case 'duration': setDurH(String(Math.floor((existing.value||0)/60))); setDurM(String((existing.value||0)%60)); break;
+      case 'text':     setText(String(existing.value ?? '')); break;
+    }
+  }, [existing?.id, existing?.value, t.type]);
+
+  const canSave = useMemo(() => {
+    switch (t.type){
+      case 'number':   return num !== '' && !isNaN(parseFloat(num));
+      case 'scale':    return scale != null;
+      case 'boolean':  return bool != null;
+      case 'duration': return (durH !== '' || durM !== '') && (parseInt(durH||'0',10) + parseInt(durM||'0',10) > 0);
+      case 'text':     return text.trim().length > 0;
+    }
+    return false;
+  }, [t.type, num, scale, bool, durH, durM, text]);
+
+  const submit = () => {
+    if (!canSave) return;
+    let value;
+    switch (t.type){
+      case 'number':   value = parseFloat(num); break;
+      case 'scale':    value = scale; break;
+      case 'boolean':  value = bool; break;
+      case 'duration': value = parseInt(durH||'0',10)*60 + parseInt(durM||'0',10); break;
+      case 'text':     value = text.trim(); break;
+    }
+    onAddEntry({ trackerId: t.id, value, ts: Date.now() });
+    setFlash(true);
+    setTimeout(()=>setFlash(false), 900);
+    if (!daily){
+      setNum(''); setScale(null); setBool(null); setDurH(''); setDurM(''); setText('');
+    }
+  };
+
+  return (
+    <div className={`today-card ${existing?'done':''} ${flash?'flash':''}`}>
+      <div className="tc-head">
+        <div className="tc-name"><span className="dot" style={{background:t.color}}></span>{t.name}</div>
+        {daily
+          ? (existing
+              ? <span className="tc-badge on">✓ noté</span>
+              : <span className="tc-badge">1×/jour</span>)
+          : (count > 0 && <span className="tc-badge">{count} auj.</span>)}
+      </div>
+
+      <div className="tc-input">
+        {t.type === 'number' && (
+          <div style={{display:'flex',alignItems:'baseline',gap:6}}>
+            <input type="number" step="any" value={num} onChange={e=>setNum(e.target.value)}
+              onKeyDown={e=>{ if(e.key==='Enter') submit(); }} placeholder="0" style={{width:'100%'}} />
+            {t.unit && <span className="unit">{t.unit}</span>}
+          </div>
+        )}
+        {t.type === 'scale' && (
+          <div className="scale">
+            {Array.from({length: t.scaleMax||5}).map((_,i)=>(
+              <button key={i} className={scale===i+1?'on':''} onClick={()=>setScale(i+1)}>{i+1}</button>
+            ))}
+          </div>
+        )}
+        {t.type === 'boolean' && (
+          <div className="bool">
+            <button className={bool===true?'on':''} onClick={()=>setBool(true)}>Oui</button>
+            <button className={bool===false?'on':''} onClick={()=>setBool(false)}>Non</button>
+          </div>
+        )}
+        {t.type === 'duration' && (
+          <div style={{display:'flex',gap:6,alignItems:'baseline'}}>
+            <input type="number" min="0" placeholder="0" value={durH} onChange={e=>setDurH(e.target.value)} style={{width:44,textAlign:'right'}} />
+            <span className="unit">h</span>
+            <input type="number" min="0" max="59" placeholder="00" value={durM} onChange={e=>setDurM(e.target.value)} style={{width:44,textAlign:'right'}} />
+            <span className="unit">min</span>
+          </div>
+        )}
+        {t.type === 'text' && (
+          <textarea value={text} onChange={e=>setText(e.target.value)} rows={2} placeholder="…" style={{width:'100%'}} />
+        )}
+      </div>
+
+      <div className="tc-foot">
+        <button className="primary sm" disabled={!canSave} onClick={submit}>
+          {existing ? 'Remplacer' : daily ? 'Noter' : 'Ajouter'}
+        </button>
+      </div>
     </div>
   );
 }
