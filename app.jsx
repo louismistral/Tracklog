@@ -98,7 +98,8 @@ function App({ session }){
   const [trackers, setTrackers] = useState([]);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('jour');
+  const [tab, setTab] = useState('log');        // log | trackers | vues
+  const [logSub, setLogSub] = useState('jour'); // jour | historique — sub-sections of Log
   const [selectedTracker, setSelectedTracker] = useState(null); // for quick-add filter / chart focus
   const [newTrackerOpen, setNewTrackerOpen] = useState(false);
   const [editTracker, setEditTracker] = useState(null);
@@ -173,6 +174,11 @@ function App({ session }){
     return <div className="empty"><span className="em-serif">Chargement…</span></div>;
   }
 
+  // The tracker filter rail only makes sense where it filters something:
+  // the full history list and the charts. The Trackers tab manages trackers
+  // directly, and the "Jour" view always shows every tracker.
+  const showRail = (tab === 'log' && logSub === 'historique') || tab === 'vues';
+
   return (
     <div className="app">
       <header className="topbar">
@@ -183,8 +189,8 @@ function App({ session }){
         </div>
         <div style={{display:'flex', alignItems:'center', gap:16}}>
           <div className="tabs" role="tablist">
-            <button className={tab==='jour'?'active':''} onClick={()=>setTab('jour')}>Jour</button>
             <button className={tab==='log'?'active':''} onClick={()=>setTab('log')}>Log</button>
+            <button className={tab==='trackers'?'active':''} onClick={()=>setTab('trackers')}>Trackers</button>
             <button className={tab==='vues'?'active':''} onClick={()=>setTab('vues')}>Vues</button>
           </div>
           <button onClick={()=>setPwOpen(true)} style={{fontSize:12,color:'var(--ink-3)'}}>Mot de passe</button>
@@ -192,22 +198,20 @@ function App({ session }){
         </div>
       </header>
 
-      <TrackerRail
-        trackers={trackers}
-        selected={selectedTracker}
-        onSelect={setSelectedTracker}
-        onAdd={()=>setNewTrackerOpen(true)}
-        onEdit={(t)=>setEditTracker(t)}
-      />
-
-      {tab === 'jour' ? (
-        <TodayView
+      {showRail && (
+        <TrackerRail
           trackers={trackers}
-          entries={entries}
-          onAddEntry={addEntry}
+          selected={selectedTracker}
+          onSelect={setSelectedTracker}
+          onAdd={()=>setNewTrackerOpen(true)}
+          onEdit={(t)=>setEditTracker(t)}
         />
-      ) : tab === 'log' ? (
+      )}
+
+      {tab === 'log' ? (
         <LogView
+          logSub={logSub}
+          onLogSub={setLogSub}
           trackers={trackers}
           trackerById={trackerById}
           entries={entries}
@@ -215,6 +219,13 @@ function App({ session }){
           onAddEntry={addEntry}
           onDeleteEntry={deleteEntry}
           onEditEntry={(e)=>setEditEntry(e)}
+        />
+      ) : tab === 'trackers' ? (
+        <TrackersView
+          trackers={trackers}
+          entries={entries}
+          onAdd={()=>setNewTrackerOpen(true)}
+          onEdit={(t)=>setEditTracker(t)}
         />
       ) : (
         <VuesView
@@ -441,9 +452,41 @@ function TodayCard({ tracker, todayEntries, onAddEntry }){
 }
 
 /* ============================================================
-   Log view
+   Log view — the entries, split into "Jour" (today) and "Historique"
    ============================================================ */
-function LogView({ trackers, trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry, onEditEntry }){
+function LogView({ logSub, onLogSub, trackers, trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry, onEditEntry }){
+  return (
+    <div>
+      <div className="log-subnav">
+        <div className="vue-mode">
+          <button className={logSub==='jour'?'on':''} onClick={()=>onLogSub('jour')}>Jour</button>
+          <button className={logSub==='historique'?'on':''} onClick={()=>onLogSub('historique')}>Historique</button>
+        </div>
+        <span className="log-subhint serif">
+          {logSub==='jour' ? "les entrées d’aujourd’hui" : "toutes les entrées, jour par jour"}
+        </span>
+      </div>
+      {logSub === 'jour' ? (
+        <TodayView trackers={trackers} entries={entries} onAddEntry={onAddEntry} />
+      ) : (
+        <HistoryView
+          trackers={trackers}
+          trackerById={trackerById}
+          entries={entries}
+          selectedTracker={selectedTracker}
+          onAddEntry={onAddEntry}
+          onDeleteEntry={onDeleteEntry}
+          onEditEntry={onEditEntry}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   History — full entries list grouped by day (+ quick add)
+   ============================================================ */
+function HistoryView({ trackers, trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry, onEditEntry }){
   // Filter entries
   const filtered = useMemo(() => {
     let es = entries.slice().sort((a,b) => b.ts - a.ts);
@@ -692,6 +735,57 @@ function QuickAdd({ tracker, trackers, entries = [], onAddEntry }){
         <span className="hint">{t.type === 'number' && t.unit ? `en ${t.unit}` : t.type === 'scale' ? `1 — ${t.scaleMax||5}` : ''}</span>
         <button className="primary" disabled={!canSave} onClick={submit}>Enregistrer</button>
       </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   Trackers view — manage trackers and edit their properties
+   ============================================================ */
+function TrackersView({ trackers, entries, onAdd, onEdit }){
+  const countByTracker = useMemo(() => {
+    const m = {};
+    for (const e of entries) m[e.trackerId] = (m[e.trackerId] || 0) + 1;
+    return m;
+  }, [entries]);
+
+  return (
+    <div>
+      <div className="trackers-head">
+        <p className="section-label" style={{margin:0}}>Trackers · {trackers.length}</p>
+        <button className="pill add" onClick={onAdd}>＋ Nouveau tracker</button>
+      </div>
+
+      {trackers.length === 0 ? (
+        <div className="empty">
+          <span className="em-serif">Aucun tracker.</span>
+          Créez-en un pour commencer à suivre quelque chose.
+        </div>
+      ) : (
+        <div className="trackers-grid">
+          {trackers.map(t => {
+            const typeLabel = TYPES.find(x => x.id === t.type)?.label || t.type;
+            const chips = [];
+            if (t.type === 'number' && t.unit) chips.push(t.unit);
+            if (t.type === 'scale') chips.push(`1–${t.scaleMax || 5}`);
+            chips.push(t.daily ? 'une entrée/jour' : 'plusieurs/jour');
+            const count = countByTracker[t.id] || 0;
+            return (
+              <div className="tk-card" key={t.id}>
+                <div className="tk-info">
+                  <div className="tk-name"><span className="dot" style={{background:t.color}}></span>{t.name}</div>
+                  <div className="tk-meta">
+                    <span className="tk-type">{typeLabel}</span>
+                    {chips.map((c,i)=><span key={i} className="tk-chip">{c}</span>)}
+                  </div>
+                  <div className="tk-count">{count} entrée{count>1?'s':''}</div>
+                </div>
+                <button className="tk-edit" onClick={()=>onEdit(t)}>Modifier</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

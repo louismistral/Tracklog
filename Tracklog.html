@@ -227,6 +227,22 @@
   .today-card .primary.sm{background:var(--ink);color:var(--bg);padding:7px 14px;border-radius:8px;font-size:12px;font-weight:500}
   .today-card .primary.sm:disabled{opacity:0.3;cursor:not-allowed}
 
+  .log-subnav{display:flex;align-items:center;gap:14px;margin-bottom:20px}
+  .log-subhint{font-size:13px;color:var(--ink-3)}
+
+  .trackers-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+  .trackers-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+  .tk-card{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+  .tk-info{min-width:0;display:flex;flex-direction:column;gap:8px}
+  .tk-name{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:500}
+  .tk-name .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+  .tk-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .tk-type{font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-2);background:var(--bg-2);border:1px solid var(--line);border-radius:6px;padding:2px 7px}
+  .tk-chip{font-size:11px;color:var(--ink-3);border:1px solid var(--line);border-radius:999px;padding:2px 8px}
+  .tk-count{font-size:12px;color:var(--ink-3)}
+  .tk-edit{font-size:12px;color:var(--ink-2);border:1px solid var(--line);border-radius:8px;padding:6px 12px;flex-shrink:0;background:var(--bg)}
+  .tk-edit:hover{background:var(--bg-2);border-color:var(--line-2);color:var(--ink)}
+
   hr.thin{border:none;border-top:1px solid var(--line);margin:18px 0}
 
   .footer-note{margin-top:28px;font-size:12px;color:var(--ink-3);text-align:center}
@@ -240,6 +256,6 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 
-<script type="text/babel" src="app.jsx?v=7"></script>
+<script type="text/babel" src="app.jsx?v=8"></script>
 </body>
 </html>
