@@ -98,6 +98,9 @@ function timeLabel(ts){
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 function uid(p){ return p + Math.random().toString(36).slice(2,9); }
+function startOfDay(ts){ const d = new Date(ts); d.setHours(0,0,0,0); return d.getTime(); }
+function startOfMonth(ts){ const d = new Date(ts); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); }
+function addMonths(ts, n){ const d = new Date(ts); return new Date(d.getFullYear(), d.getMonth()+n, 1).getTime(); }
 
 /* ============================================================
    App
@@ -308,19 +311,12 @@ function TrackerRail({ trackers, selected, onSelect, onAdd, onEdit }){
 }
 
 /* ============================================================
-   Today view — fill every tracker for the current day at a glance
+   Day view — fill / edit every tracker for one given day.
+   Used by the "Jour" tab (today) and the Historique calendar (any day).
    ============================================================ */
 function TodayView({ trackers, entries, onAddEntry }){
-  const todayKey = dayKey(Date.now());
-
-  const byTracker = useMemo(() => {
-    const m = {};
-    for (const t of trackers) m[t.id] = [];
-    for (const e of entries){
-      if (dayKey(e.ts) === todayKey && m[e.trackerId]) m[e.trackerId].push(e);
-    }
-    return m;
-  }, [entries, trackers, todayKey]);
+  const todayTs = startOfDay(Date.now());
+  const dk = dayKey(todayTs);
 
   if (!trackers.length){
     return (
@@ -332,7 +328,7 @@ function TodayView({ trackers, entries, onAddEntry }){
   }
 
   const dailyTrackers = trackers.filter(t => t.daily);
-  const dailyDone = dailyTrackers.filter(t => (byTracker[t.id]||[]).length > 0).length;
+  const dailyDone = dailyTrackers.filter(t => entries.some(e => e.trackerId === t.id && dayKey(e.ts) === dk)).length;
   const todayLabel = new Date().toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' });
 
   return (
@@ -343,20 +339,41 @@ function TodayView({ trackers, entries, onAddEntry }){
           <span className="today-progress">{dailyDone}/{dailyTrackers.length} quotidien{dailyTrackers.length>1?'s':''}</span>
         )}
       </div>
-      <div className="today-grid">
-        {trackers.map(t => (
-          <TodayCard key={t.id} tracker={t} todayEntries={byTracker[t.id] || []} onAddEntry={onAddEntry} />
-        ))}
-      </div>
+      <DayGrid trackers={trackers} entries={entries} onAddEntry={onAddEntry} dayTs={todayTs} isToday={true} />
     </div>
   );
 }
 
-function TodayCard({ tracker, todayEntries, onAddEntry }){
+// Grid of one editable card per tracker, for the given day.
+function DayGrid({ trackers, entries, onAddEntry, dayTs, isToday }){
+  const dk = dayKey(dayTs);
+  const byTracker = useMemo(() => {
+    const m = {};
+    for (const t of trackers) m[t.id] = [];
+    for (const e of entries){
+      if (dayKey(e.ts) === dk && m[e.trackerId]) m[e.trackerId].push(e);
+    }
+    return m;
+  }, [entries, trackers, dk]);
+
+  if (!trackers.length){
+    return <div className="empty"><span className="em-serif">Aucun tracker.</span></div>;
+  }
+
+  return (
+    <div className="today-grid">
+      {trackers.map(t => (
+        <DayCard key={t.id} tracker={t} dayEntries={byTracker[t.id] || []} onAddEntry={onAddEntry} dayTs={dayTs} isToday={isToday} />
+      ))}
+    </div>
+  );
+}
+
+function DayCard({ tracker, dayEntries, onAddEntry, dayTs, isToday }){
   const t = tracker;
   const daily = !!t.daily;
-  const existing = daily && todayEntries.length ? todayEntries[0] : null;
-  const count = todayEntries.length;
+  const existing = daily && dayEntries.length ? dayEntries[0] : null;
+  const count = dayEntries.length;
 
   const [num, setNum]     = useState('');
   const [scale, setScale] = useState(null);
@@ -366,17 +383,21 @@ function TodayCard({ tracker, todayEntries, onAddEntry }){
   const [text, setText]   = useState('');
   const [flash, setFlash] = useState(false);
 
-  // Prefill inputs for a daily tracker already logged today (so it reads as editable)
+  // Prefill a daily tracker already logged that day so it reads as editable;
+  // clear when moving to a day/tracker with no existing entry (calendar day switch).
   useEffect(() => {
-    if (!existing) return;
-    switch (t.type){
-      case 'number':   setNum(String(existing.value ?? '')); break;
-      case 'scale':    setScale(existing.value ?? null); break;
-      case 'boolean':  setBool(typeof existing.value === 'boolean' ? existing.value : null); break;
-      case 'duration': setDurH(String(Math.floor((existing.value||0)/60))); setDurM(String((existing.value||0)%60)); break;
-      case 'text':     setText(String(existing.value ?? '')); break;
+    if (existing){
+      switch (t.type){
+        case 'number':   setNum(String(existing.value ?? '')); break;
+        case 'scale':    setScale(existing.value ?? null); break;
+        case 'boolean':  setBool(typeof existing.value === 'boolean' ? existing.value : null); break;
+        case 'duration': setDurH(String(Math.floor((existing.value||0)/60))); setDurM(String((existing.value||0)%60)); break;
+        case 'text':     setText(String(existing.value ?? '')); break;
+      }
+    } else {
+      setNum(''); setScale(null); setBool(null); setDurH(''); setDurM(''); setText('');
     }
-  }, [existing?.id, existing?.value, t.type]);
+  }, [existing?.id, existing?.value, t.type, dayTs]);
 
   const canSave = useMemo(() => {
     switch (t.type){
@@ -399,7 +420,9 @@ function TodayCard({ tracker, todayEntries, onAddEntry }){
       case 'duration': value = parseInt(durH||'0',10)*60 + parseInt(durM||'0',10); break;
       case 'text':     value = text.trim(); break;
     }
-    onAddEntry({ trackerId: t.id, value, ts: Date.now() });
+    // Today keeps the real clock time; a past day is anchored at noon.
+    const ts = isToday ? Date.now() : dayTs + 12*3600000;
+    onAddEntry({ trackerId: t.id, value, ts });
     setFlash(true);
     setTimeout(()=>setFlash(false), 900);
     if (!daily){
@@ -415,7 +438,7 @@ function TodayCard({ tracker, todayEntries, onAddEntry }){
           ? (existing
               ? <span className="tc-badge on">✓ noté</span>
               : <span className="tc-badge">1×/jour</span>)
-          : (count > 0 && <span className="tc-badge">{count} auj.</span>)}
+          : (count > 0 && <span className="tc-badge">{count}×</span>)}
       </div>
 
       <div className="tc-input">
@@ -473,7 +496,7 @@ function LogView({ logSub, onLogSub, trackers, trackerById, entries, selectedTra
           <button className={logSub==='historique'?'on':''} onClick={()=>onLogSub('historique')}>Historique</button>
         </div>
         <span className="log-subhint serif">
-          {logSub==='jour' ? "les entrées d’aujourd’hui" : "toutes les entrées, jour par jour"}
+          {logSub==='jour' ? "les entrées d’aujourd’hui" : "ouvrez n’importe quel jour pour l’éditer"}
         </span>
       </div>
       {logSub === 'jour' ? (
@@ -494,256 +517,144 @@ function LogView({ logSub, onLogSub, trackers, trackerById, entries, selectedTra
 }
 
 /* ============================================================
-   History — full entries list grouped by day (+ quick add)
+   History — a month calendar to open any day and edit its entries
    ============================================================ */
 function HistoryView({ trackers, trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry, onEditEntry }){
-  // Filter entries
-  const filtered = useMemo(() => {
-    let es = entries.slice().sort((a,b) => b.ts - a.ts);
-    if (selectedTracker) es = es.filter(e => e.trackerId === selectedTracker);
-    return es;
-  }, [entries, selectedTracker]);
+  const [monthTs, setMonthTs] = useState(() => startOfMonth(Date.now()));
+  const [selectedDay, setSelectedDay] = useState(() => startOfDay(Date.now()));
 
-  // Group by day
-  const groups = useMemo(() => {
-    const out = [];
-    let curKey = null;
-    for (const e of filtered){
-      const k = dayKey(e.ts);
-      if (k !== curKey){
-        out.push({ key:k, ts:e.ts, items:[] });
-        curKey = k;
-      }
-      out[out.length-1].items.push(e);
-    }
-    return out;
-  }, [filtered]);
+  // Respect the tracker filter rail: narrow everything to the selected tracker.
+  const viewTrackers = selectedTracker ? trackers.filter(t => t.id === selectedTracker) : trackers;
+  const viewEntries = useMemo(
+    () => selectedTracker ? entries.filter(e => e.trackerId === selectedTracker) : entries,
+    [entries, selectedTracker]
+  );
 
-  // Pick a tracker to "quick add" against — selected, or first one
-  const quickTrackerId = selectedTracker || trackers[0]?.id;
-  const quickTracker = trackerById[quickTrackerId];
+  const selKey = dayKey(selectedDay);
+  const isToday = selKey === dayKey(Date.now());
+
+  const dayEntries = useMemo(
+    () => viewEntries.filter(e => dayKey(e.ts) === selKey).sort((a,b) => b.ts - a.ts),
+    [viewEntries, selKey]
+  );
+
+  const goToday = () => { const now = Date.now(); setSelectedDay(startOfDay(now)); setMonthTs(startOfMonth(now)); };
 
   return (
-    <div className="grid2">
-      <div>
-        <p className="section-label">{selectedTracker ? trackerById[selectedTracker]?.name : 'Toutes les entrées'} · {filtered.length}</p>
-        {groups.length === 0 ? (
-          <div className="empty">
-            <span className="em-serif">Rien à montrer.</span>
-            Ajoutez une première entrée à droite →
-          </div>
+    <div className="hist">
+      <MonthCalendar
+        monthTs={monthTs}
+        onPrev={()=>setMonthTs(m=>addMonths(m,-1))}
+        onNext={()=>setMonthTs(m=>addMonths(m,1))}
+        entries={viewEntries}
+        selectedKey={selKey}
+        onSelectDay={(ts)=>setSelectedDay(ts)}
+      />
+
+      <div className="day-editor">
+        <div className="day-editor-head">
+          <span className="serif de-title">{dayLabel(selectedDay)}</span>
+          <span className="de-sub">{dayEntries.length} entrée{dayEntries.length>1?'s':''}{!isToday ? ' · archive' : ''}</span>
+          {!isToday && <button className="de-today" onClick={goToday}>→ Aujourd'hui</button>}
+        </div>
+
+        {viewTrackers.length === 0 ? (
+          <div className="empty"><span className="em-serif">Aucun tracker.</span> Créez-en un pour commencer.</div>
         ) : (
-          <div className="entries">
-            {groups.map(g => (
-              <div key={g.key} className="day-group">
-                <div className="day-head">
-                  <span>{dayLabel(g.ts)}</span>
-                  <span className="count">{g.items.length}</span>
-                </div>
-                {g.items.map(e => {
-                  const t = trackerById[e.trackerId];
-                  if (!t) return null;
-                  const unit = fmtUnit(t);
-                  return (
-                    <div className="entry" key={e.id}>
-                      <div className="when">{timeLabel(e.ts)}</div>
-                      <div className="what">
-                        <div className="name"><span className="dot" style={{background:t.color}}></span>{t.name}</div>
-                        {e.note && <div className="note">{e.note}</div>}
+          <DayGrid trackers={viewTrackers} entries={viewEntries} onAddEntry={onAddEntry} dayTs={selectedDay} isToday={isToday} />
+        )}
+
+        {dayEntries.length > 0 && (
+          <div className="day-entries">
+            <p className="section-label" style={{margin:'22px 0 8px'}}>Entrées de ce jour</p>
+            <div className="entries">
+              {dayEntries.map(e => {
+                const t = trackerById[e.trackerId];
+                if (!t) return null;
+                const unit = fmtUnit(t);
+                return (
+                  <div className="entry" key={e.id}>
+                    <div className="when">{timeLabel(e.ts)}</div>
+                    <div className="what">
+                      <div className="name"><span className="dot" style={{background:t.color}}></span>{t.name}</div>
+                      {e.note && <div className="note">{e.note}</div>}
+                    </div>
+                    <div style={{display:'flex',gap:10,alignItems:'baseline'}}>
+                      <div className="val">
+                        {fmtValue(t, e.value)}
+                        {unit && <span className="u">{unit}</span>}
                       </div>
-                      <div style={{display:'flex',gap:10,alignItems:'baseline'}}>
-                        <div className="val">
-                          {fmtValue(t, e.value)}
-                          {unit && <span className="u">{unit}</span>}
-                        </div>
-                        <div className="actions">
-                          <button onClick={()=>onEditEntry(e)}>modifier</button>
-                          <button onClick={()=>onDeleteEntry(e.id)}>supprimer</button>
-                        </div>
+                      <div className="actions">
+                        <button onClick={()=>onEditEntry(e)}>modifier</button>
+                        <button onClick={()=>onDeleteEntry(e.id)}>supprimer</button>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            ))}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
-
-      {quickTracker ? (
-        <QuickAdd
-          tracker={quickTracker}
-          trackers={trackers}
-          entries={entries}
-          onChangeTracker={(id)=>{ /* via select */ }}
-          onAddEntry={onAddEntry}
-        />
-      ) : (
-        <div className="card">
-          <h3 style={{margin:0,fontSize:15,fontWeight:500}}>Aucun tracker</h3>
-          <p style={{fontSize:13,color:'var(--ink-3)',marginTop:6}}>Créez votre premier tracker pour commencer à enregistrer des données.</p>
-        </div>
-      )}
     </div>
   );
 }
 
 /* ============================================================
-   Quick add card
+   Month calendar — click any day to open it below
    ============================================================ */
-function QuickAdd({ tracker, trackers, entries = [], onAddEntry }){
-  const [trackerId, setTrackerId] = useState(tracker.id);
-  const t = trackers.find(x=>x.id===trackerId) || tracker;
+function MonthCalendar({ monthTs, onPrev, onNext, entries, selectedKey, onSelectDay }){
+  const first = new Date(monthTs);
+  const year = first.getFullYear(), month = first.getMonth();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const leading = (first.getDay()+6)%7; // Monday-first blank cells
+  const todayKey = dayKey(Date.now());
 
-  // local form state per type
-  const [num, setNum] = useState('');
-  const [scale, setScale] = useState(null);
-  const [bool, setBool] = useState(null);
-  const [durH, setDurH] = useState('');
-  const [durM, setDurM] = useState('');
-  const [text, setText] = useState('');
-  const [note, setNote] = useState('');
-  const [at, setAt] = useState(() => {
-    const d = new Date();
-    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-  });
-  const [day, setDay] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  });
-
-  // reset values when tracker changes
-  useEffect(() => {
-    setNum(''); setScale(null); setBool(null); setDurH(''); setDurM(''); setText('');
-  }, [trackerId, t.type]);
-
-  // when tracker prop updates from outside (selection), follow it
-  useEffect(()=>{ setTrackerId(tracker.id); }, [tracker.id]);
-
-  // For daily trackers, detect whether the selected day already has an entry.
-  const existingForDay = useMemo(() => {
-    if (!t.daily) return null;
-    return entries.find(e => e.trackerId === t.id && dayKey(e.ts) === day) || null;
-  }, [t.daily, t.id, entries, day]);
-
-  const canSave = useMemo(() => {
-    switch (t.type){
-      case 'number':   return num !== '' && !isNaN(parseFloat(num));
-      case 'scale':    return scale != null;
-      case 'boolean':  return bool != null;
-      case 'duration': return (durH !== '' || durM !== '') && (parseInt(durH||'0',10) + parseInt(durM||'0',10) > 0);
-      case 'text':     return text.trim().length > 0;
+  const countByDay = useMemo(() => {
+    const m = {};
+    for (const e of entries){
+      const d = new Date(e.ts);
+      if (d.getFullYear() === year && d.getMonth() === month){
+        const k = dayKey(e.ts);
+        m[k] = (m[k]||0) + 1;
+      }
     }
-    return false;
-  }, [t.type, num, scale, bool, durH, durM, text]);
+    return m;
+  }, [entries, year, month]);
 
-  const submit = () => {
-    if (!canSave) return;
-    let value;
-    switch (t.type){
-      case 'number':   value = parseFloat(num); break;
-      case 'scale':    value = scale; break;
-      case 'boolean':  value = bool; break;
-      case 'duration': value = parseInt(durH||'0',10)*60 + parseInt(durM||'0',10); break;
-      case 'text':     value = text.trim(); break;
-    }
-    // Compute ts from "day" (YYYY-MM-DD) at "at" (HH:MM)
-    const [yy, mo, dd] = day.split('-').map(x=>parseInt(x,10));
-    const [hh, mm] = at.split(':').map(x=>parseInt(x,10));
-    const ts = new Date(yy, (mo||1)-1, dd||1, hh||0, mm||0).getTime();
+  const cells = [];
+  for (let i = 0; i < leading; i++) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day++){
+    const ts = new Date(year, month, day).getTime();
+    cells.push({ day, ts, key: dayKey(ts) });
+  }
 
-    onAddEntry({ trackerId: t.id, value, note: note.trim(), ts });
-    // reset
-    setNum(''); setScale(null); setBool(null); setDurH(''); setDurM(''); setText(''); setNote('');
-  };
+  const monthLabel = first.toLocaleDateString('fr-FR', { month:'long', year:'numeric' });
 
   return (
-    <div className="card qa">
-      <h3>Nouvelle entrée</h3>
-      <div className="sub">Saisissez une valeur · <kbd className="mono" style={{fontSize:11,color:'var(--ink-3)'}}>↵</kbd></div>
-
-      <div className="field">
-        <label>Tracker</label>
-        <select value={trackerId} onChange={e=>setTrackerId(e.target.value)}>
-          {trackers.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-        </select>
+    <div className="cal">
+      <div className="cal-head">
+        <button className="cal-nav" onClick={onPrev} aria-label="Mois précédent">‹</button>
+        <span className="cal-title">{monthLabel}</span>
+        <button className="cal-nav" onClick={onNext} aria-label="Mois suivant">›</button>
       </div>
-
-      <div className="field">
-        <label>Valeur</label>
-        <div style={{flex:1}}>
-          {t.type === 'number' && (
-            <div style={{display:'flex',alignItems:'baseline'}}>
-              <input
-                type="number" step="any" autoFocus
-                value={num} onChange={e=>setNum(e.target.value)}
-                onKeyDown={e=>{ if(e.key==='Enter') submit(); }}
-                placeholder="0"
-                style={{width:'100%'}}
-              />
-              {t.unit && <span className="unit">{t.unit}</span>}
-            </div>
-          )}
-          {t.type === 'scale' && (
-            <div className="scale">
-              {Array.from({length: t.scaleMax||5}).map((_,i)=>(
-                <button key={i} className={scale===i+1?'on':''} onClick={()=>setScale(i+1)}>{i+1}</button>
-              ))}
-            </div>
-          )}
-          {t.type === 'boolean' && (
-            <div className="bool">
-              <button className={bool===true?'on':''} onClick={()=>setBool(true)}>Oui</button>
-              <button className={bool===false?'on':''} onClick={()=>setBool(false)}>Non</button>
-            </div>
-          )}
-          {t.type === 'duration' && (
-            <div style={{display:'flex',gap:8,alignItems:'baseline'}}>
-              <input type="number" min="0" placeholder="0" value={durH} onChange={e=>setDurH(e.target.value)} style={{width:50,textAlign:'right'}} />
-              <span className="unit">h</span>
-              <input type="number" min="0" max="59" placeholder="00" value={durM} onChange={e=>setDurM(e.target.value)} style={{width:50,textAlign:'right'}} />
-              <span className="unit">min</span>
-            </div>
-          )}
-          {t.type === 'text' && (
-            <textarea
-              value={text} onChange={e=>setText(e.target.value)}
-              placeholder="…"
-              rows={2}
-              style={{width:'100%'}}
-            />
-          )}
-        </div>
-      </div>
-
-      <div className="field">
-        <label>Date</label>
-        <input type="date" value={day} max={new Date().toISOString().slice(0,10)} onChange={e=>setDay(e.target.value)} />
-      </div>
-
-      {t.daily && existingForDay && (
-        <div className="field-hint" style={{borderBottom:'none',paddingBottom:0}}>
-          Une entrée existe déjà pour ce jour ({fmtValue(t, existingForDay.value)}) — l’enregistrement la remplacera.
-        </div>
-      )}
-
-      <div className="field">
-        <label>Heure</label>
-        <input type="time" value={at} onChange={e=>setAt(e.target.value)} />
-      </div>
-
-      <div className="field">
-        <label>Note</label>
-        <input
-          value={note} onChange={e=>setNote(e.target.value)}
-          onKeyDown={e=>{ if(e.key==='Enter') submit(); }}
-          placeholder="optionnel"
-        />
-      </div>
-
-      <div className="save">
-        <span className="hint">{t.type === 'number' && t.unit ? `en ${t.unit}` : t.type === 'scale' ? `1 — ${t.scaleMax||5}` : ''}</span>
-        <button className="primary" disabled={!canSave} onClick={submit}>Enregistrer</button>
+      <div className="cal-grid">
+        {['L','M','M','J','V','S','D'].map((d,i)=>(
+          <div key={'h'+i} className="cal-dow">{d}</div>
+        ))}
+        {cells.map((c,i)=> c === null
+          ? <div key={'b'+i} className="cal-cell blank"></div>
+          : (
+            <button
+              key={c.key}
+              className={`cal-cell ${c.key===selectedKey?'sel':''} ${c.key===todayKey?'today':''}`}
+              onClick={()=>onSelectDay(c.ts)}
+            >
+              <span className="cal-day">{c.day}</span>
+              {countByDay[c.key] ? <span className="cal-dot"></span> : null}
+            </button>
+          )
+        )}
       </div>
     </div>
   );
