@@ -3,9 +3,11 @@ const { useState, useEffect, useMemo, useRef } = React;
 /* ============================================================
    Data model
    ------------------------------------------------------------
-   Tracker = { id, name, type, unit?, color, scaleMax?, daily?, createdAt }
+   Tracker = { id, name, type, unit?, color, scaleMax?, daily?, aggregate?, createdAt }
      type: 'number' | 'scale' | 'boolean' | 'duration' | 'text'
      daily: true = une seule entrée par jour (ré-enregistrer remplace celle du jour)
+     aggregate: 'sum' | 'avg' — comment combiner plusieurs entrées du même jour
+       (nombre/durée uniquement ; pertinent quand daily est false). 'avg' par défaut.
    Entry   = { id, trackerId, value, note, ts }
    ============================================================ */
 
@@ -34,10 +36,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function trackerFromRow(r){
-  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, daily:!!r.daily, color:r.color, createdAt:r.created_at };
+  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, daily:!!r.daily, aggregate:r.aggregate || 'avg', color:r.color, createdAt:r.created_at };
 }
 function trackerToRow(t, userId){
-  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, daily:!!t.daily, color:t.color, created_at:t.createdAt };
+  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, daily:!!t.daily, aggregate:t.aggregate || 'avg', color:t.color, created_at:t.createdAt };
 }
 function entryFromRow(r){
   return { id:r.id, trackerId:r.tracker_id, value:r.value, note:r.note || '', ts:r.ts };
@@ -68,6 +70,14 @@ function fmtValue(tracker, v){
 function fmtUnit(tracker){
   if (tracker.type === 'number' && tracker.unit) return tracker.unit;
   return '';
+}
+
+// Combine several numeric entries (same day, or same period) into one value,
+// according to the tracker's aggregation mode. Defaults to average.
+function aggregateNums(tracker, nums){
+  if (!nums.length) return null;
+  const sum = nums.reduce((a,b)=>a+b,0);
+  return tracker.aggregate === 'sum' ? sum : sum / nums.length;
 }
 
 function dayKey(ts){
@@ -769,6 +779,9 @@ function TrackersView({ trackers, entries, onAdd, onEdit }){
             if (t.type === 'number' && t.unit) chips.push(t.unit);
             if (t.type === 'scale') chips.push(`1–${t.scaleMax || 5}`);
             chips.push(t.daily ? 'une entrée/jour' : 'plusieurs/jour');
+            if (!t.daily && (t.type === 'number' || t.type === 'duration')){
+              chips.push(t.aggregate === 'sum' ? 'somme' : 'moyenne');
+            }
             const count = countByTracker[t.id] || 0;
             return (
               <div className="tk-card" key={t.id}>
@@ -910,7 +923,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false }){
           v = items.length;
         } else {
           const nums = items.map(x => Number(x.value)).filter(x => !isNaN(x));
-          v = nums.length ? nums.reduce((a,b)=>a+b,0)/nums.length : null;
+          v = aggregateNums(tracker, nums);
         }
       }
       arr.push({ ts: d.getTime(), value: v });
@@ -927,6 +940,8 @@ function ChartCard({ tracker, entries, rangeDays, compact = false }){
     return sorted[0]?.value ?? null;
   }, [entries]);
   const avg = hasData ? numericValues.reduce((a,b)=>a+b,0)/numericValues.length : null;
+  const isSumMode = !tracker.daily && tracker.aggregate === 'sum' && (tracker.type === 'number' || tracker.type === 'duration');
+  const total = isSumMode && hasData ? numericValues.reduce((a,b)=>a+b,0) : null;
 
   // SVG dimensions
   const W = 800, H = compact ? 110 : 160, PAD_L = compact ? 32 : 40, PAD_R = 12, PAD_T = 10, PAD_B = compact ? 20 : 24;
@@ -989,7 +1004,8 @@ function ChartCard({ tracker, entries, rangeDays, compact = false }){
           ) : (
             <>
               <div>actuel <span className="v">{latest != null ? fmtValue(tracker, latest) : '—'}</span></div>
-              <div>moyenne <span className="v">{avg != null ? fmtValue(tracker, +avg.toFixed(1)) : '—'}</span></div>
+              <div>{isSumMode ? 'total/jour' : 'moyenne'} <span className="v">{avg != null ? fmtValue(tracker, +avg.toFixed(1)) : '—'}</span></div>
+              {isSumMode && <div>total période <span className="v">{total != null ? fmtValue(tracker, +total.toFixed(1)) : '—'}</span></div>}
               <div>entrées <span className="v">{entries.filter(e=>e.ts >= start).length}</span></div>
             </>
           )}
@@ -1067,7 +1083,7 @@ function buildDailySeries(tracker, entries, rangeDays){
         v = Math.min(1, items.length / 3); // count cap
       } else {
         const nums = items.map(x => Number(x.value)).filter(x => !isNaN(x));
-        v = nums.length ? nums.reduce((a,b)=>a+b,0)/nums.length : null;
+        v = aggregateNums(tracker, nums);
       }
     }
     arr.push({ ts: d.getTime(), value: v });
@@ -1384,7 +1400,7 @@ function CalendarCard({ tracker, entries, rangeDays }){
         v = items.length;
       } else {
         const nums = items.map(x => Number(x.value)).filter(x => !isNaN(x));
-        v = nums.length ? nums.reduce((a,b)=>a+b,0)/nums.length : 0;
+        v = aggregateNums(tracker, nums) ?? 0;
       }
     }
     dayVals.push({ ts: d.getTime(), v, count: items.length, items });
@@ -1471,8 +1487,7 @@ function GridSummary({ trackers, entries, rangeDays }){
       if (t.type === 'boolean') return items.filter(x=>x.value===true).length;
       if (t.type === 'text') return items.length;
       const nums = items.map(x=>Number(x.value)).filter(x=>!isNaN(x));
-      if (!nums.length) return null;
-      return nums.reduce((a,b)=>a+b,0)/nums.length;
+      return aggregateNums(t, nums);
     };
     const curStat = stat(inRange);
     const prevStat = stat(prev);
@@ -1485,7 +1500,8 @@ function GridSummary({ trackers, entries, rangeDays }){
       else display = fmtValue(t, +curStat.toFixed(1));
     }
 
-    return { t, display, count: inRange.length, delta };
+    const showAggTag = !t.daily && t.aggregate === 'sum' && (t.type === 'number' || t.type === 'duration');
+    return { t, display, count: inRange.length, delta, showAggTag };
   });
 
   return (
@@ -1496,6 +1512,7 @@ function GridSummary({ trackers, entries, rangeDays }){
           <div className="v">
             {c.display}
             {fmtUnit(c.t) && c.display !== '—' && <span className="u">{fmtUnit(c.t)}</span>}
+            {c.showAggTag && <span className="tk-chip" style={{marginLeft:8,verticalAlign:'middle'}}>total</span>}
           </div>
           <div className={`trend ${c.delta != null ? (c.delta>0?'up':c.delta<0?'down':'') : ''}`}>
             {c.count} entrée{c.count>1?'s':''}
@@ -1635,6 +1652,7 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
   const [unit, setUnit] = useState(tracker?.unit || '');
   const [scaleMax, setScaleMax] = useState(tracker?.scaleMax || 5);
   const [daily, setDaily] = useState(!!tracker?.daily);
+  const [aggregate, setAggregate] = useState(tracker?.aggregate || 'avg');
   const [color, setColor] = useState(tracker?.color || COLORS[1]);
   const nameRef = useRef();
 
@@ -1644,7 +1662,7 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
 
   const submit = () => {
     if (!canSave) return;
-    const t = { name: name.trim(), type, color, daily };
+    const t = { name: name.trim(), type, color, daily, aggregate };
     if (type === 'number' && unit.trim()) t.unit = unit.trim();
     if (type === 'scale') t.scaleMax = scaleMax;
     onSave(t);
@@ -1703,11 +1721,28 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
             <span className="toggle-text">{daily ? 'Une entrée par jour' : 'Plusieurs par jour'}</span>
           </button>
         </div>
-        <div className="field-hint">
+        <div className="field-hint" style={{borderBottom: (!daily && (type==='number'||type==='duration')) ? '1px solid var(--line)' : 'none'}}>
           {daily
             ? 'Ré-enregistrer pour un jour déjà noté remplace l’entrée de ce jour.'
             : 'Vous pouvez enregistrer autant d’entrées que vous voulez chaque jour.'}
         </div>
+
+        {!daily && (type === 'number' || type === 'duration') && (
+          <>
+            <div className="field">
+              <label>Calcul</label>
+              <div className="seg">
+                <button className={aggregate==='avg'?'on':''} onClick={()=>setAggregate('avg')}>Moyenne</button>
+                <button className={aggregate==='sum'?'on':''} onClick={()=>setAggregate('sum')}>Somme</button>
+              </div>
+            </div>
+            <div className="field-hint">
+              {aggregate === 'sum'
+                ? 'Les entrées d’un même jour s’additionnent (ex: 10 + 15 + 20 = 45).'
+                : 'Les entrées d’un même jour sont moyennées (ex: 10, 15, 20 → 15).'}
+            </div>
+          </>
+        )}
 
         <div className="field" style={{borderBottom:'none'}}>
           <label>Couleur</label>
