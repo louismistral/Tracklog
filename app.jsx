@@ -3,8 +3,9 @@ const { useState, useEffect, useMemo, useRef } = React;
 /* ============================================================
    Data model
    ------------------------------------------------------------
-   Tracker = { id, name, type, unit?, color, scaleMax?, createdAt }
+   Tracker = { id, name, type, unit?, color, scaleMax?, daily?, createdAt }
      type: 'number' | 'scale' | 'boolean' | 'duration' | 'text'
+     daily: true = une seule entrée par jour (ré-enregistrer remplace celle du jour)
    Entry   = { id, trackerId, value, note, ts }
    ============================================================ */
 
@@ -33,10 +34,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function trackerFromRow(r){
-  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, color:r.color, createdAt:r.created_at };
+  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, daily:!!r.daily, color:r.color, createdAt:r.created_at };
 }
 function trackerToRow(t, userId){
-  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, color:t.color, created_at:t.createdAt };
+  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, daily:!!t.daily, color:t.color, created_at:t.createdAt };
 }
 function entryFromRow(r){
   return { id:r.id, trackerId:r.tracker_id, value:r.value, note:r.note || '', ts:r.ts };
@@ -119,6 +120,21 @@ function App({ session }){
   const trackerById = useMemo(() => Object.fromEntries(trackers.map(t => [t.id, t])), [trackers]);
 
   const addEntry = async (entry) => {
+    // "Une entrée par jour" : si le tracker est en mode journalier et qu'une
+    // entrée existe déjà pour ce jour, on la remplace plutôt que d'en créer une.
+    const tracker = trackerById[entry.trackerId];
+    if (tracker?.daily){
+      const targetDay = dayKey(entry.ts ?? Date.now());
+      const existing = entries.find(e => e.trackerId === entry.trackerId && dayKey(e.ts) === targetDay);
+      if (existing){
+        await updateEntry(existing.id, {
+          value: entry.value,
+          note: entry.note ?? existing.note,
+          ts: entry.ts ?? existing.ts,
+        });
+        return;
+      }
+    }
     const e = { id: uid('e_'), ts: Date.now(), note:'', ...entry };
     const { error } = await supabase.from('entries').insert(entryToRow(e, userId));
     if (!error) setEntries(s => [e, ...s]);
@@ -344,6 +360,7 @@ function LogView({ trackers, trackerById, entries, selectedTracker, onAddEntry, 
         <QuickAdd
           tracker={quickTracker}
           trackers={trackers}
+          entries={entries}
           onChangeTracker={(id)=>{ /* via select */ }}
           onAddEntry={onAddEntry}
         />
@@ -360,7 +377,7 @@ function LogView({ trackers, trackerById, entries, selectedTracker, onAddEntry, 
 /* ============================================================
    Quick add card
    ============================================================ */
-function QuickAdd({ tracker, trackers, onAddEntry }){
+function QuickAdd({ tracker, trackers, entries = [], onAddEntry }){
   const [trackerId, setTrackerId] = useState(tracker.id);
   const t = trackers.find(x=>x.id===trackerId) || tracker;
 
@@ -388,6 +405,12 @@ function QuickAdd({ tracker, trackers, onAddEntry }){
 
   // when tracker prop updates from outside (selection), follow it
   useEffect(()=>{ setTrackerId(tracker.id); }, [tracker.id]);
+
+  // For daily trackers, detect whether the selected day already has an entry.
+  const existingForDay = useMemo(() => {
+    if (!t.daily) return null;
+    return entries.find(e => e.trackerId === t.id && dayKey(e.ts) === day) || null;
+  }, [t.daily, t.id, entries, day]);
 
   const canSave = useMemo(() => {
     switch (t.type){
@@ -483,6 +506,12 @@ function QuickAdd({ tracker, trackers, onAddEntry }){
         <label>Date</label>
         <input type="date" value={day} max={new Date().toISOString().slice(0,10)} onChange={e=>setDay(e.target.value)} />
       </div>
+
+      {t.daily && existingForDay && (
+        <div className="field-hint" style={{borderBottom:'none',paddingBottom:0}}>
+          Une entrée existe déjà pour ce jour ({fmtValue(t, existingForDay.value)}) — l’enregistrement la remplacera.
+        </div>
+      )}
 
       <div className="field">
         <label>Heure</label>
@@ -1350,6 +1379,7 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
   const [type, setType] = useState(tracker?.type || 'number');
   const [unit, setUnit] = useState(tracker?.unit || '');
   const [scaleMax, setScaleMax] = useState(tracker?.scaleMax || 5);
+  const [daily, setDaily] = useState(!!tracker?.daily);
   const [color, setColor] = useState(tracker?.color || COLORS[1]);
   const nameRef = useRef();
 
@@ -1359,7 +1389,7 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
 
   const submit = () => {
     if (!canSave) return;
-    const t = { name: name.trim(), type, color };
+    const t = { name: name.trim(), type, color, daily };
     if (type === 'number' && unit.trim()) t.unit = unit.trim();
     if (type === 'scale') t.scaleMax = scaleMax;
     onSave(t);
@@ -1404,6 +1434,25 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
             </div>
           </div>
         )}
+
+        <div className="field">
+          <label>Fréquence</label>
+          <button
+            type="button"
+            className={`toggle ${daily?'on':''}`}
+            role="switch"
+            aria-checked={daily}
+            onClick={()=>setDaily(d=>!d)}
+          >
+            <span className="knob"></span>
+            <span className="toggle-text">{daily ? 'Une entrée par jour' : 'Plusieurs par jour'}</span>
+          </button>
+        </div>
+        <div className="field-hint">
+          {daily
+            ? 'Ré-enregistrer pour un jour déjà noté remplace l’entrée de ce jour.'
+            : 'Vous pouvez enregistrer autant d’entrées que vous voulez chaque jour.'}
+        </div>
 
         <div className="field" style={{borderBottom:'none'}}>
           <label>Couleur</label>
