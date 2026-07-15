@@ -2,14 +2,21 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8" />
-<meta http-equiv="refresh" content="0; url=Tracklog.html" />
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
 <meta http-equiv="Pragma" content="no-cache" />
 <meta http-equiv="Expires" content="0" />
 <title>Tracklog</title>
+<script>
+  // Redirect to the app, preserving any auth token in the URL
+  // (?code=… for PKCE, #access_token=…&type=recovery for magic links / password resets).
+  // A plain redirect would drop these and leave the user stranded on the sign-in page.
+  (function(){
+    var dest = 'Tracklog.html' + window.location.search + window.location.hash;
+    window.location.replace(dest);
+  })();
+</script>
 </head>
 <body>
-<p>Redirection vers <a href="Tracklog.html">Tracklog.html</a>…</p>
-<script>window.location.replace('Tracklog.html');</script>
+<noscript><p>Redirection vers <a href="Tracklog.html">Tracklog.html</a>…</p></noscript>
 </body>
 </html>

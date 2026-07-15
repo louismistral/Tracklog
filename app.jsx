@@ -1787,6 +1787,11 @@ function Root(){
   const [session, setSession] = useState(undefined); // undefined = loading, null = signed out
   const [recovery, setRecovery] = useState(false);   // arrived via password-reset link
 
+  // Recognise a password-reset link synchronously (implicit flow puts
+  // "type=recovery" in the URL hash) so we show the "new password" form
+  // right away instead of briefly flashing the sign-in or main screen.
+  const [urlRecovery, setUrlRecovery] = useState(() => (window.location.hash || '').includes('type=recovery'));
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
@@ -1796,8 +1801,17 @@ function Root(){
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  const closeRecovery = () => {
+    setRecovery(false);
+    setUrlRecovery(false);
+    // Drop the token from the URL so a refresh doesn't re-open recovery.
+    if (window.history && window.history.replaceState){
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  };
+
   if (session === undefined) return <div className="empty"><span className="em-serif">Chargement…</span></div>;
-  if (recovery && session) return <PasswordModal recovery onClose={()=>setRecovery(false)} />;
+  if ((recovery || urlRecovery) && session) return <PasswordModal recovery onClose={closeRecovery} />;
   if (!session) return <SignIn />;
   return <App session={session} />;
 }
