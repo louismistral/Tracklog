@@ -354,6 +354,10 @@ function QuickAdd({ tracker, trackers, onAddEntry }){
     const d = new Date();
     return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   });
+  const [day, setDay] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  });
 
   // reset values when tracker changes
   useEffect(() => {
@@ -384,10 +388,10 @@ function QuickAdd({ tracker, trackers, onAddEntry }){
       case 'duration': value = parseInt(durH||'0',10)*60 + parseInt(durM||'0',10); break;
       case 'text':     value = text.trim(); break;
     }
-    // Compute ts from "at" (today at HH:MM)
-    const now = new Date();
+    // Compute ts from "day" (YYYY-MM-DD) at "at" (HH:MM)
+    const [yy, mo, dd] = day.split('-').map(x=>parseInt(x,10));
     const [hh, mm] = at.split(':').map(x=>parseInt(x,10));
-    const ts = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh||0, mm||0).getTime();
+    const ts = new Date(yy, (mo||1)-1, dd||1, hh||0, mm||0).getTime();
 
     onAddEntry({ trackerId: t.id, value, note: note.trim(), ts });
     // reset
@@ -451,6 +455,11 @@ function QuickAdd({ tracker, trackers, onAddEntry }){
             />
           )}
         </div>
+      </div>
+
+      <div className="field">
+        <label>Date</label>
+        <input type="date" value={day} max={new Date().toISOString().slice(0,10)} onChange={e=>setDay(e.target.value)} />
       </div>
 
       <div className="field">
