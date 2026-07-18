@@ -271,6 +271,7 @@ function App({ session }){
   // Trackers you still log every day: not archived, and not a computed master.
   const activeTrackers = trackers.filter(t => !t.archived);
   const loggableTrackers = activeTrackers.filter(t => !isMaster(t));
+  const masterTrackers = activeTrackers.filter(t => isMaster(t));
 
   // The tracker filter rail only makes sense where it filters something:
   // the full history list and the charts. The Trackers tab manages trackers
@@ -311,6 +312,7 @@ function App({ session }){
           logSub={logSub}
           onLogSub={setLogSub}
           trackers={loggableTrackers}
+          masters={masterTrackers}
           trackerById={trackerById}
           entries={entries}
           selectedTracker={selectedTracker}
@@ -405,11 +407,11 @@ function TrackerRail({ trackers, selected, onSelect, onAdd, onEdit }){
    Day view — fill / edit every tracker for one given day.
    Used by the "Jour" tab (today) and the Historique calendar (any day).
    ============================================================ */
-function TodayView({ trackers, entries, onAddEntry, onDeleteEntry }){
+function TodayView({ trackers, masters = [], trackerById = {}, entries, onAddEntry, onDeleteEntry }){
   const todayTs = startOfDay(Date.now());
   const dk = dayKey(todayTs);
 
-  if (!trackers.length){
+  if (!trackers.length && !masters.length){
     return (
       <div className="empty">
         <span className="em-serif">Aucun tracker.</span>
@@ -424,13 +426,20 @@ function TodayView({ trackers, entries, onAddEntry, onDeleteEntry }){
 
   return (
     <div>
+      {masters.length > 0 && (
+        <div className="master-strips">
+          {masters.map(m => <MasterStrip key={m.id} master={m} trackerById={trackerById} entries={entries} />)}
+        </div>
+      )}
       <div className="today-head">
         <p className="section-label" style={{textTransform:'capitalize',margin:0}}>{todayLabel}</p>
         {dailyTrackers.length > 0 && (
           <span className="today-progress">{dailyDone}/{dailyTrackers.length} quotidien{dailyTrackers.length>1?'s':''}</span>
         )}
       </div>
-      <DayGrid trackers={trackers} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} dayTs={todayTs} isToday={true} />
+      {trackers.length > 0
+        ? <DayGrid trackers={trackers} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} dayTs={todayTs} isToday={true} />
+        : <div className="empty" style={{padding:'30px 0'}}><span className="em-serif">Aucun tracker à remplir.</span> Vos masters se calculent tout seuls.</div>}
     </div>
   );
 }
@@ -637,7 +646,7 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, dayTs, isToda
 /* ============================================================
    Log view — the entries, split into "Jour" (today) and "Historique"
    ============================================================ */
-function LogView({ logSub, onLogSub, trackers, trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry, onEditEntry }){
+function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry, onEditEntry }){
   return (
     <div>
       <div className="log-subnav">
@@ -650,7 +659,7 @@ function LogView({ logSub, onLogSub, trackers, trackerById, entries, selectedTra
         </span>
       </div>
       {logSub === 'jour' ? (
-        <TodayView trackers={trackers} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} />
+        <TodayView trackers={trackers} masters={masters} trackerById={trackerById} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} />
       ) : (
         <HistoryView
           trackers={trackers}
@@ -1467,32 +1476,68 @@ function TrendChart({ trackers, entries, rangeDays }){
   );
 }
 
+/* Resolve a master's member tracker objects (data trackers only). */
+function masterMembers(master, trackerById){
+  return (master.members || []).map(id => trackerById[id]).filter(t => t && !isMaster(t));
+}
+/* Daily 0..1 index for a master: average of its members' normalized, gap-filled
+   performance, masked to the master's own active window. */
+function computeMasterSeries(master, members, entries, rangeDays){
+  const series = members.map(t =>
+    forwardFill(normalizeSeries(t, buildDailySeries(t, entries.filter(e=>e.trackerId===t.id), rangeDays)))
+  );
+  if (!series.length) return [];
+  const len = series[0].length;
+  const out = [];
+  for (let i = 0; i < len; i++){
+    const ts = series[0][i].ts;
+    const k = dayKey(ts);
+    if (!trackerActiveOnKey(master, k)){ out.push({ ts, value: null }); continue; }
+    const vals = series.map(s => s[i]?.value).filter(v => v != null);
+    out.push({ ts, value: vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null });
+  }
+  return out;
+}
+
+/* ============================================================
+   Master strip — flat, read-only reading of a master's current
+   index (0–100), shown atop the "Jour" view.
+   ============================================================ */
+function MasterStrip({ master, trackerById, entries }){
+  const members = masterMembers(master, trackerById);
+  const latest = useMemo(() => {
+    const s = computeMasterSeries(master, members, entries, 30);
+    for (let i = s.length - 1; i >= 0; i--){ if (s[i].value != null) return s[i].value; }
+    return null;
+  }, [master, members, entries]);
+  const pct = latest != null ? Math.round(latest*100) : null;
+  return (
+    <div className="master-strip">
+      <div className="ms-head">
+        <span className="master-mark" style={{background:master.color}}></span>
+        <span className="ms-name">{master.name}</span>
+        <span className="master-tag">master</span>
+      </div>
+      <div className="ms-meter">
+        <div className="ms-fill" style={{width:`${pct||0}%`, background:master.color}}></div>
+      </div>
+      <div className="ms-val">{pct != null ? pct : '—'}<span className="ms-unit">/100</span></div>
+    </div>
+  );
+}
+
 /* ============================================================
    Master tracker card — a saved index: average of the normalized
    performance of its chosen member trackers (0–100 per day).
    ============================================================ */
 function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = false }){
-  const members = (master.members || [])
-    .map(id => trackerById[id])
-    .filter(t => t && !isMaster(t));
+  const members = masterMembers(master, trackerById);
 
   // Per-member normalized+filled series, then the master's own active window.
-  const avgSeries = useMemo(() => {
-    const series = members.map(t =>
-      forwardFill(normalizeSeries(t, buildDailySeries(t, entries.filter(e=>e.trackerId===t.id), rangeDays)))
-    );
-    if (!series.length) return [];
-    const len = series[0].length;
-    const out = [];
-    for (let i = 0; i < len; i++){
-      const ts = series[0][i].ts;
-      const k = dayKey(ts);
-      if (!trackerActiveOnKey(master, k)){ out.push({ ts, value: null }); continue; }
-      const vals = series.map(s => s[i]?.value).filter(v => v != null);
-      out.push({ ts, value: vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null });
-    }
-    return out;
-  }, [members, entries, rangeDays, master.startDate, master.endDate]);
+  const avgSeries = useMemo(
+    () => computeMasterSeries(master, members, entries, rangeDays),
+    [master, members, entries, rangeDays]
+  );
 
   const numericValues = avgSeries.map(p=>p.value).filter(v=>v!=null);
   const hasData = numericValues.length > 0;
