@@ -314,7 +314,7 @@ function TrackerRail({ trackers, selected, onSelect, onAdd, onEdit }){
    Day view — fill / edit every tracker for one given day.
    Used by the "Jour" tab (today) and the Historique calendar (any day).
    ============================================================ */
-function TodayView({ trackers, entries, onAddEntry }){
+function TodayView({ trackers, entries, onAddEntry, onDeleteEntry }){
   const todayTs = startOfDay(Date.now());
   const dk = dayKey(todayTs);
 
@@ -339,13 +339,15 @@ function TodayView({ trackers, entries, onAddEntry }){
           <span className="today-progress">{dailyDone}/{dailyTrackers.length} quotidien{dailyTrackers.length>1?'s':''}</span>
         )}
       </div>
-      <DayGrid trackers={trackers} entries={entries} onAddEntry={onAddEntry} dayTs={todayTs} isToday={true} />
+      <DayGrid trackers={trackers} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} dayTs={todayTs} isToday={true} />
     </div>
   );
 }
 
 // Grid of one editable card per tracker, for the given day.
-function DayGrid({ trackers, entries, onAddEntry, dayTs, isToday }){
+// Trackers are split into two groups so daily ("une entrée/jour") and
+// multi-entry trackers don't get mixed in the same visual set.
+function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, dayTs, isToday }){
   const dk = dayKey(dayTs);
   const byTracker = useMemo(() => {
     const m = {};
@@ -360,16 +362,36 @@ function DayGrid({ trackers, entries, onAddEntry, dayTs, isToday }){
     return <div className="empty"><span className="em-serif">Aucun tracker.</span></div>;
   }
 
-  return (
+  const dailyTrackers = trackers.filter(t => t.daily);
+  const multiTrackers = trackers.filter(t => !t.daily);
+
+  const renderGrid = (list) => (
     <div className="today-grid">
-      {trackers.map(t => (
-        <DayCard key={t.id} tracker={t} dayEntries={byTracker[t.id] || []} onAddEntry={onAddEntry} dayTs={dayTs} isToday={isToday} />
+      {list.map(t => (
+        <DayCard key={t.id} tracker={t} dayEntries={byTracker[t.id] || []} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} dayTs={dayTs} isToday={isToday} />
       ))}
+    </div>
+  );
+
+  if (!dailyTrackers.length || !multiTrackers.length){
+    return renderGrid(trackers);
+  }
+
+  return (
+    <div className="day-groups">
+      <div className="day-group">
+        <p className="section-label">Quotidiens</p>
+        {renderGrid(dailyTrackers)}
+      </div>
+      <div className="day-group">
+        <p className="section-label">Plusieurs par jour</p>
+        {renderGrid(multiTrackers)}
+      </div>
     </div>
   );
 }
 
-function DayCard({ tracker, dayEntries, onAddEntry, dayTs, isToday }){
+function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, dayTs, isToday }){
   const t = tracker;
   const daily = !!t.daily;
   const existing = daily && dayEntries.length ? dayEntries[0] : null;
@@ -476,6 +498,9 @@ function DayCard({ tracker, dayEntries, onAddEntry, dayTs, isToday }){
       </div>
 
       <div className="tc-foot">
+        {daily && existing && (
+          <button className="tc-clear" onClick={()=>onDeleteEntry(existing.id)}>Effacer</button>
+        )}
         <button className="primary sm" disabled={!canSave} onClick={submit}>
           {existing ? 'Remplacer' : daily ? 'Noter' : 'Ajouter'}
         </button>
@@ -500,7 +525,7 @@ function LogView({ logSub, onLogSub, trackers, trackerById, entries, selectedTra
         </span>
       </div>
       {logSub === 'jour' ? (
-        <TodayView trackers={trackers} entries={entries} onAddEntry={onAddEntry} />
+        <TodayView trackers={trackers} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} />
       ) : (
         <HistoryView
           trackers={trackers}
@@ -561,7 +586,7 @@ function HistoryView({ trackers, trackerById, entries, selectedTracker, onAddEnt
         {viewTrackers.length === 0 ? (
           <div className="empty"><span className="em-serif">Aucun tracker.</span> Créez-en un pour commencer.</div>
         ) : (
-          <DayGrid trackers={viewTrackers} entries={viewEntries} onAddEntry={onAddEntry} dayTs={selectedDay} isToday={isToday} />
+          <DayGrid trackers={viewTrackers} entries={viewEntries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} dayTs={selectedDay} isToday={isToday} />
         )}
 
         {dayEntries.length > 0 && (

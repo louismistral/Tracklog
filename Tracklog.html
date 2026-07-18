@@ -272,6 +272,8 @@
 
   .today-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
   .today-progress{font-size:11px;color:var(--ink-2);font-family:"Geist Mono",monospace;background:transparent;border:1px solid var(--line-2);padding:5px 12px;border-radius:999px;letter-spacing:0.05em}
+  .day-groups{display:flex;flex-direction:column;gap:28px}
+  .day-group .section-label{margin-bottom:12px}
   .today-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
   .today-card{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:18px;display:flex;flex-direction:column;gap:14px;transition:border-color .5s var(--ease),transform .5s var(--ease),box-shadow .5s var(--ease)}
   .today-card:hover{border-color:var(--line-2);transform:translateY(-2px)}
@@ -286,7 +288,9 @@
   .tc-input{min-height:34px;display:flex;align-items:center}
   .tc-input input,.tc-input textarea{font-size:14px}
   .tc-input textarea{resize:none;line-height:1.4;width:100%}
-  .tc-foot{display:flex;justify-content:flex-end}
+  .tc-foot{display:flex;justify-content:flex-end;align-items:center;gap:10px}
+  .tc-clear{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3);padding:8px 4px;margin-right:auto;transition:color .3s}
+  .tc-clear:hover{color:var(--warn)}
   .today-card .primary.sm{background:var(--accent);color:#fff;padding:8px 16px;border-radius:999px;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em;transition:background .3s}
   .today-card .primary.sm:hover{background:#f0613b}
   .today-card .primary.sm:disabled{opacity:0.3;cursor:not-allowed}
@@ -428,6 +432,6 @@
 })();
 </script>
 
-<script type="text/babel" src="app.jsx?v=11"></script>
+<script type="text/babel" src="app.jsx?v=12"></script>
 </body>
 </html>
