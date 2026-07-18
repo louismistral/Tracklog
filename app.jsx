@@ -4,17 +4,29 @@ const { useState, useEffect, useMemo, useRef } = React;
    Data model
    ------------------------------------------------------------
    Tracker = { id, name, type, unit?, color, scaleMax?, choices?, multiple?,
-               daily?, aggregate?, createdAt }
-     — Cœur : name + type (+ config liée au type : unit, scaleMax, choices)
-     — Paramètres : daily (fréquence), aggregate (calcul), multiple (choix), color
+               daily?, aggregate?, members?, archived?, startDate?, endDate?,
+               createdAt }
+     — Cœur : name + type (+ config liée au type : unit, scaleMax, choices,
+       ou members pour un master)
+     — Paramètres : daily (fréquence), aggregate (calcul), multiple (choix),
+       période d'activité (startDate/endDate), color
 
-     type: 'number' | 'scale' | 'boolean' | 'duration' | 'text' | 'choice'
+     type: 'number' | 'scale' | 'boolean' | 'duration' | 'text' | 'choice' | 'master'
      choices: string[] — options prédéfinies (type 'choice' uniquement)
      multiple: true = plusieurs choix possibles par entrée ; false = un seul.
      daily: true = une seule entrée par jour (ré-enregistrer remplace celle du jour)
      aggregate: 'avg' | 'sum' | 'min' | 'max' — comment combiner plusieurs
        entrées du même jour (nombre/durée uniquement ; pertinent quand daily
        est false). 'avg' par défaut.
+     members: string[] — trackers agrégés par un master (type 'master').
+       Un master n'a pas d'entrées : sa valeur est la moyenne normalisée des
+       performances de ses membres.
+
+     Fenêtre d'activité — un tracker n'influence les graphes/moyennes que pour
+     les jours compris entre startDate et endDate (bornes 'YYYY-MM-DD') :
+       startDate: premier jour actif (défaut = jour de création, éditable)
+       endDate:   dernier jour actif (posé à l'archivage, éditable ; null = en cours)
+       archived:  masqué du "Jour", rangé dans les archives ; désarchivable.
    Entry   = { id, trackerId, value, note, ts }
      value pour 'choice' : string (choix unique) ou string[] (choix multiples)
    ============================================================ */
@@ -53,10 +65,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function trackerFromRow(r){
-  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', color:r.color, createdAt:r.created_at };
+  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, color:r.color, createdAt:r.created_at };
 }
 function trackerToRow(t, userId){
-  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', color:t.color, created_at:t.createdAt };
+  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, color:t.color, created_at:t.createdAt };
 }
 function entryFromRow(r){
   return { id:r.id, trackerId:r.tracker_id, value:r.value, note:r.note || '', ts:r.ts };
@@ -129,6 +141,18 @@ function timeLabel(ts){
 }
 function uid(p){ return p + Math.random().toString(36).slice(2,9); }
 function startOfDay(ts){ const d = new Date(ts); d.setHours(0,0,0,0); return d.getTime(); }
+
+/* ---- Active window --------------------------------------------------------
+   A tracker only counts (charts / averages) on days within [startDate, endDate].
+   Dates are 'YYYY-MM-DD' strings so they compare lexicographically. */
+function trackerStartKey(t){ return t.startDate || (t.createdAt ? dayKey(t.createdAt) : null); }
+function trackerActiveOnKey(t, dk){
+  const s = trackerStartKey(t);
+  if (s && dk < s) return false;
+  if (t.endDate && dk > t.endDate) return false;
+  return true;
+}
+const isMaster = (t) => t.type === 'master';
 
 /* Small "i" button that reveals an explanation only when clicked. */
 function InfoBubble({ children }){
@@ -231,10 +255,22 @@ function App({ session }){
       setSelectedTracker(prev => prev === id ? null : prev);
     }
   };
+  const archiveTracker = (id) => {
+    const t = trackerById[id];
+    const patch = { archived: true };
+    if (!t.endDate) patch.endDate = dayKey(Date.now()); // stop counting today by default
+    updateTracker(id, patch);
+    setSelectedTracker(prev => prev === id ? null : prev);
+  };
+  const unarchiveTracker = (id) => updateTracker(id, { archived: false, endDate: null });
 
   if (loading){
     return <div className="empty"><span className="em-serif">Chargement…</span></div>;
   }
+
+  // Trackers you still log every day: not archived, and not a computed master.
+  const activeTrackers = trackers.filter(t => !t.archived);
+  const loggableTrackers = activeTrackers.filter(t => !isMaster(t));
 
   // The tracker filter rail only makes sense where it filters something:
   // the full history list and the charts. The Trackers tab manages trackers
@@ -262,7 +298,7 @@ function App({ session }){
 
       {showRail && (
         <TrackerRail
-          trackers={trackers}
+          trackers={activeTrackers}
           selected={selectedTracker}
           onSelect={setSelectedTracker}
           onAdd={()=>setNewTrackerOpen(true)}
@@ -274,7 +310,7 @@ function App({ session }){
         <LogView
           logSub={logSub}
           onLogSub={setLogSub}
-          trackers={trackers}
+          trackers={loggableTrackers}
           trackerById={trackerById}
           entries={entries}
           selectedTracker={selectedTracker}
@@ -288,10 +324,12 @@ function App({ session }){
           entries={entries}
           onAdd={()=>setNewTrackerOpen(true)}
           onEdit={(t)=>setEditTracker(t)}
+          onArchive={archiveTracker}
+          onUnarchive={unarchiveTracker}
         />
       ) : (
         <VuesView
-          trackers={trackers}
+          trackers={activeTrackers}
           trackerById={trackerById}
           entries={entries}
           selectedTracker={selectedTracker}
@@ -304,6 +342,7 @@ function App({ session }){
 
       {newTrackerOpen && (
         <TrackerModal
+          allTrackers={trackers}
           onClose={()=>setNewTrackerOpen(false)}
           onSave={(t)=>{ addTracker(t); setNewTrackerOpen(false); }}
         />
@@ -311,9 +350,12 @@ function App({ session }){
       {editTracker && (
         <TrackerModal
           tracker={editTracker}
+          allTrackers={trackers}
           onClose={()=>setEditTracker(null)}
           onSave={(t)=>{ updateTracker(editTracker.id, t); setEditTracker(null); }}
           onDelete={()=>{ removeTracker(editTracker.id); setEditTracker(null); }}
+          onArchive={()=>{ archiveTracker(editTracker.id); setEditTracker(null); }}
+          onUnarchive={()=>{ unarchiveTracker(editTracker.id); setEditTracker(null); }}
         />
       )}
       {editEntry && (
@@ -771,17 +813,64 @@ function MonthCalendar({ monthTs, onPrev, onNext, entries, selectedKey, onSelect
 /* ============================================================
    Trackers view — manage trackers and edit their properties
    ============================================================ */
-function TrackersView({ trackers, entries, onAdd, onEdit }){
+function TrackersView({ trackers, entries, onAdd, onEdit, onArchive, onUnarchive }){
   const countByTracker = useMemo(() => {
     const m = {};
     for (const e of entries) m[e.trackerId] = (m[e.trackerId] || 0) + 1;
     return m;
   }, [entries]);
 
+  const active = trackers.filter(t => !t.archived);
+  const archived = trackers.filter(t => t.archived);
+
+  const card = (t) => {
+    const typeLabel = isMaster(t) ? 'Master' : (TYPES.find(x => x.id === t.type)?.label || t.type);
+    const chips = [];
+    if (isMaster(t)){
+      chips.push(`${(t.members||[]).length} membre${(t.members||[]).length>1?'s':''}`);
+    } else {
+      if (t.type === 'number' && t.unit) chips.push(t.unit);
+      if (t.type === 'scale') chips.push(`1–${t.scaleMax || 5}`);
+      if (t.type === 'choice'){
+        chips.push(`${(t.choices||[]).length} choix`);
+        chips.push(t.multiple ? 'multiple' : 'unique');
+      }
+      chips.push(t.daily ? 'une entrée/jour' : 'plusieurs/jour');
+      if (!t.daily && (t.type === 'number' || t.type === 'duration')){
+        chips.push(aggregateLabel(t).toLowerCase());
+      }
+    }
+    const count = countByTracker[t.id] || 0;
+    return (
+      <div className={`tk-card ${t.archived?'archived':''}`} key={t.id}>
+        <div className="tk-info">
+          <div className="tk-name">
+            {isMaster(t)
+              ? <span className="master-mark" style={{background:t.color}}></span>
+              : <span className="dot" style={{background:t.color}}></span>}
+            {t.name}
+          </div>
+          <div className="tk-meta">
+            <span className="tk-type">{typeLabel}</span>
+            {chips.map((c,i)=><span key={i} className="tk-chip">{c}</span>)}
+          </div>
+          {!isMaster(t) && <div className="tk-count">{count} entrée{count>1?'s':''}</div>}
+          {isMaster(t) && <div className="tk-count">indice calculé</div>}
+        </div>
+        <div className="tk-actions">
+          <button className="tk-edit" onClick={()=>onEdit(t)}>Modifier</button>
+          {t.archived
+            ? <button className="tk-arch" onClick={()=>onUnarchive(t.id)}>Désarchiver</button>
+            : <button className="tk-arch" onClick={()=>onArchive(t.id)}>Archiver</button>}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div>
       <div className="trackers-head">
-        <p className="section-label" style={{margin:0}}>Trackers · {trackers.length}</p>
+        <p className="section-label" style={{margin:0}}>Trackers · {active.length}</p>
         <button className="pill add" onClick={onAdd}>＋ Nouveau tracker</button>
       </div>
 
@@ -791,36 +880,19 @@ function TrackersView({ trackers, entries, onAdd, onEdit }){
           Créez-en un pour commencer à suivre quelque chose.
         </div>
       ) : (
-        <div className="trackers-grid">
-          {trackers.map(t => {
-            const typeLabel = TYPES.find(x => x.id === t.type)?.label || t.type;
-            const chips = [];
-            if (t.type === 'number' && t.unit) chips.push(t.unit);
-            if (t.type === 'scale') chips.push(`1–${t.scaleMax || 5}`);
-            if (t.type === 'choice'){
-              chips.push(`${(t.choices||[]).length} choix`);
-              chips.push(t.multiple ? 'multiple' : 'unique');
-            }
-            chips.push(t.daily ? 'une entrée/jour' : 'plusieurs/jour');
-            if (!t.daily && (t.type === 'number' || t.type === 'duration')){
-              chips.push(aggregateLabel(t).toLowerCase());
-            }
-            const count = countByTracker[t.id] || 0;
-            return (
-              <div className="tk-card" key={t.id}>
-                <div className="tk-info">
-                  <div className="tk-name"><span className="dot" style={{background:t.color}}></span>{t.name}</div>
-                  <div className="tk-meta">
-                    <span className="tk-type">{typeLabel}</span>
-                    {chips.map((c,i)=><span key={i} className="tk-chip">{c}</span>)}
-                  </div>
-                  <div className="tk-count">{count} entrée{count>1?'s':''}</div>
-                </div>
-                <button className="tk-edit" onClick={()=>onEdit(t)}>Modifier</button>
+        <>
+          <div className="trackers-grid">
+            {active.map(card)}
+          </div>
+          {archived.length > 0 && (
+            <>
+              <p className="section-label" style={{margin:'32px 0 16px'}}>Archivés · {archived.length}</p>
+              <div className="trackers-grid">
+                {archived.map(card)}
               </div>
-            );
-          })}
-        </div>
+            </>
+          )}
+        </>
       )}
     </div>
   );
@@ -837,6 +909,9 @@ function VuesView({ trackers, trackerById, entries, selectedTracker }){
   const visibleTrackers = selectedTracker
     ? trackers.filter(t => t.id === selectedTracker)
     : trackers;
+  // Data trackers only — the overlay/heatmap/grid modes need real entries,
+  // so computed masters are handled separately (their own card).
+  const dataVisible = visibleTrackers.filter(t => !isMaster(t));
 
   // When a single tracker is selected, master/average don't make sense
   const effectiveLayout = (selectedTracker && (layout === 'master' || layout === 'average')) ? 'list' : layout;
@@ -881,23 +956,27 @@ function VuesView({ trackers, trackerById, entries, selectedTracker }){
           </div>
 
           {effectiveLayout === 'list' && visibleTrackers.map(t => (
-            <ChartCard key={t.id} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} />
+            isMaster(t)
+              ? <MasterTrackerCard key={t.id} master={t} trackerById={trackerById} entries={entries} rangeDays={range} />
+              : <ChartCard key={t.id} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} />
           ))}
 
           {effectiveLayout === 'grid' && (
             <div className="chart-grid-layout">
               {visibleTrackers.map(t => (
-                <ChartCard key={t.id} compact tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} />
+                isMaster(t)
+                  ? <MasterTrackerCard key={t.id} compact master={t} trackerById={trackerById} entries={entries} rangeDays={range} />
+                  : <ChartCard key={t.id} compact tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} />
               ))}
             </div>
           )}
 
           {effectiveLayout === 'master' && (
-            <MasterChart trackers={visibleTrackers} entries={entries} rangeDays={range} />
+            <MasterChart trackers={dataVisible} entries={entries} rangeDays={range} />
           )}
 
           {effectiveLayout === 'average' && (
-            <TrendChart trackers={visibleTrackers} entries={entries} rangeDays={range} />
+            <TrendChart trackers={dataVisible} entries={entries} rangeDays={range} />
           )}
 
           {visibleTrackers.length === 0 && <div className="empty"><span className="em-serif">Pas de tracker.</span></div>}
@@ -905,13 +984,14 @@ function VuesView({ trackers, trackerById, entries, selectedTracker }){
       )}
       {mode === 'calendar' && (
         <>
-          {visibleTrackers.map(t => (
+          {dataVisible.map(t => (
             <CalendarCard key={t.id} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} />
           ))}
+          {dataVisible.length === 0 && <div className="empty"><span className="em-serif">Pas de tracker à afficher ici.</span></div>}
         </>
       )}
       {mode === 'summary' && (
-        <GridSummary trackers={visibleTrackers} entries={entries} rangeDays={range} />
+        <GridSummary trackers={dataVisible} entries={entries} rangeDays={range} />
       )}
     </div>
   );
@@ -939,7 +1019,8 @@ function ChartCard({ tracker, entries, rangeDays, compact = false }){
       const k = dayKey(d.getTime());
       const items = map.get(k) || [];
       let v = null;
-      if (items.length){
+      // Only days inside the active window count toward the chart & its stats.
+      if (items.length && trackerActiveOnKey(tracker, k)){
         if (tracker.type === 'boolean'){
           v = items.some(x=>x.value === true) ? 1 : 0;
         } else if (tracker.type === 'text' || tracker.type === 'choice'){
@@ -1099,7 +1180,9 @@ function buildDailySeries(tracker, entries, rangeDays){
     const k = dayKey(d.getTime());
     const items = map.get(k) || [];
     let v = null;
-    if (items.length){
+    // Outside the tracker's active window it contributes nothing (null), so it
+    // never drags an average up or down before it starts or after it's archived.
+    if (items.length && trackerActiveOnKey(tracker, k)){
       if (tracker.type === 'boolean'){
         v = items.some(x=>x.value === true) ? 1 : 0;
       } else if (tracker.type === 'text' || tracker.type === 'choice'){
@@ -1385,6 +1468,126 @@ function TrendChart({ trackers, entries, rangeDays }){
 }
 
 /* ============================================================
+   Master tracker card — a saved index: average of the normalized
+   performance of its chosen member trackers (0–100 per day).
+   ============================================================ */
+function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = false }){
+  const members = (master.members || [])
+    .map(id => trackerById[id])
+    .filter(t => t && !isMaster(t));
+
+  // Per-member normalized+filled series, then the master's own active window.
+  const avgSeries = useMemo(() => {
+    const series = members.map(t =>
+      forwardFill(normalizeSeries(t, buildDailySeries(t, entries.filter(e=>e.trackerId===t.id), rangeDays)))
+    );
+    if (!series.length) return [];
+    const len = series[0].length;
+    const out = [];
+    for (let i = 0; i < len; i++){
+      const ts = series[0][i].ts;
+      const k = dayKey(ts);
+      if (!trackerActiveOnKey(master, k)){ out.push({ ts, value: null }); continue; }
+      const vals = series.map(s => s[i]?.value).filter(v => v != null);
+      out.push({ ts, value: vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null });
+    }
+    return out;
+  }, [members, entries, rangeDays, master.startDate, master.endDate]);
+
+  const numericValues = avgSeries.map(p=>p.value).filter(v=>v!=null);
+  const hasData = numericValues.length > 0;
+  const latest = numericValues[numericValues.length-1] ?? null;
+  const earliest = numericValues[0] ?? null;
+  const overallAvg = numericValues.length ? numericValues.reduce((a,b)=>a+b,0)/numericValues.length : null;
+  const delta = (latest != null && earliest != null) ? latest - earliest : null;
+
+  const W = 800, H = compact ? 130 : 220, PAD_L = 34, PAD_R = 14, PAD_T = 14, PAD_B = 24;
+  const innerW = W - PAD_L - PAD_R;
+  const innerH = H - PAD_T - PAD_B;
+  const xAt = (i) => PAD_L + (i / Math.max(1, avgSeries.length - 1)) * innerW;
+  const yAt = (v) => PAD_T + innerH - v * innerH;
+  const yTicks = [0, 0.5, 1];
+
+  const segments = [];
+  let cur = [];
+  avgSeries.forEach((p, i) => {
+    if (p.value == null){ if (cur.length) segments.push(cur); cur = []; }
+    else cur.push([xAt(i), yAt(p.value)]);
+  });
+  if (cur.length) segments.push(cur);
+
+  const xTicks = avgSeries.length ? [
+    { i: 0, label: shortDate(avgSeries[0].ts) },
+    { i: Math.floor(avgSeries.length/2), label: shortDate(avgSeries[Math.floor(avgSeries.length/2)].ts) },
+    { i: avgSeries.length-1, label: shortDate(avgSeries[avgSeries.length-1].ts) },
+  ] : [];
+
+  return (
+    <div className={`chart-card ${compact?'compact':''}`}>
+      <div className="chart-head">
+        <div className="name">
+          <span className="master-mark" style={{background:master.color}}></span>{master.name}
+          <span className="master-tag">master</span>
+        </div>
+        <div className="stats">
+          {compact ? (
+            <div><span className="v">{latest!=null ? Math.round(latest*100) : '—'}</span></div>
+          ) : (
+            <>
+              <div>actuel <span className="v">{latest!=null ? Math.round(latest*100) : '—'}</span></div>
+              <div>moyenne <span className="v">{overallAvg!=null ? Math.round(overallAvg*100) : '—'}</span></div>
+              <div>évolution <span className="v" style={{marginLeft:6, color: delta!=null ? (delta>0?'oklch(0.55 0.10 150)':delta<0?'oklch(0.55 0.10 30)':'inherit') : 'inherit'}}>
+                {delta!=null ? (delta>0?'↑':delta<0?'↓':'=')+' '+Math.abs(Math.round(delta*100)) : '—'}
+              </span></div>
+            </>
+          )}
+        </div>
+      </div>
+      {members.length === 0 ? (
+        <div style={{padding:'30px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucun tracker membre — modifiez ce master pour en choisir</div>
+      ) : hasData ? (
+        <svg className="chart-svg" style={{height: H + 'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+          {yTicks.map((v,i)=>(
+            <g key={i}>
+              <line className="chart-grid" x1={PAD_L} x2={W-PAD_R} y1={yAt(v)} y2={yAt(v)} />
+              <text className="chart-axis" x={PAD_L-6} y={yAt(v)+3} textAnchor="end">{Math.round(v*100)}</text>
+            </g>
+          ))}
+          {segments.map((seg, si) => {
+            if (seg.length < 2) return seg.length === 1
+              ? <circle key={si} cx={seg[0][0]} cy={seg[0][1]} r="2.5" fill={master.color} />
+              : null;
+            const d = seg.map((p,i)=>`${i===0?'M':'L'}${p[0]},${p[1]}`).join(' ');
+            const area = d + ` L${seg[seg.length-1][0]},${PAD_T+innerH} L${seg[0][0]},${PAD_T+innerH} Z`;
+            return (
+              <g key={si}>
+                <path d={area} fill={master.color} opacity="0.08" />
+                <path d={d} fill="none" stroke={master.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+              </g>
+            );
+          })}
+          {xTicks.map((t,i)=>(
+            <text key={i} className="chart-axis" x={xAt(t.i)} y={H-6} textAnchor={i===0?'start':i===xTicks.length-1?'end':'middle'}>{t.label}</text>
+          ))}
+        </svg>
+      ) : (
+        <div style={{padding:'30px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucune donnée sur la période</div>
+      )}
+      {!compact && members.length > 0 && (
+        <div className="master-legend">
+          {members.map(t => (
+            <div key={t.id} className="lg-item">
+              <span className="lg-dot" style={{background:t.color}}></span>
+              <span className="lg-name">{t.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
    Calendar heatmap card
    ============================================================ */
 function CalendarCard({ tracker, entries, rangeDays }){
@@ -1414,7 +1617,7 @@ function CalendarCard({ tracker, entries, rangeDays }){
   for (let i = 0; i < totalDays; i++){
     const d = new Date(start); d.setDate(d.getDate() + i);
     const k = dayKey(d.getTime());
-    const items = byDay.get(k) || [];
+    const items = (trackerActiveOnKey(tracker, k) ? byDay.get(k) : null) || [];
     let v = 0;
     if (items.length){
       if (tracker.type === 'boolean'){
@@ -1503,8 +1706,9 @@ function GridSummary({ trackers, entries, rangeDays }){
   const prevStart = start - rangeDays*86400000;
 
   const cards = trackers.map(t => {
-    const inRange = entries.filter(e => e.trackerId === t.id && e.ts >= start);
-    const prev    = entries.filter(e => e.trackerId === t.id && e.ts >= prevStart && e.ts < start);
+    const active = (e) => trackerActiveOnKey(t, dayKey(e.ts));
+    const inRange = entries.filter(e => e.trackerId === t.id && e.ts >= start && active(e));
+    const prev    = entries.filter(e => e.trackerId === t.id && e.ts >= prevStart && e.ts < start && active(e));
     const stat = (items) => {
       if (!items.length) return null;
       if (t.type === 'boolean') return items.filter(x=>x.value===true).length;
@@ -1694,18 +1898,22 @@ function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
 /* ============================================================
    Tracker modal (create / edit)
    ============================================================ */
-function TrackerModal({ tracker, onClose, onSave, onDelete }){
+function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, onArchive, onUnarchive }){
   const isEdit = !!tracker;
   // — Cœur : ce que le tracker mesure —
+  const [kind, setKind] = useState(tracker?.type === 'master' ? 'master' : 'data'); // data | master
   const [name, setName] = useState(tracker?.name || '');
-  const [type, setType] = useState(tracker?.type || 'number');
+  const [type, setType] = useState(tracker?.type && tracker.type !== 'master' ? tracker.type : 'number');
   const [unit, setUnit] = useState(tracker?.unit || '');
   const [scaleMax, setScaleMax] = useState(tracker?.scaleMax || 5);
   const [choices, setChoices] = useState(tracker?.choices?.length ? tracker.choices : ['', '']);
+  const [members, setMembers] = useState(tracker?.members || []);
   // — Paramètres : comment on le remplit et le lit —
   const [daily, setDaily] = useState(!!tracker?.daily);
   const [aggregate, setAggregate] = useState(tracker?.aggregate || 'avg');
   const [multiple, setMultiple] = useState(!!tracker?.multiple);
+  const [startDate, setStartDate] = useState(tracker?.startDate || dayKey(tracker?.createdAt || Date.now()));
+  const [endDate, setEndDate] = useState(tracker?.endDate || '');
   const [color, setColor] = useState(tracker?.color || COLORS[1]);
   const nameRef = useRef();
 
@@ -1714,19 +1922,34 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
   const setChoiceAt = (i, val) => setChoices(cs => cs.map((c,idx)=>idx===i?val:c));
   const addChoice = () => setChoices(cs => [...cs, '']);
   const removeChoice = (i) => setChoices(cs => cs.filter((_,idx)=>idx!==i));
+  const toggleMember = (id) => setMembers(ms => ms.includes(id) ? ms.filter(x=>x!==id) : [...ms, id]);
 
+  const memberCandidates = allTrackers.filter(t => !isMaster(t) && (!tracker || t.id !== tracker.id));
   const cleanChoices = choices.map(c=>c.trim()).filter(Boolean);
-  const showAggregate = !daily && (type === 'number' || type === 'duration');
-  const canSave = name.trim().length > 0 && (type !== 'choice' || cleanChoices.length > 0);
+  const isMasterKind = kind === 'master';
+  const showAggregate = !isMasterKind && !daily && (type === 'number' || type === 'duration');
+  const canSave = name.trim().length > 0 && (
+    isMasterKind ? members.length > 0 : (type !== 'choice' || cleanChoices.length > 0)
+  );
 
   const submit = () => {
     if (!canSave) return;
-    const t = { name: name.trim(), type, color, daily, aggregate };
-    if (type === 'number' && unit.trim()) t.unit = unit.trim();
-    if (type === 'scale') t.scaleMax = scaleMax;
-    if (type === 'choice'){
-      t.choices = [...new Set(cleanChoices)]; // de-dupe, keep order
-      t.multiple = multiple;
+    const t = { name: name.trim(), color };
+    t.startDate = startDate || null;
+    t.endDate = endDate || null;
+    if (isMasterKind){
+      t.type = 'master';
+      t.members = members;
+      t.unit = null; t.scaleMax = null; t.choices = null; t.multiple = false;
+    } else {
+      t.type = type;
+      t.daily = daily;
+      t.aggregate = aggregate;
+      t.members = null;
+      t.unit = (type === 'number' && unit.trim()) ? unit.trim() : null;
+      t.scaleMax = type === 'scale' ? scaleMax : null;
+      t.choices = type === 'choice' ? [...new Set(cleanChoices)] : null;
+      t.multiple = type === 'choice' ? multiple : false;
     }
     onSave(t);
   };
@@ -1741,71 +1964,107 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
         <p className="modal-section first">Cœur</p>
 
         <div className="field">
-          <label>Nom</label>
-          <input ref={nameRef} value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') submit();}} placeholder="ex: Caféine, Humeur, Sport…" />
-        </div>
-
-        <div className="field" style={{borderBottom: (type==='number'||type==='scale'||type==='choice') ? '1px solid var(--line)' : 'none', flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
-          <label style={{width:'auto'}}>Type de donnée</label>
-          <div className="typegrid">
-            {TYPES.map(ty => (
-              <button key={ty.id} className={type===ty.id?'on':''} onClick={()=>setType(ty.id)}>
-                <span className="ty">{ty.label}</span>
-                <span className="desc">{ty.desc}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {type === 'number' && (
-          <div className="field" style={{borderBottom:'none'}}>
-            <label>Unité</label>
-            <input value={unit} onChange={e=>setUnit(e.target.value)} placeholder="kg, €, ml, pas… (optionnel)" />
-          </div>
-        )}
-        {type === 'scale' && (
-          <div className="field" style={{borderBottom:'none'}}>
-            <label>Max</label>
+          <label>Genre</label>
+          <div className="ctl-with-info">
             <div className="seg">
-              {[3,5,7,10].map(n => (
-                <button key={n} className={scaleMax===n?'on':''} onClick={()=>setScaleMax(n)}>1–{n}</button>
-              ))}
+              <button className={!isMasterKind?'on':''} onClick={()=>setKind('data')}>Tracker</button>
+              <button className={isMasterKind?'on':''} onClick={()=>setKind('master')}>Master</button>
             </div>
+            <InfoBubble>
+              <span className="k">Tracker</span> : vous le remplissez avec des données.<br/>
+              <span className="k">Master</span> : ne se remplit pas — c’est la moyenne normalisée (0–100) de la performance de plusieurs trackers choisis.
+            </InfoBubble>
           </div>
-        )}
-        {type === 'choice' && (
+        </div>
+
+        <div className="field" style={{borderBottom: isMasterKind ? '1px solid var(--line)' : undefined}}>
+          <label>Nom</label>
+          <input ref={nameRef} value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') submit();}}
+            placeholder={isMasterKind ? 'ex: Forme, Bien-être, Discipline…' : 'ex: Caféine, Humeur, Sport…'} />
+        </div>
+
+        {isMasterKind ? (
           <div className="field" style={{borderBottom:'none',flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
-            <label style={{width:'auto'}}>Choix possibles</label>
-            <div className="choices-editor">
-              {choices.map((c,i) => (
-                <div className="choice-row" key={i}>
-                  <input value={c} onChange={e=>setChoiceAt(i, e.target.value)}
-                    onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); addChoice(); } }}
-                    placeholder={`Choix ${i+1}`} />
-                  <button type="button" className="choice-del" onClick={()=>removeChoice(i)} aria-label="Retirer" disabled={choices.length<=1}>×</button>
-                </div>
-              ))}
-              <button type="button" className="choice-add" onClick={addChoice}>＋ Ajouter un choix</button>
-            </div>
+            <label style={{width:'auto'}}>Trackers membres</label>
+            {memberCandidates.length === 0 ? (
+              <span className="tc-empty-note">Créez d’abord des trackers de données à agréger.</span>
+            ) : (
+              <div className="member-picker">
+                {memberCandidates.map(t => (
+                  <button key={t.id} type="button" className={`member ${members.includes(t.id)?'on':''}`} onClick={()=>toggleMember(t.id)}>
+                    <span className="dot" style={{background:t.color}}></span>{t.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
+        ) : (
+          <>
+            <div className="field" style={{borderBottom: (type==='number'||type==='scale'||type==='choice') ? '1px solid var(--line)' : 'none', flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
+              <label style={{width:'auto'}}>Type de donnée</label>
+              <div className="typegrid">
+                {TYPES.map(ty => (
+                  <button key={ty.id} className={type===ty.id?'on':''} onClick={()=>setType(ty.id)}>
+                    <span className="ty">{ty.label}</span>
+                    <span className="desc">{ty.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {type === 'number' && (
+              <div className="field" style={{borderBottom:'none'}}>
+                <label>Unité</label>
+                <input value={unit} onChange={e=>setUnit(e.target.value)} placeholder="kg, €, ml, pas… (optionnel)" />
+              </div>
+            )}
+            {type === 'scale' && (
+              <div className="field" style={{borderBottom:'none'}}>
+                <label>Max</label>
+                <div className="seg">
+                  {[3,5,7,10].map(n => (
+                    <button key={n} className={scaleMax===n?'on':''} onClick={()=>setScaleMax(n)}>1–{n}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {type === 'choice' && (
+              <div className="field" style={{borderBottom:'none',flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
+                <label style={{width:'auto'}}>Choix possibles</label>
+                <div className="choices-editor">
+                  {choices.map((c,i) => (
+                    <div className="choice-row" key={i}>
+                      <input value={c} onChange={e=>setChoiceAt(i, e.target.value)}
+                        onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); addChoice(); } }}
+                        placeholder={`Choix ${i+1}`} />
+                      <button type="button" className="choice-del" onClick={()=>removeChoice(i)} aria-label="Retirer" disabled={choices.length<=1}>×</button>
+                    </div>
+                  ))}
+                  <button type="button" className="choice-add" onClick={addChoice}>＋ Ajouter un choix</button>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* ============ PARAMÈTRES ============ */}
         <p className="modal-section">Paramètres</p>
 
-        <div className="field">
-          <label>Fréquence</label>
-          <div className="ctl-with-info">
-            <div className="seg">
-              <button className={daily?'on':''} onClick={()=>setDaily(true)}>Une / jour</button>
-              <button className={!daily?'on':''} onClick={()=>setDaily(false)}>Plusieurs / jour</button>
+        {!isMasterKind && (
+          <div className="field">
+            <label>Fréquence</label>
+            <div className="ctl-with-info">
+              <div className="seg">
+                <button className={daily?'on':''} onClick={()=>setDaily(true)}>Une / jour</button>
+                <button className={!daily?'on':''} onClick={()=>setDaily(false)}>Plusieurs / jour</button>
+              </div>
+              <InfoBubble>
+                <span className="k">Une / jour</span> : une seule entrée par jour, ré-enregistrer un jour déjà noté remplace sa valeur.<br/>
+                <span className="k">Plusieurs / jour</span> : autant d’entrées que vous voulez chaque jour.
+              </InfoBubble>
             </div>
-            <InfoBubble>
-              <span className="k">Une / jour</span> : une seule entrée par jour, ré-enregistrer un jour déjà noté remplace sa valeur.<br/>
-              <span className="k">Plusieurs / jour</span> : autant d’entrées que vous voulez chaque jour.
-            </InfoBubble>
           </div>
-        </div>
+        )}
 
         {showAggregate && (
           <div className="field">
@@ -1824,7 +2083,7 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
           </div>
         )}
 
-        {type === 'choice' && (
+        {!isMasterKind && type === 'choice' && (
           <div className="field">
             <label>Sélection</label>
             <div className="ctl-with-info">
@@ -1840,6 +2099,32 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
           </div>
         )}
 
+        <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:10,paddingTop:14}}>
+          <label style={{width:'auto',display:'inline-flex',alignItems:'center',gap:8}}>
+            Période d’activité
+            <InfoBubble>
+              Ce tracker n’influence les graphes et moyennes qu’entre ces deux dates.
+              <span className="k"> Début</span> par défaut = jour de création (utile si vous ne l’utilisez qu’après quelques jours).
+              Laissez <span className="k">Fin</span> vide tant qu’il est actif — l’archivage la renseigne automatiquement.
+            </InfoBubble>
+          </label>
+          <div className="period-row">
+            <div className="period-field">
+              <span>Début</span>
+              <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
+            </div>
+            <div className="period-field">
+              <span>Fin</span>
+              <input type="date" value={endDate} min={startDate || undefined} onChange={e=>setEndDate(e.target.value)} />
+            </div>
+          </div>
+          {isEdit && (
+            tracker.archived
+              ? <button type="button" className="period-arch unarchive" onClick={onUnarchive}>Désarchiver ce tracker</button>
+              : <button type="button" className="period-arch" onClick={onArchive}>Archiver ce tracker</button>
+          )}
+        </div>
+
         <div className="field" style={{borderBottom:'none'}}>
           <label>Couleur</label>
           <div className="swatches">
@@ -1850,7 +2135,7 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
         </div>
 
         <div className="modal-actions">
-          {isEdit && <button className="danger" onClick={()=>{ if(confirm('Supprimer ce tracker et toutes ses entrées ?')) onDelete(); }}>Supprimer</button>}
+          {isEdit && <button className="danger" onClick={()=>{ if(confirm(isMaster(tracker) ? 'Supprimer ce master ?' : 'Supprimer ce tracker et toutes ses entrées ?')) onDelete(); }}>Supprimer</button>}
           <button className="ghost" onClick={onClose}>Annuler</button>
           <button className="primary" disabled={!canSave} onClick={submit}>{isEdit ? 'Enregistrer' : 'Créer'}</button>
         </div>

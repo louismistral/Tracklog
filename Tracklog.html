@@ -294,6 +294,23 @@
   .choices button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
   .tc-empty-note{font-size:12px;color:var(--ink-3);font-style:italic;line-height:1.5}
 
+  /* Master member picker (in the tracker modal) */
+  .member-picker{display:flex;flex-wrap:wrap;gap:6px;width:100%}
+  .member{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:999px;border:1px solid var(--line-2);font-size:12px;color:var(--ink-2);background:transparent;transition:all .35s var(--ease)}
+  .member .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .member:hover{border-color:var(--ink-2);color:var(--ink)}
+  .member.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .member.on .dot{outline:1px solid var(--bg);outline-offset:1px}
+
+  /* Active period (dates + archive) */
+  .period-row{display:flex;gap:10px;width:100%}
+  .period-field{flex:1;display:flex;flex-direction:column;gap:5px}
+  .period-field span{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3)}
+  .period-field input{font-size:13px;border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;background:var(--bg-3);color:var(--ink)}
+  .period-arch{align-self:flex-start;margin-top:2px;font-size:10px;color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:8px 14px;text-transform:uppercase;letter-spacing:0.12em;transition:all .35s var(--ease)}
+  .period-arch:hover{border-color:var(--warn);color:var(--warn)}
+  .period-arch.unarchive:hover{border-color:var(--accent);color:var(--accent)}
+
   .toggle{display:inline-flex;align-items:center;gap:10px;background:none;border:none;padding:0;cursor:pointer}
   .toggle .knob{width:42px;height:24px;border-radius:12px;background:var(--bg-3);border:1px solid var(--line-2);position:relative;flex-shrink:0;transition:background .4s var(--ease),border-color .4s var(--ease)}
   .toggle .knob::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--ink-2);transition:transform .4s var(--ease),background .4s var(--ease)}
@@ -341,8 +358,17 @@
   .tk-type{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-2);background:transparent;border:1px solid var(--line-2);border-radius:999px;padding:3px 8px}
   .tk-chip{font-size:10px;color:var(--ink-3);border:1px solid var(--line);border-radius:999px;padding:3px 8px;text-transform:uppercase;letter-spacing:0.06em}
   .tk-count{font-size:11px;color:var(--ink-3);font-family:"Geist Mono",monospace}
+  .tk-actions{display:flex;flex-direction:column;gap:6px;flex-shrink:0}
   .tk-edit{font-size:10px;color:var(--ink-2);border:1px solid var(--line-2);border-radius:999px;padding:8px 14px;flex-shrink:0;background:transparent;text-transform:uppercase;letter-spacing:0.12em;transition:all .35s var(--ease)}
   .tk-edit:hover{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+  .tk-arch{font-size:10px;color:var(--ink-3);border:1px solid var(--line);border-radius:999px;padding:8px 14px;background:transparent;text-transform:uppercase;letter-spacing:0.12em;transition:all .35s var(--ease)}
+  .tk-arch:hover{border-color:var(--ink-2);color:var(--ink)}
+  .tk-card.archived{opacity:0.6}
+  .tk-card.archived:hover{opacity:1}
+  /* Master marker (diamond) */
+  .master-mark{width:10px;height:10px;flex-shrink:0;transform:rotate(45deg);border-radius:2px}
+  .master-tag{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:2px 7px;margin-left:8px}
+  .chart-head .name .master-mark{margin-right:2px}
 
   /* History calendar + day editor */
   .cal{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px;margin-bottom:30px;max-width:440px}
@@ -464,6 +490,6 @@
 })();
 </script>
 
-<script type="text/babel" src="app.jsx?v=13"></script>
+<script type="text/babel" src="app.jsx?v=14"></script>
 </body>
 </html>
