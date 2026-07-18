@@ -3,12 +3,20 @@ const { useState, useEffect, useMemo, useRef } = React;
 /* ============================================================
    Data model
    ------------------------------------------------------------
-   Tracker = { id, name, type, unit?, color, scaleMax?, daily?, aggregate?, createdAt }
-     type: 'number' | 'scale' | 'boolean' | 'duration' | 'text'
+   Tracker = { id, name, type, unit?, color, scaleMax?, choices?, multiple?,
+               daily?, aggregate?, createdAt }
+     — Cœur : name + type (+ config liée au type : unit, scaleMax, choices)
+     — Paramètres : daily (fréquence), aggregate (calcul), multiple (choix), color
+
+     type: 'number' | 'scale' | 'boolean' | 'duration' | 'text' | 'choice'
+     choices: string[] — options prédéfinies (type 'choice' uniquement)
+     multiple: true = plusieurs choix possibles par entrée ; false = un seul.
      daily: true = une seule entrée par jour (ré-enregistrer remplace celle du jour)
-     aggregate: 'sum' | 'avg' — comment combiner plusieurs entrées du même jour
-       (nombre/durée uniquement ; pertinent quand daily est false). 'avg' par défaut.
+     aggregate: 'avg' | 'sum' | 'min' | 'max' — comment combiner plusieurs
+       entrées du même jour (nombre/durée uniquement ; pertinent quand daily
+       est false). 'avg' par défaut.
    Entry   = { id, trackerId, value, note, ts }
+     value pour 'choice' : string (choix unique) ou string[] (choix multiples)
    ============================================================ */
 
 const COLORS = [
@@ -25,7 +33,16 @@ const TYPES = [
   { id:'scale',    label:'Échelle',  desc:'1 à 5' },
   { id:'boolean',  label:'Oui / Non',desc:'fait, pas fait' },
   { id:'duration', label:'Durée',    desc:'minutes' },
+  { id:'choice',   label:'Choix',    desc:'options prédéfinies' },
   { id:'text',     label:'Texte',    desc:'note libre' },
+];
+
+// Combining modes for multiple same-day entries (number / duration only).
+const AGGREGATES = [
+  { id:'avg', label:'Moyenne' },
+  { id:'sum', label:'Somme' },
+  { id:'min', label:'Minimum' },
+  { id:'max', label:'Maximum' },
 ];
 
 /* ============================================================
@@ -36,10 +53,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function trackerFromRow(r){
-  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, daily:!!r.daily, aggregate:r.aggregate || 'avg', color:r.color, createdAt:r.created_at };
+  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', color:r.color, createdAt:r.created_at };
 }
 function trackerToRow(t, userId){
-  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, daily:!!t.daily, aggregate:t.aggregate || 'avg', color:t.color, created_at:t.createdAt };
+  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', color:t.color, created_at:t.createdAt };
 }
 function entryFromRow(r){
   return { id:r.id, trackerId:r.tracker_id, value:r.value, note:r.note || '', ts:r.ts };
@@ -64,6 +81,7 @@ function fmtValue(tracker, v){
     case 'scale':    return `${v}/${tracker.scaleMax||5}`;
     case 'boolean':  return v ? 'Oui' : 'Non';
     case 'duration': return fmtDuration(v);
+    case 'choice':   return Array.isArray(v) ? (v.length ? v.join(', ') : '—') : String(v);
     case 'text':     return String(v);
   }
 }
@@ -76,8 +94,20 @@ function fmtUnit(tracker){
 // according to the tracker's aggregation mode. Defaults to average.
 function aggregateNums(tracker, nums){
   if (!nums.length) return null;
-  const sum = nums.reduce((a,b)=>a+b,0);
-  return tracker.aggregate === 'sum' ? sum : sum / nums.length;
+  switch (tracker.aggregate){
+    case 'sum': return nums.reduce((a,b)=>a+b,0);
+    case 'min': return Math.min(...nums);
+    case 'max': return Math.max(...nums);
+    default:    return nums.reduce((a,b)=>a+b,0) / nums.length; // avg
+  }
+}
+function aggregateLabel(tracker){
+  return AGGREGATES.find(a => a.id === tracker.aggregate)?.label || 'Moyenne';
+}
+// Normalize a stored choice value into input state (array if multiple, else string|null).
+function readChoice(tracker, v){
+  if (tracker.multiple) return Array.isArray(v) ? v : (v != null ? [v] : []);
+  return Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
 }
 
 function dayKey(ts){
@@ -99,6 +129,25 @@ function timeLabel(ts){
 }
 function uid(p){ return p + Math.random().toString(36).slice(2,9); }
 function startOfDay(ts){ const d = new Date(ts); d.setHours(0,0,0,0); return d.getTime(); }
+
+/* Small "i" button that reveals an explanation only when clicked. */
+function InfoBubble({ children }){
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') setOpen(false); });
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+  return (
+    <span className="info" ref={ref}>
+      <button type="button" className={`info-btn ${open?'on':''}`} onClick={()=>setOpen(o=>!o)} aria-label="Plus d'infos">i</button>
+      {open && <span className="info-pop">{children}</span>}
+    </span>
+  );
+}
 function startOfMonth(ts){ const d = new Date(ts); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); }
 function addMonths(ts, n){ const d = new Date(ts); return new Date(d.getFullYear(), d.getMonth()+n, 1).getTime(); }
 
@@ -403,7 +452,13 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, dayTs, isToda
   const [durH, setDurH]   = useState('');
   const [durM, setDurM]   = useState('');
   const [text, setText]   = useState('');
+  const [choice, setChoice] = useState(t.multiple ? [] : null);
   const [flash, setFlash] = useState(false);
+
+  const resetInputs = () => {
+    setNum(''); setScale(null); setBool(null); setDurH(''); setDurM(''); setText('');
+    setChoice(t.multiple ? [] : null);
+  };
 
   // Prefill a daily tracker already logged that day so it reads as editable;
   // clear when moving to a day/tracker with no existing entry (calendar day switch).
@@ -414,12 +469,24 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, dayTs, isToda
         case 'scale':    setScale(existing.value ?? null); break;
         case 'boolean':  setBool(typeof existing.value === 'boolean' ? existing.value : null); break;
         case 'duration': setDurH(String(Math.floor((existing.value||0)/60))); setDurM(String((existing.value||0)%60)); break;
+        case 'choice':   setChoice(readChoice(t, existing.value)); break;
         case 'text':     setText(String(existing.value ?? '')); break;
       }
     } else {
-      setNum(''); setScale(null); setBool(null); setDurH(''); setDurM(''); setText('');
+      resetInputs();
     }
   }, [existing?.id, existing?.value, t.type, dayTs]);
+
+  const toggleChoice = (opt) => {
+    if (t.multiple){
+      setChoice(prev => {
+        const arr = Array.isArray(prev) ? prev : [];
+        return arr.includes(opt) ? arr.filter(x=>x!==opt) : [...arr, opt];
+      });
+    } else {
+      setChoice(prev => prev === opt ? null : opt);
+    }
+  };
 
   const canSave = useMemo(() => {
     switch (t.type){
@@ -427,10 +494,11 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, dayTs, isToda
       case 'scale':    return scale != null;
       case 'boolean':  return bool != null;
       case 'duration': return (durH !== '' || durM !== '') && (parseInt(durH||'0',10) + parseInt(durM||'0',10) > 0);
+      case 'choice':   return t.multiple ? (Array.isArray(choice) && choice.length > 0) : choice != null;
       case 'text':     return text.trim().length > 0;
     }
     return false;
-  }, [t.type, num, scale, bool, durH, durM, text]);
+  }, [t.type, t.multiple, num, scale, bool, durH, durM, text, choice]);
 
   const submit = () => {
     if (!canSave) return;
@@ -440,6 +508,7 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, dayTs, isToda
       case 'scale':    value = scale; break;
       case 'boolean':  value = bool; break;
       case 'duration': value = parseInt(durH||'0',10)*60 + parseInt(durM||'0',10); break;
+      case 'choice':   value = choice; break;
       case 'text':     value = text.trim(); break;
     }
     // Today keeps the real clock time; a past day is anchored at noon.
@@ -448,7 +517,7 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, dayTs, isToda
     setFlash(true);
     setTimeout(()=>setFlash(false), 900);
     if (!daily){
-      setNum(''); setScale(null); setBool(null); setDurH(''); setDurM(''); setText('');
+      resetInputs();
     }
   };
 
@@ -491,6 +560,20 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, dayTs, isToda
             <input type="number" min="0" max="59" placeholder="00" value={durM} onChange={e=>setDurM(e.target.value)} style={{width:44,textAlign:'right'}} />
             <span className="unit">min</span>
           </div>
+        )}
+        {t.type === 'choice' && (
+          (t.choices && t.choices.length) ? (
+            <div className="choices">
+              {t.choices.map(opt => {
+                const active = t.multiple ? (Array.isArray(choice) && choice.includes(opt)) : choice === opt;
+                return (
+                  <button key={opt} className={active?'on':''} onClick={()=>toggleChoice(opt)}>{opt}</button>
+                );
+              })}
+            </div>
+          ) : (
+            <span className="tc-empty-note">Aucun choix défini. Modifiez le tracker pour en ajouter.</span>
+          )
         )}
         {t.type === 'text' && (
           <textarea value={text} onChange={e=>setText(e.target.value)} rows={2} placeholder="…" style={{width:'100%'}} />
@@ -714,9 +797,13 @@ function TrackersView({ trackers, entries, onAdd, onEdit }){
             const chips = [];
             if (t.type === 'number' && t.unit) chips.push(t.unit);
             if (t.type === 'scale') chips.push(`1–${t.scaleMax || 5}`);
+            if (t.type === 'choice'){
+              chips.push(`${(t.choices||[]).length} choix`);
+              chips.push(t.multiple ? 'multiple' : 'unique');
+            }
             chips.push(t.daily ? 'une entrée/jour' : 'plusieurs/jour');
             if (!t.daily && (t.type === 'number' || t.type === 'duration')){
-              chips.push(t.aggregate === 'sum' ? 'somme' : 'moyenne');
+              chips.push(aggregateLabel(t).toLowerCase());
             }
             const count = countByTracker[t.id] || 0;
             return (
@@ -855,7 +942,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false }){
       if (items.length){
         if (tracker.type === 'boolean'){
           v = items.some(x=>x.value === true) ? 1 : 0;
-        } else if (tracker.type === 'text'){
+        } else if (tracker.type === 'text' || tracker.type === 'choice'){
           v = items.length;
         } else {
           const nums = items.map(x => Number(x.value)).filter(x => !isNaN(x));
@@ -1015,7 +1102,7 @@ function buildDailySeries(tracker, entries, rangeDays){
     if (items.length){
       if (tracker.type === 'boolean'){
         v = items.some(x=>x.value === true) ? 1 : 0;
-      } else if (tracker.type === 'text'){
+      } else if (tracker.type === 'text' || tracker.type === 'choice'){
         v = Math.min(1, items.length / 3); // count cap
       } else {
         const nums = items.map(x => Number(x.value)).filter(x => !isNaN(x));
@@ -1332,7 +1419,7 @@ function CalendarCard({ tracker, entries, rangeDays }){
     if (items.length){
       if (tracker.type === 'boolean'){
         v = items.some(x=>x.value === true) ? 1 : 0;
-      } else if (tracker.type === 'text'){
+      } else if (tracker.type === 'text' || tracker.type === 'choice'){
         v = items.length;
       } else {
         const nums = items.map(x => Number(x.value)).filter(x => !isNaN(x));
@@ -1421,7 +1508,7 @@ function GridSummary({ trackers, entries, rangeDays }){
     const stat = (items) => {
       if (!items.length) return null;
       if (t.type === 'boolean') return items.filter(x=>x.value===true).length;
-      if (t.type === 'text') return items.length;
+      if (t.type === 'text' || t.type === 'choice') return items.length;
       const nums = items.map(x=>Number(x.value)).filter(x=>!isNaN(x));
       return aggregateNums(t, nums);
     };
@@ -1432,7 +1519,7 @@ function GridSummary({ trackers, entries, rangeDays }){
     let display = '—';
     if (curStat != null){
       if (t.type === 'boolean') display = `${curStat}j`;
-      else if (t.type === 'text') display = `${curStat}`;
+      else if (t.type === 'text' || t.type === 'choice') display = `${curStat}`;
       else display = fmtValue(t, +curStat.toFixed(1));
     }
 
@@ -1472,6 +1559,7 @@ function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
   const [durH, setDurH]   = useState(t.type==='duration' ? String(Math.floor((entry.value||0)/60)) : '');
   const [durM, setDurM]   = useState(t.type==='duration' ? String((entry.value||0)%60) : '');
   const [text, setText]   = useState(t.type==='text' ? String(entry.value ?? '') : '');
+  const [choice, setChoice] = useState(t.type==='choice' ? readChoice(t, entry.value) : (t.multiple ? [] : null));
   const [note, setNote]   = useState(entry.note || '');
   const [day, setDay]     = useState(() => {
     const d = new Date(entry.ts);
@@ -1482,16 +1570,28 @@ function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
     return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   });
 
+  const toggleChoice = (opt) => {
+    if (t.multiple){
+      setChoice(prev => {
+        const arr = Array.isArray(prev) ? prev : [];
+        return arr.includes(opt) ? arr.filter(x=>x!==opt) : [...arr, opt];
+      });
+    } else {
+      setChoice(prev => prev === opt ? null : opt);
+    }
+  };
+
   const canSave = useMemo(() => {
     switch (t.type){
       case 'number':   return num !== '' && !isNaN(parseFloat(num));
       case 'scale':    return scale != null;
       case 'boolean':  return bool != null;
       case 'duration': return (durH !== '' || durM !== '') && (parseInt(durH||'0',10) + parseInt(durM||'0',10) > 0);
+      case 'choice':   return t.multiple ? (Array.isArray(choice) && choice.length > 0) : choice != null;
       case 'text':     return text.trim().length > 0;
     }
     return false;
-  }, [t.type, num, scale, bool, durH, durM, text]);
+  }, [t.type, t.multiple, num, scale, bool, durH, durM, text, choice]);
 
   const submit = () => {
     if (!canSave) return;
@@ -1501,6 +1601,7 @@ function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
       case 'scale':    value = scale; break;
       case 'boolean':  value = bool; break;
       case 'duration': value = parseInt(durH||'0',10)*60 + parseInt(durM||'0',10); break;
+      case 'choice':   value = choice; break;
       case 'text':     value = text.trim(); break;
     }
     const [yy, mo, dd] = day.split('-').map(x=>parseInt(x,10));
@@ -1546,6 +1647,18 @@ function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
                 <span className="unit">min</span>
               </div>
             )}
+            {t.type === 'choice' && (
+              (t.choices && t.choices.length) ? (
+                <div className="choices">
+                  {t.choices.map(opt => {
+                    const active = t.multiple ? (Array.isArray(choice) && choice.includes(opt)) : choice === opt;
+                    return <button key={opt} className={active?'on':''} onClick={()=>toggleChoice(opt)}>{opt}</button>;
+                  })}
+                </div>
+              ) : (
+                <span className="tc-empty-note">Aucun choix défini pour ce tracker.</span>
+              )
+            )}
             {t.type === 'text' && (
               <textarea value={text} onChange={e=>setText(e.target.value)} rows={2} style={{width:'100%'}} />
             )}
@@ -1583,24 +1696,38 @@ function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
    ============================================================ */
 function TrackerModal({ tracker, onClose, onSave, onDelete }){
   const isEdit = !!tracker;
+  // — Cœur : ce que le tracker mesure —
   const [name, setName] = useState(tracker?.name || '');
   const [type, setType] = useState(tracker?.type || 'number');
   const [unit, setUnit] = useState(tracker?.unit || '');
   const [scaleMax, setScaleMax] = useState(tracker?.scaleMax || 5);
+  const [choices, setChoices] = useState(tracker?.choices?.length ? tracker.choices : ['', '']);
+  // — Paramètres : comment on le remplit et le lit —
   const [daily, setDaily] = useState(!!tracker?.daily);
   const [aggregate, setAggregate] = useState(tracker?.aggregate || 'avg');
+  const [multiple, setMultiple] = useState(!!tracker?.multiple);
   const [color, setColor] = useState(tracker?.color || COLORS[1]);
   const nameRef = useRef();
 
   useEffect(() => { nameRef.current?.focus(); }, []);
 
-  const canSave = name.trim().length > 0;
+  const setChoiceAt = (i, val) => setChoices(cs => cs.map((c,idx)=>idx===i?val:c));
+  const addChoice = () => setChoices(cs => [...cs, '']);
+  const removeChoice = (i) => setChoices(cs => cs.filter((_,idx)=>idx!==i));
+
+  const cleanChoices = choices.map(c=>c.trim()).filter(Boolean);
+  const showAggregate = !daily && (type === 'number' || type === 'duration');
+  const canSave = name.trim().length > 0 && (type !== 'choice' || cleanChoices.length > 0);
 
   const submit = () => {
     if (!canSave) return;
     const t = { name: name.trim(), type, color, daily, aggregate };
     if (type === 'number' && unit.trim()) t.unit = unit.trim();
     if (type === 'scale') t.scaleMax = scaleMax;
+    if (type === 'choice'){
+      t.choices = [...new Set(cleanChoices)]; // de-dupe, keep order
+      t.multiple = multiple;
+    }
     onSave(t);
   };
 
@@ -1608,14 +1735,17 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
     <div className="scrim" onClick={onClose}>
       <div className="modal" onClick={e=>e.stopPropagation()}>
         <h2>{isEdit ? 'Modifier le tracker' : 'Nouveau tracker'}</h2>
-        <div className="modal-sub">Donnez-lui un nom et un type. Vous pourrez l'ajuster plus tard.</div>
+        <div className="modal-sub">Le cœur définit ce que vous mesurez, les paramètres comment.</div>
+
+        {/* ============ CŒUR ============ */}
+        <p className="modal-section first">Cœur</p>
 
         <div className="field">
           <label>Nom</label>
-          <input ref={nameRef} value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') submit();}} placeholder="ex: Caféine, Médication, Méditation…" />
+          <input ref={nameRef} value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') submit();}} placeholder="ex: Caféine, Humeur, Sport…" />
         </div>
 
-        <div className="field" style={{borderBottom:'none',flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
+        <div className="field" style={{borderBottom: (type==='number'||type==='scale'||type==='choice') ? '1px solid var(--line)' : 'none', flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
           <label style={{width:'auto'}}>Type de donnée</label>
           <div className="typegrid">
             {TYPES.map(ty => (
@@ -1628,13 +1758,13 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
         </div>
 
         {type === 'number' && (
-          <div className="field">
+          <div className="field" style={{borderBottom:'none'}}>
             <label>Unité</label>
             <input value={unit} onChange={e=>setUnit(e.target.value)} placeholder="kg, €, ml, pas… (optionnel)" />
           </div>
         )}
         {type === 'scale' && (
-          <div className="field">
+          <div className="field" style={{borderBottom:'none'}}>
             <label>Max</label>
             <div className="seg">
               {[3,5,7,10].map(n => (
@@ -1643,41 +1773,71 @@ function TrackerModal({ tracker, onClose, onSave, onDelete }){
             </div>
           </div>
         )}
+        {type === 'choice' && (
+          <div className="field" style={{borderBottom:'none',flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
+            <label style={{width:'auto'}}>Choix possibles</label>
+            <div className="choices-editor">
+              {choices.map((c,i) => (
+                <div className="choice-row" key={i}>
+                  <input value={c} onChange={e=>setChoiceAt(i, e.target.value)}
+                    onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); addChoice(); } }}
+                    placeholder={`Choix ${i+1}`} />
+                  <button type="button" className="choice-del" onClick={()=>removeChoice(i)} aria-label="Retirer" disabled={choices.length<=1}>×</button>
+                </div>
+              ))}
+              <button type="button" className="choice-add" onClick={addChoice}>＋ Ajouter un choix</button>
+            </div>
+          </div>
+        )}
+
+        {/* ============ PARAMÈTRES ============ */}
+        <p className="modal-section">Paramètres</p>
 
         <div className="field">
           <label>Fréquence</label>
-          <button
-            type="button"
-            className={`toggle ${daily?'on':''}`}
-            role="switch"
-            aria-checked={daily}
-            onClick={()=>setDaily(d=>!d)}
-          >
-            <span className="knob"></span>
-            <span className="toggle-text">{daily ? 'Une entrée par jour' : 'Plusieurs par jour'}</span>
-          </button>
-        </div>
-        <div className="field-hint" style={{borderBottom: (!daily && (type==='number'||type==='duration')) ? '1px solid var(--line)' : 'none'}}>
-          {daily
-            ? 'Ré-enregistrer pour un jour déjà noté remplace l’entrée de ce jour.'
-            : 'Vous pouvez enregistrer autant d’entrées que vous voulez chaque jour.'}
+          <div className="ctl-with-info">
+            <div className="seg">
+              <button className={daily?'on':''} onClick={()=>setDaily(true)}>Une / jour</button>
+              <button className={!daily?'on':''} onClick={()=>setDaily(false)}>Plusieurs / jour</button>
+            </div>
+            <InfoBubble>
+              <span className="k">Une / jour</span> : une seule entrée par jour, ré-enregistrer un jour déjà noté remplace sa valeur.<br/>
+              <span className="k">Plusieurs / jour</span> : autant d’entrées que vous voulez chaque jour.
+            </InfoBubble>
+          </div>
         </div>
 
-        {!daily && (type === 'number' || type === 'duration') && (
-          <>
-            <div className="field">
-              <label>Calcul</label>
-              <div className="seg">
-                <button className={aggregate==='avg'?'on':''} onClick={()=>setAggregate('avg')}>Moyenne</button>
-                <button className={aggregate==='sum'?'on':''} onClick={()=>setAggregate('sum')}>Somme</button>
+        {showAggregate && (
+          <div className="field">
+            <label>Calcul</label>
+            <div className="ctl-with-info">
+              <div className="seg wrap">
+                {AGGREGATES.map(a => (
+                  <button key={a.id} className={aggregate===a.id?'on':''} onClick={()=>setAggregate(a.id)}>{a.label}</button>
+                ))}
               </div>
+              <InfoBubble>
+                Combine plusieurs entrées d’un même jour :<br/>
+                <span className="k">Moyenne</span> (10, 15, 20 → 15) · <span className="k">Somme</span> (→ 45) · <span className="k">Minimum</span> (→ 10) · <span className="k">Maximum</span> (→ 20).
+              </InfoBubble>
             </div>
-            <div className="field-hint">
-              {aggregate === 'sum'
-                ? 'Les entrées d’un même jour s’additionnent (ex: 10 + 15 + 20 = 45).'
-                : 'Les entrées d’un même jour sont moyennées (ex: 10, 15, 20 → 15).'}
+          </div>
+        )}
+
+        {type === 'choice' && (
+          <div className="field">
+            <label>Sélection</label>
+            <div className="ctl-with-info">
+              <div className="seg">
+                <button className={!multiple?'on':''} onClick={()=>setMultiple(false)}>Choix unique</button>
+                <button className={multiple?'on':''} onClick={()=>setMultiple(true)}>Choix multiple</button>
+              </div>
+              <InfoBubble>
+                <span className="k">Choix unique</span> : une seule option par entrée.<br/>
+                <span className="k">Choix multiple</span> : plusieurs options cochables par entrée.
+              </InfoBubble>
             </div>
-          </>
+          </div>
         )}
 
         <div className="field" style={{borderBottom:'none'}}>
