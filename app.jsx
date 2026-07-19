@@ -908,6 +908,7 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, se
       ) : (
         <HistoryView
           trackers={trackers}
+          masters={masters}
           trackerById={trackerById}
           entries={entries}
           selectedTracker={selectedTracker}
@@ -924,7 +925,7 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, se
 /* ============================================================
    History — a month calendar to open any day and edit its entries
    ============================================================ */
-function HistoryView({ trackers, trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry, onEditEntry, onReorder }){
+function HistoryView({ trackers, masters = [], trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry, onEditEntry, onReorder }){
   const [monthTs, setMonthTs] = useState(() => startOfMonth(Date.now()));
   const [selectedDay, setSelectedDay] = useState(() => startOfDay(Date.now()));
 
@@ -962,6 +963,10 @@ function HistoryView({ trackers, trackerById, entries, selectedTracker, onAddEnt
           <span className="de-sub">{dayEntries.length} entrée{dayEntries.length>1?'s':''}{!isToday ? ' · archive' : ''}</span>
           {!isToday && <button className="de-today" onClick={goToday}>→ Aujourd'hui</button>}
         </div>
+
+        {masters.length > 0 && (
+          <MasterStrips masters={masters} trackerById={trackerById} entries={entries} dayTs={selectedDay} onReorder={onReorder} />
+        )}
 
         {viewTrackers.length === 0 ? (
           <div className="empty"><span className="em-serif">Aucun tracker.</span> Créez-en un pour commencer.</div>
@@ -1438,8 +1443,8 @@ function shortDate(ts){
    Normalization helpers for master/average charts
    ============================================================ */
 // Build daily series [{ts, value|null}] for a tracker over rangeDays.
-function buildDailySeries(tracker, entries, rangeDays){
-  const now = Date.now();
+function buildDailySeries(tracker, entries, rangeDays, endTs = Date.now()){
+  const now = endTs;
   const start = now - rangeDays*86400000;
   const map = new Map();
   for (const e of entries){
@@ -1747,9 +1752,9 @@ function masterMembers(master, trackerById){
 }
 /* Daily 0..1 index for a master: average of its members' normalized, gap-filled
    performance, masked to the master's own active window. */
-function computeMasterSeries(master, members, entries, rangeDays){
+function computeMasterSeries(master, members, entries, rangeDays, endTs = Date.now()){
   const series = members.map(t =>
-    forwardFill(normalizeSeries(t, buildDailySeries(t, entries.filter(e=>e.trackerId===t.id), rangeDays)))
+    forwardFill(normalizeSeries(t, buildDailySeries(t, entries.filter(e=>e.trackerId===t.id), rangeDays, endTs)))
   );
   if (!series.length) return [];
   const len = series[0].length;
@@ -1765,10 +1770,12 @@ function computeMasterSeries(master, members, entries, rangeDays){
 }
 
 /* ============================================================
-   Master strips — flat, read-only readings of each master's current
-   index (0–100), shown atop the "Jour" view. Reorderable among themselves.
+   Master strips — flat, read-only readings of each master's index
+   (0–100). Shown atop the "Jour" view (current value) and atop the
+   Historique day editor (value as of the opened day, via `dayTs`).
+   Reorderable among themselves.
    ============================================================ */
-function MasterStrips({ masters, trackerById, entries, onReorder }){
+function MasterStrips({ masters, trackerById, entries, dayTs, onReorder }){
   const byId = useMemo(() => Object.fromEntries(masters.map(m => [m.id, m])), [masters]);
   const ids = useMemo(() => masters.map(m => m.id), [masters]);
   const drag = useDragReorder(ids, onReorder);
@@ -1778,20 +1785,28 @@ function MasterStrips({ masters, trackerById, entries, onReorder }){
         const m = byId[id];
         if (!m) return null;
         return (
-          <MasterStrip key={m.id} master={m} trackerById={trackerById} entries={entries}
+          <MasterStrip key={m.id} master={m} trackerById={trackerById} entries={entries} dayTs={dayTs}
             containerRef={drag.setNodeRef(m.id)} dragging={drag.dragId === m.id} onDragStart={drag.startDrag(m.id)} />
         );
       })}
     </div>
   );
 }
-function MasterStrip({ master, trackerById, entries, containerRef, dragging, onDragStart }){
+function MasterStrip({ master, trackerById, entries, dayTs, containerRef, dragging, onDragStart }){
   const members = masterMembers(master, trackerById);
   const latest = useMemo(() => {
+    // Historique: the index exactly as of the opened day (a 30-day window
+    // ending that day). An archived/not-yet-active day reads "—" rather than
+    // carrying a stale value forward.
+    if (dayTs != null && dayKey(dayTs) !== dayKey(Date.now())){
+      const s = computeMasterSeries(master, members, entries, 30, startOfDay(dayTs));
+      return s.length ? s[s.length - 1].value : null;
+    }
+    // Jour (today): the most recent non-null reading.
     const s = computeMasterSeries(master, members, entries, 30);
     for (let i = s.length - 1; i >= 0; i--){ if (s[i].value != null) return s[i].value; }
     return null;
-  }, [master, members, entries]);
+  }, [master, members, entries, dayTs]);
   const pct = latest != null ? Math.round(latest*100) : null;
   return (
     <div ref={containerRef} className={`master-strip ${dragging?'dragging':''}`}>
