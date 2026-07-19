@@ -101,6 +101,9 @@
   .pill:hover{border-color:var(--ink-2);color:var(--ink);transform:translateY(-1px)}
   .pill.active{background:var(--ink);color:var(--bg);border-color:var(--ink)}
   .pill.active .dot{outline:2px solid rgba(16,15,13,.25)}
+  /* Selection kept in reserve while "Tout" overrides it — greyed, not lost. */
+  .pill.dimmed{background:var(--bg-3);color:var(--ink-2);border-color:var(--ink-3)}
+  .pill.dimmed .dot{opacity:.85}
   .pill.add{color:var(--ink-3);border-style:dashed;background:transparent}
   .pill.add:hover{color:var(--accent);border-color:var(--accent)}
 
@@ -536,6 +539,6 @@
 })();
 </script>
 
-<script type="text/babel" src="app.jsx?v=19"></script>
+<script type="text/babel" src="app.jsx?v=20"></script>
 </body>
 </html>

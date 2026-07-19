@@ -384,7 +384,11 @@ function App({ session }){
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('log');        // log | trackers | vues
   const [logSub, setLogSub] = useState('jour'); // jour | historique — sub-sections of Log
-  const [selectedTracker, setSelectedTracker] = useState(null); // for quick-add filter / chart focus
+  // Multi-select filter for the rail. `selectedIds` is the remembered set;
+  // `showAll` temporarily overrides it (the "Tout" toggle) while keeping the
+  // set intact (shown greyed) so it isn't lost.
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [showAll, setShowAll] = useState(true);
   const [newTrackerOpen, setNewTrackerOpen] = useState(false);
   const [editTracker, setEditTracker] = useState(null);
   const [editEntry, setEditEntry] = useState(null);
@@ -439,7 +443,7 @@ function App({ session }){
     const nextOrder = trackers.length ? Math.max(...trackers.map(x => x.order || 0)) + 1 : 0;
     const tracker = { id: uid('t_'), createdAt: Date.now(), order: nextOrder, ...t };
     const { error } = await supabase.from('trackers').insert(trackerToRow(tracker, userId));
-    if (!error){ setTrackers(s => [...s, tracker]); setSelectedTracker(tracker.id); }
+    if (!error){ setTrackers(s => [...s, tracker]); setShowAll(true); /* make the new one visible */ }
   };
   const updateTracker = async (id, patch) => {
     const updated = { ...trackerById[id], ...patch };
@@ -451,7 +455,7 @@ function App({ session }){
     if (!error){
       setTrackers(s => s.filter(t => t.id !== id));
       setEntries(s => s.filter(e => e.trackerId !== id));
-      setSelectedTracker(prev => prev === id ? null : prev);
+      setSelectedIds(prev => prev.filter(x => x !== id));
     }
   };
   const archiveTracker = (id) => {
@@ -459,7 +463,7 @@ function App({ session }){
     const patch = { archived: true };
     if (!t.endDate) patch.endDate = dayKey(Date.now()); // stop counting today by default
     updateTracker(id, patch);
-    setSelectedTracker(prev => prev === id ? null : prev);
+    setSelectedIds(prev => prev.filter(x => x !== id));
   };
   const unarchiveTracker = (id) => updateTracker(id, { archived: false, endDate: null });
 
@@ -486,10 +490,19 @@ function App({ session }){
   const loggableTrackers = activeTrackers.filter(t => !isMaster(t));
   const masterTrackers = activeTrackers.filter(t => isMaster(t));
 
-  // The tracker filter rail only makes sense where it filters something:
-  // the full history list and the charts. The Trackers tab manages trackers
-  // directly, and the "Jour" view always shows every tracker.
-  const showRail = (tab === 'log' && logSub === 'historique') || tab === 'vues';
+  // Effective filter: `filterActive` when there is a remembered selection and
+  // "Tout" isn't overriding it. `filterIds` is null (= show everything) or the
+  // list of ids each view should narrow to.
+  const filterActive = selectedIds.length > 0 && !showAll;
+  const filterIds = filterActive ? selectedIds : null;
+  const toggleTracker = (id) => {
+    setShowAll(false);
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+  const toggleAll = () => setShowAll(prev => !prev);
+
+  // The tracker filter rail is available on every tab now (Log, Trackers, Vues).
+  const showRail = tab === 'log' || tab === 'trackers' || tab === 'vues';
 
   return (
     <div className="app">
@@ -513,8 +526,10 @@ function App({ session }){
       {showRail && (
         <TrackerRail
           trackers={activeTrackers}
-          selected={selectedTracker}
-          onSelect={setSelectedTracker}
+          selectedIds={selectedIds}
+          filterActive={filterActive}
+          onToggle={toggleTracker}
+          onToggleAll={toggleAll}
           onAdd={()=>setNewTrackerOpen(true)}
           onEdit={(t)=>setEditTracker(t)}
           onReorder={reorderTrackers}
@@ -529,7 +544,7 @@ function App({ session }){
           masters={masterTrackers}
           trackerById={trackerById}
           entries={entries}
-          selectedTracker={selectedTracker}
+          filterIds={filterIds}
           onAddEntry={addEntry}
           onDeleteEntry={deleteEntry}
           onEditEntry={(e)=>setEditEntry(e)}
@@ -539,6 +554,7 @@ function App({ session }){
         <TrackersView
           trackers={trackers}
           entries={entries}
+          filterIds={filterIds}
           onAdd={()=>setNewTrackerOpen(true)}
           onEdit={(t)=>setEditTracker(t)}
           onArchive={archiveTracker}
@@ -550,7 +566,7 @@ function App({ session }){
           trackers={activeTrackers}
           trackerById={trackerById}
           entries={entries}
-          selectedTracker={selectedTracker}
+          filterIds={filterIds}
           onReorder={reorderTrackers}
         />
       )}
@@ -595,38 +611,45 @@ function App({ session }){
 /* ============================================================
    Tracker rail (selectable pills)
    ============================================================ */
-function TrackerRail({ trackers, selected, onSelect, onAdd, onEdit, onReorder }){
+function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onToggleAll, onAdd, onEdit, onReorder }){
   const byId = useMemo(() => Object.fromEntries(trackers.map(t => [t.id, t])), [trackers]);
   const ids = useMemo(() => trackers.map(t => t.id), [trackers]);
   const { order, dragId, startDrag, setNodeRef } = useDragReorder(ids, onReorder);
   const dragStartRef = useRef(null);
+  const selSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   return (
     <div className="rail">
       <button
-        className={`pill ${selected===null?'active':''}`}
-        onClick={()=>onSelect(null)}
+        className={`pill ${!filterActive?'active':''}`}
+        onClick={onToggleAll}
+        title={selectedIds.length ? 'Tout afficher (garde votre sélection en mémoire)' : 'Tout afficher'}
       >
         <span style={{fontSize:13}}>Tout</span>
       </button>
       {order.map(id => {
         const t = byId[id];
         if (!t) return null;
+        const selected = selSet.has(t.id);
+        // Selected + filtering = fully on. Selected + "Tout" = remembered (greyed).
+        const cls = selected ? (filterActive ? 'active' : 'dimmed') : '';
         return (
           <button
             key={t.id}
             ref={setNodeRef(t.id)}
-            className={`pill ${selected===t.id?'active':''} ${dragId===t.id?'dragging':''}`}
+            className={`pill ${cls} ${dragId===t.id?'dragging':''}`}
             onPointerDown={(e)=>{ dragStartRef.current = { x:e.clientX, y:e.clientY }; startDrag(t.id)(e); }}
             onClickCapture={(e)=>{
               const s = dragStartRef.current;
               if (s && (Math.abs(e.clientX-s.x) > 6 || Math.abs(e.clientY-s.y) > 6)){ e.preventDefault(); e.stopPropagation(); }
             }}
-            onClick={()=>onSelect(t.id)}
+            onClick={()=>onToggle(t.id)}
             onDoubleClick={()=>onEdit(t)}
-            title="Glisser pour réordonner · double-clic pour modifier"
+            title="Cliquer pour filtrer · glisser pour réordonner · double-clic pour modifier"
           >
-            <span className="dot" style={{background:t.color}}></span>
+            {isMaster(t)
+              ? <span className="master-mark" style={{background:t.color, width:8, height:8}}></span>
+              : <span className="dot" style={{background:t.color}}></span>}
             <span>{t.name}</span>
           </button>
         );
@@ -640,9 +663,15 @@ function TrackerRail({ trackers, selected, onSelect, onAdd, onEdit, onReorder })
    Day view — fill / edit every tracker for one given day.
    Used by the "Jour" tab (today) and the Historique calendar (any day).
    ============================================================ */
-function TodayView({ trackers, masters = [], trackerById = {}, entries, onAddEntry, onDeleteEntry, onReorder }){
+function TodayView({ trackers, masters = [], trackerById = {}, entries, filterIds, onAddEntry, onDeleteEntry, onReorder }){
   const todayTs = startOfDay(Date.now());
   const dk = dayKey(todayTs);
+
+  if (filterIds){
+    const set = new Set(filterIds);
+    trackers = trackers.filter(t => set.has(t.id));
+    masters = masters.filter(m => set.has(m.id));
+  }
 
   if (!trackers.length && !masters.length){
     return (
@@ -892,7 +921,7 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, dayTs, isToda
 /* ============================================================
    Log view — the entries, split into "Jour" (today) and "Historique"
    ============================================================ */
-function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry, onEditEntry, onReorder }){
+function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder }){
   return (
     <div>
       <div className="log-subnav">
@@ -905,14 +934,14 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, se
         </span>
       </div>
       {logSub === 'jour' ? (
-        <TodayView trackers={trackers} masters={masters} trackerById={trackerById} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onReorder={onReorder} />
+        <TodayView trackers={trackers} masters={masters} trackerById={trackerById} entries={entries} filterIds={filterIds} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onReorder={onReorder} />
       ) : (
         <HistoryView
           trackers={trackers}
           masters={masters}
           trackerById={trackerById}
           entries={entries}
-          selectedTracker={selectedTracker}
+          filterIds={filterIds}
           onAddEntry={onAddEntry}
           onDeleteEntry={onDeleteEntry}
           onEditEntry={onEditEntry}
@@ -926,15 +955,17 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, se
 /* ============================================================
    History — a month calendar to open any day and edit its entries
    ============================================================ */
-function HistoryView({ trackers, masters = [], trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry, onEditEntry, onReorder }){
+function HistoryView({ trackers, masters = [], trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder }){
   const [monthTs, setMonthTs] = useState(() => startOfMonth(Date.now()));
   const [selectedDay, setSelectedDay] = useState(() => startOfDay(Date.now()));
 
-  // Respect the tracker filter rail: narrow everything to the selected tracker.
-  const viewTrackers = selectedTracker ? trackers.filter(t => t.id === selectedTracker) : trackers;
+  // Respect the tracker filter rail: narrow everything to the selected set.
+  const filterSet = useMemo(() => filterIds ? new Set(filterIds) : null, [filterIds]);
+  const viewTrackers = filterSet ? trackers.filter(t => filterSet.has(t.id)) : trackers;
+  const viewMasters = filterSet ? masters.filter(m => filterSet.has(m.id)) : masters;
   const viewEntries = useMemo(
-    () => selectedTracker ? entries.filter(e => e.trackerId === selectedTracker) : entries,
-    [entries, selectedTracker]
+    () => filterSet ? entries.filter(e => filterSet.has(e.trackerId)) : entries,
+    [entries, filterSet]
   );
 
   const selKey = dayKey(selectedDay);
@@ -965,8 +996,8 @@ function HistoryView({ trackers, masters = [], trackerById, entries, selectedTra
           {!isToday && <button className="de-today" onClick={goToday}>→ Aujourd'hui</button>}
         </div>
 
-        {masters.length > 0 && (
-          <MasterStrips masters={masters} trackerById={trackerById} entries={entries} dayTs={selectedDay} onReorder={onReorder} />
+        {viewMasters.length > 0 && (
+          <MasterStrips masters={viewMasters} trackerById={trackerById} entries={entries} dayTs={selectedDay} onReorder={onReorder} />
         )}
 
         {viewTrackers.length === 0 ? (
@@ -1074,16 +1105,18 @@ function MonthCalendar({ monthTs, onPrev, onNext, entries, selectedKey, onSelect
 /* ============================================================
    Trackers view — manage trackers and edit their properties
    ============================================================ */
-function TrackersView({ trackers, entries, onAdd, onEdit, onArchive, onUnarchive, onReorder }){
+function TrackersView({ trackers, entries, filterIds, onAdd, onEdit, onArchive, onUnarchive, onReorder }){
   const countByTracker = useMemo(() => {
     const m = {};
     for (const e of entries) m[e.trackerId] = (m[e.trackerId] || 0) + 1;
     return m;
   }, [entries]);
 
-  const byId = useMemo(() => Object.fromEntries(trackers.map(t => [t.id, t])), [trackers]);
-  const active = trackers.filter(t => !t.archived);
-  const archived = trackers.filter(t => t.archived);
+  const filterSet = filterIds ? new Set(filterIds) : null;
+  const shown = filterSet ? trackers.filter(t => filterSet.has(t.id)) : trackers;
+  const byId = useMemo(() => Object.fromEntries(shown.map(t => [t.id, t])), [shown]);
+  const active = shown.filter(t => !t.archived);
+  const archived = shown.filter(t => t.archived);
   const activeIds = useMemo(() => active.map(t => t.id), [active]);
   const archivedIds = useMemo(() => archived.map(t => t.id), [archived]);
   const activeDrag = useDragReorder(activeIds, onReorder);
@@ -1168,20 +1201,18 @@ function TrackersView({ trackers, entries, onAdd, onEdit, onArchive, onUnarchive
 /* ============================================================
    Vues view (charts / heatmap / grid)
    ============================================================ */
-function VuesView({ trackers, trackerById, entries, selectedTracker, onReorder }){
+function VuesView({ trackers, trackerById, entries, filterIds, onReorder }){
   const [mode, setMode] = useState('chart'); // chart | calendar | summary
   const [range, setRange] = useState(30);    // days
   const [layout, setLayout] = useState('list'); // list | grid | master | average
 
-  const visibleTrackers = selectedTracker
-    ? trackers.filter(t => t.id === selectedTracker)
-    : trackers;
+  const filterSet = filterIds ? new Set(filterIds) : null;
+  const visibleTrackers = filterSet ? trackers.filter(t => filterSet.has(t.id)) : trackers;
   // Data trackers only — the overlay/heatmap/grid modes need real entries,
-  // so computed masters are handled separately (their own card).
+  // so computed masters are handled separately (their own card). The filter
+  // now narrows the Master overlay and Tendance too.
   const dataVisible = visibleTrackers.filter(t => !isMaster(t));
-
-  // When a single tracker is selected, master/average don't make sense
-  const effectiveLayout = (selectedTracker && (layout === 'master' || layout === 'average')) ? 'list' : layout;
+  const effectiveLayout = layout;
 
   const visibleById = useMemo(() => Object.fromEntries(visibleTrackers.map(t => [t.id, t])), [visibleTrackers]);
   const visibleIds = useMemo(() => visibleTrackers.map(t => t.id), [visibleTrackers]);
@@ -1215,11 +1246,11 @@ function VuesView({ trackers, trackerById, entries, selectedTracker, onReorder }
                 <svg width="12" height="10" viewBox="0 0 12 10"><rect x="0" y="0" width="5" height="4.5" fill="currentColor"/><rect x="7" y="0" width="5" height="4.5" fill="currentColor"/><rect x="0" y="5.5" width="5" height="4.5" fill="currentColor"/><rect x="7" y="5.5" width="5" height="4.5" fill="currentColor"/></svg>
                 Grille
               </button>
-              <button className={effectiveLayout==='master'?'on':''} onClick={()=>setLayout('master')} disabled={!!selectedTracker} title="Toutes les séries superposées, normalisées 0–100">
+              <button className={effectiveLayout==='master'?'on':''} onClick={()=>setLayout('master')} title="Les séries sélectionnées superposées, normalisées 0–100">
                 <svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="currentColor" strokeWidth="1"><path d="M0 7 L3 4 L6 6 L9 2 L12 5"/><path d="M0 5 L3 7 L6 3 L9 5 L12 3" opacity="0.5"/></svg>
                 Master
               </button>
-              <button className={effectiveLayout==='average'?'on':''} onClick={()=>setLayout('average')} disabled={!!selectedTracker} title="Moyenne normalisée de tous les trackers">
+              <button className={effectiveLayout==='average'?'on':''} onClick={()=>setLayout('average')} title="Moyenne normalisée des trackers sélectionnés">
                 <svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M0 6 Q3 3 6 5 T12 4"/></svg>
                 Tendance
               </button>
