@@ -199,8 +199,28 @@ function mergeSubOrder(fullIds, newSubOrder){
   return merged;
 }
 
-// Pointer-based (mouse + touch) reorder by nearest-center: works for
-// vertical lists, horizontal pill rows, and wrapping grids alike.
+// A single highlight bar shared by every reorderable list. It is mounted once
+// (<DropIndicatorMount/> in App) and parked, imperatively, in the gap where the
+// dragged card would land. Using one fixed-position element keeps positioning in
+// viewport coordinates (matches pointer clientX/Y) regardless of scroll/layout.
+const dropIndicator = { el: null };
+function DropIndicatorMount(){
+  const ref = useRef(null);
+  useEffect(() => {
+    dropIndicator.el = ref.current;
+    return () => { dropIndicator.el = null; };
+  }, []);
+  return <div ref={ref} className="drop-indicator" aria-hidden="true" />;
+}
+function hideDropIndicator(){ if (dropIndicator.el) dropIndicator.el.style.display = 'none'; }
+// Two rects sit on the same visual row when they overlap vertically.
+function sameRow(a, b){ return a.top < b.bottom && b.top < a.bottom; }
+
+// Pointer-based (mouse + touch) reorder. While dragging, NOTHING in the list
+// moves: the picked card simply follows the finger/cursor (imperative transform)
+// and a highlight bar marks the target gap. The reorder is committed once, on
+// drop. This avoids re-rendering the list on every move — which is what used to
+// replay the page-load entrance animation and make the dragged card vanish.
 function useDragReorder(ids, onReorder){
   const idsKey = ids.join('|');
   const [order, setOrder] = useState(ids);
@@ -209,6 +229,8 @@ function useDragReorder(ids, onReorder){
   const orderRef = useRef(order);
   const dragIdRef = useRef(null);
   const movedRef = useRef(false);
+  const startRef = useRef({ x: 0, y: 0 });
+  const insRef = useRef(0);
   const onReorderRef = useRef(onReorder);
   onReorderRef.current = onReorder;
 
@@ -232,26 +254,62 @@ function useDragReorder(ids, onReorder){
     const id = dragIdRef.current;
     if (id == null) return;
     movedRef.current = true;
-    const list = orderRef.current;
+    if (e.cancelable) e.preventDefault();
     const px = e.clientX, py = e.clientY;
-    let bestIdx = -1, bestDist = Infinity;
-    list.forEach((otherId, i) => {
-      if (otherId === id) return;
-      const node = nodesRef.current[otherId];
-      if (!node) return;
-      const r = node.getBoundingClientRect();
+
+    // The dragged card tracks the pointer; everything else stays put.
+    const dragNode = nodesRef.current[id];
+    if (dragNode){
+      dragNode.style.transform =
+        `translate(${px - startRef.current.x}px, ${py - startRef.current.y}px) scale(1.03)`;
+    }
+
+    // Where would it drop? Insertion index in reading order (row by row, L→R).
+    const others = orderRef.current
+      .filter(x => x !== id)
+      .map(x => { const n = nodesRef.current[x]; return { r: n && n.getBoundingClientRect() }; })
+      .filter(o => o.r);
+    if (!others.length){ insRef.current = 0; hideDropIndicator(); return; }
+
+    let ins = others.length;
+    for (let i = 0; i < others.length; i++){
+      const r = others[i].r;
       const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
-      const d = (cx - px) * (cx - px) + (cy - py) * (cy - py);
-      if (d < bestDist){ bestDist = d; bestIdx = i; }
-    });
-    if (bestIdx === -1) return;
-    const curIdx = list.indexOf(id);
-    if (curIdx === -1 || curIdx === bestIdx) return;
-    const next = list.slice();
-    next.splice(curIdx, 1);
-    next.splice(bestIdx, 0, id);
-    orderRef.current = next;
-    setOrder(next);
+      const rowTol = r.height * 0.5;
+      if ((py < cy - rowTol) || (Math.abs(py - cy) <= rowTol && px < cx)){ ins = i; break; }
+    }
+    insRef.current = ins;
+
+    // Park the highlight bar in that gap (viewport coords).
+    const el = dropIndicator.el;
+    if (!el) return;
+    const T = 3, G = 7; // bar thickness, offset at the list ends
+    let bar;
+    if (ins > 0 && ins < others.length){
+      const a = others[ins - 1].r, b = others[ins].r;
+      if (sameRow(a, b)){
+        const top = Math.min(a.top, b.top), bot = Math.max(a.bottom, b.bottom);
+        bar = { left: (a.right + b.left) / 2 - T / 2, top, width: T, height: bot - top };
+      } else {
+        const left = Math.min(a.left, b.left), right = Math.max(a.right, b.right);
+        bar = { left, top: (a.bottom + b.top) / 2 - T / 2, width: right - left, height: T };
+      }
+    } else if (ins === 0){
+      const b = others[0].r;
+      const multi = others.some((o, i) => i !== 0 && sameRow(o.r, b) && o.r.left > b.left);
+      bar = multi ? { left: b.left - G - T / 2, top: b.top, width: T, height: b.height }
+                  : { left: b.left, top: b.top - G - T / 2, width: b.width, height: T };
+    } else {
+      const a = others[others.length - 1].r;
+      const multi = others.some((o, i) => i !== others.length - 1 && sameRow(o.r, a) && o.r.left < a.left);
+      bar = multi ? { left: a.right + G - T / 2, top: a.top, width: T, height: a.height }
+                  : { left: a.left, top: a.bottom + G - T / 2, width: a.width, height: T };
+    }
+    el.style.display = 'block';
+    el.style.left = bar.left + 'px';
+    el.style.top = bar.top + 'px';
+    el.style.width = bar.width + 'px';
+    el.style.height = bar.height + 'px';
   }).current;
 
   const handleUp = useRef(() => {
@@ -259,8 +317,27 @@ function useDragReorder(ids, onReorder){
     window.removeEventListener('pointerup', handleUp);
     window.removeEventListener('pointercancel', handleUp);
     document.body.classList.remove('dragging-reorder');
-    if (dragIdRef.current != null && movedRef.current){
-      onReorderRef.current(orderRef.current);
+    hideDropIndicator();
+
+    const id = dragIdRef.current;
+    const dragNode = id != null ? nodesRef.current[id] : null;
+    if (dragNode) dragNode.style.transform = '';
+
+    if (id != null && movedRef.current){
+      const others = orderRef.current.filter(x => x !== id);
+      const ins = Math.max(0, Math.min(insRef.current, others.length));
+      const next = others.slice();
+      next.splice(ins, 0, id);
+      const changed = next.some((x, i) => x !== orderRef.current[i]);
+      if (changed){
+        // The commit reflows the list; suppress the entrance animation so the
+        // reordered cards don't replay the page-load "riseIn".
+        document.body.classList.add('reordering');
+        setTimeout(() => document.body.classList.remove('reordering'), 400);
+        orderRef.current = next;
+        setOrder(next);
+        onReorderRef.current(next);
+      }
     }
     dragIdRef.current = null;
     movedRef.current = false;
@@ -269,12 +346,14 @@ function useDragReorder(ids, onReorder){
 
   const startDrag = (id) => (e) => {
     if (e.button != null && e.button !== 0) return;
-    e.preventDefault();
+    if (e.cancelable) e.preventDefault();
     dragIdRef.current = id;
     movedRef.current = false;
+    startRef.current = { x: e.clientX, y: e.clientY };
+    insRef.current = Math.max(0, orderRef.current.indexOf(id));
     setDragId(id);
     document.body.classList.add('dragging-reorder');
-    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointermove', handleMove, { passive: false });
     window.addEventListener('pointerup', handleUp);
     window.addEventListener('pointercancel', handleUp);
   };
@@ -507,6 +586,7 @@ function App({ session }){
         />
       )}
       {pwOpen && <PasswordModal onClose={()=>setPwOpen(false)} />}
+      <DropIndicatorMount />
     </div>
   );
 }

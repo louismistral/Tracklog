@@ -301,9 +301,22 @@
   .drag-handle:hover{color:var(--ink);background:var(--bg-3)}
   .drag-handle svg circle{fill:currentColor}
   .drag-handle.dragging{cursor:grabbing;color:var(--accent)}
-  .dragging{opacity:0.5;box-shadow:0 0 0 2px var(--accent) inset !important;z-index:5;cursor:grabbing}
+  /* The dragged card stays fully visible and floats above the rest while it
+     follows the pointer (transform applied inline). No opacity, no transition
+     so it tracks the finger 1:1. */
+  .dragging{z-index:1000 !important;cursor:grabbing;transition:none !important;animation:none !important;
+            box-shadow:0 22px 46px -14px rgba(0,0,0,.7),0 0 0 1px var(--accent) !important}
+  .dragging:hover{transform:none}
   body.dragging-reorder{cursor:grabbing}
   body.dragging-reorder *{user-select:none !important}
+  /* The highlight bar parked in the target gap (positioned in JS, viewport coords). */
+  .drop-indicator{position:fixed;display:none;z-index:999;pointer-events:none;
+                  background:var(--accent);border-radius:3px;
+                  box-shadow:0 0 10px 1px rgba(226,84,47,.75)}
+  /* On commit the list reflows into its new order — keep the entrance
+     animation from replaying on the cards that shifted. */
+  body.reordering .today-card,body.reordering .tk-card,body.reordering .chart-card,
+  body.reordering .gv-card,body.reordering .master-strip,body.reordering .pill{animation:none !important}
   .pill{cursor:grab;touch-action:none}
   .pill.add{cursor:pointer}
   .pill.dragging{cursor:grabbing}
@@ -521,6 +534,6 @@
 })();
 </script>
 
-<script type="text/babel" src="app.jsx?v=16"></script>
+<script type="text/babel" src="app.jsx?v=17"></script>
 </body>
 </html>
