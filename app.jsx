@@ -65,10 +65,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function trackerFromRow(r){
-  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, color:r.color, createdAt:r.created_at };
+  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
 }
 function trackerToRow(t, userId){
-  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, color:t.color, created_at:t.createdAt };
+  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
 }
 function entryFromRow(r){
   return { id:r.id, trackerId:r.tracker_id, value:r.value, note:r.note || '', ts:r.ts };
@@ -176,6 +176,124 @@ function startOfMonth(ts){ const d = new Date(ts); return new Date(d.getFullYear
 function addMonths(ts, n){ const d = new Date(ts); return new Date(d.getFullYear(), d.getMonth()+n, 1).getTime(); }
 
 /* ============================================================
+   Drag-to-reorder — like rearranging apps on a phone home screen.
+   ------------------------------------------------------------
+   Trackers carry a single global `order`. Any list here only ever shows a
+   subset (daily-only, archived-only, the filter rail…), so a reorder inside
+   a subset is spliced back into the full order in place — untouched
+   trackers elsewhere never move. See mergeSubOrder / useDragReorder below,
+   reused by every reorderable list (rail pills, day cards, tracker cards,
+   master strips, chart cards).
+   ============================================================ */
+function mergeSubOrder(fullIds, newSubOrder){
+  const subSet = new Set(newSubOrder);
+  const rest = [];
+  let insertAt = -1;
+  fullIds.forEach((id) => {
+    if (subSet.has(id)){ if (insertAt === -1) insertAt = rest.length; }
+    else rest.push(id);
+  });
+  if (insertAt === -1) insertAt = rest.length;
+  const merged = rest.slice();
+  merged.splice(insertAt, 0, ...newSubOrder);
+  return merged;
+}
+
+// Pointer-based (mouse + touch) reorder by nearest-center: works for
+// vertical lists, horizontal pill rows, and wrapping grids alike.
+function useDragReorder(ids, onReorder){
+  const idsKey = ids.join('|');
+  const [order, setOrder] = useState(ids);
+  const [dragId, setDragId] = useState(null);
+  const nodesRef = useRef({});
+  const orderRef = useRef(order);
+  const dragIdRef = useRef(null);
+  const movedRef = useRef(false);
+  const onReorderRef = useRef(onReorder);
+  onReorderRef.current = onReorder;
+
+  useEffect(() => {
+    setOrder(prev => {
+      const idsSet = new Set(ids);
+      const kept = prev.filter(id => idsSet.has(id));
+      const added = ids.filter(id => !kept.includes(id));
+      const next = [...kept, ...added];
+      orderRef.current = next;
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey]);
+
+  const setNodeRef = (id) => (el) => {
+    if (el) nodesRef.current[id] = el; else delete nodesRef.current[id];
+  };
+
+  const handleMove = useRef((e) => {
+    const id = dragIdRef.current;
+    if (id == null) return;
+    movedRef.current = true;
+    const list = orderRef.current;
+    const px = e.clientX, py = e.clientY;
+    let bestIdx = -1, bestDist = Infinity;
+    list.forEach((otherId, i) => {
+      if (otherId === id) return;
+      const node = nodesRef.current[otherId];
+      if (!node) return;
+      const r = node.getBoundingClientRect();
+      const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
+      const d = (cx - px) * (cx - px) + (cy - py) * (cy - py);
+      if (d < bestDist){ bestDist = d; bestIdx = i; }
+    });
+    if (bestIdx === -1) return;
+    const curIdx = list.indexOf(id);
+    if (curIdx === -1 || curIdx === bestIdx) return;
+    const next = list.slice();
+    next.splice(curIdx, 1);
+    next.splice(bestIdx, 0, id);
+    orderRef.current = next;
+    setOrder(next);
+  }).current;
+
+  const handleUp = useRef(() => {
+    window.removeEventListener('pointermove', handleMove);
+    window.removeEventListener('pointerup', handleUp);
+    window.removeEventListener('pointercancel', handleUp);
+    document.body.classList.remove('dragging-reorder');
+    if (dragIdRef.current != null && movedRef.current){
+      onReorderRef.current(orderRef.current);
+    }
+    dragIdRef.current = null;
+    movedRef.current = false;
+    setDragId(null);
+  }).current;
+
+  const startDrag = (id) => (e) => {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    dragIdRef.current = id;
+    movedRef.current = false;
+    setDragId(id);
+    document.body.classList.add('dragging-reorder');
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
+  };
+
+  return { order, dragId, setNodeRef, startDrag };
+}
+
+// Small grip handle that starts a drag. Kept separate from the rest of a
+// card so it never steals clicks from buttons/inputs inside it.
+function DragHandle({ onPointerDown, dragging }){
+  return (
+    <span className={`drag-handle ${dragging?'dragging':''}`} onPointerDown={onPointerDown} aria-label="Réordonner" title="Glisser pour réordonner">
+      <svg width="10" height="16" viewBox="0 0 10 16"><circle cx="2.5" cy="2.5" r="1.4"/><circle cx="7.5" cy="2.5" r="1.4"/><circle cx="2.5" cy="8" r="1.4"/><circle cx="7.5" cy="8" r="1.4"/><circle cx="2.5" cy="13.5" r="1.4"/><circle cx="7.5" cy="13.5" r="1.4"/></svg>
+    </span>
+  );
+}
+
+
+/* ============================================================
    App
    ============================================================ */
 
@@ -195,7 +313,7 @@ function App({ session }){
   useEffect(() => {
     (async () => {
       const [{ data: tr, error: e1 }, { data: en, error: e2 }] = await Promise.all([
-        supabase.from('trackers').select('*').order('created_at', { ascending: true }),
+        supabase.from('trackers').select('*').order('order_index', { ascending: true }),
         supabase.from('entries').select('*').order('ts', { ascending: false }),
       ]);
       if (!e1 && tr) setTrackers(tr.map(trackerFromRow));
@@ -238,7 +356,8 @@ function App({ session }){
     if (!error) setEntries(s => s.map(e => e.id===id ? updated : e));
   };
   const addTracker = async (t) => {
-    const tracker = { id: uid('t_'), createdAt: Date.now(), ...t };
+    const nextOrder = trackers.length ? Math.max(...trackers.map(x => x.order || 0)) + 1 : 0;
+    const tracker = { id: uid('t_'), createdAt: Date.now(), order: nextOrder, ...t };
     const { error } = await supabase.from('trackers').insert(trackerToRow(tracker, userId));
     if (!error){ setTrackers(s => [...s, tracker]); setSelectedTracker(tracker.id); }
   };
@@ -263,6 +382,20 @@ function App({ session }){
     setSelectedTracker(prev => prev === id ? null : prev);
   };
   const unarchiveTracker = (id) => updateTracker(id, { archived: false, endDate: null });
+
+  // Reorder: `newSubOrder` is the freshly dragged order of a *subset* of
+  // trackers (a filter rail, a day-card group, one grid…). It's spliced
+  // back into the full global order so every other view — and every other
+  // tab — stays in sync without needing its own drag handles.
+  const reorderTrackers = (newSubOrder) => {
+    const fullIds = trackers.map(t => t.id);
+    const merged = mergeSubOrder(fullIds, newSubOrder);
+    const orderMap = Object.fromEntries(merged.map((id, i) => [id, i]));
+    const changed = trackers.filter(t => orderMap[t.id] !== t.order);
+    if (!changed.length) return;
+    setTrackers(s => s.map(t => ({ ...t, order: orderMap[t.id] })).sort((a,b) => a.order - b.order));
+    Promise.all(changed.map(t => supabase.from('trackers').update({ order_index: orderMap[t.id] }).eq('id', t.id)));
+  };
 
   if (loading){
     return <div className="empty"><span className="em-serif">Chargement…</span></div>;
@@ -304,6 +437,7 @@ function App({ session }){
           onSelect={setSelectedTracker}
           onAdd={()=>setNewTrackerOpen(true)}
           onEdit={(t)=>setEditTracker(t)}
+          onReorder={reorderTrackers}
         />
       )}
 
@@ -319,6 +453,7 @@ function App({ session }){
           onAddEntry={addEntry}
           onDeleteEntry={deleteEntry}
           onEditEntry={(e)=>setEditEntry(e)}
+          onReorder={reorderTrackers}
         />
       ) : tab === 'trackers' ? (
         <TrackersView
@@ -328,6 +463,7 @@ function App({ session }){
           onEdit={(t)=>setEditTracker(t)}
           onArchive={archiveTracker}
           onUnarchive={unarchiveTracker}
+          onReorder={reorderTrackers}
         />
       ) : (
         <VuesView
@@ -335,6 +471,7 @@ function App({ session }){
           trackerById={trackerById}
           entries={entries}
           selectedTracker={selectedTracker}
+          onReorder={reorderTrackers}
         />
       )}
 
@@ -377,7 +514,12 @@ function App({ session }){
 /* ============================================================
    Tracker rail (selectable pills)
    ============================================================ */
-function TrackerRail({ trackers, selected, onSelect, onAdd, onEdit }){
+function TrackerRail({ trackers, selected, onSelect, onAdd, onEdit, onReorder }){
+  const byId = useMemo(() => Object.fromEntries(trackers.map(t => [t.id, t])), [trackers]);
+  const ids = useMemo(() => trackers.map(t => t.id), [trackers]);
+  const { order, dragId, startDrag, setNodeRef } = useDragReorder(ids, onReorder);
+  const dragStartRef = useRef(null);
+
   return (
     <div className="rail">
       <button
@@ -386,18 +528,28 @@ function TrackerRail({ trackers, selected, onSelect, onAdd, onEdit }){
       >
         <span style={{fontSize:13}}>Tout</span>
       </button>
-      {trackers.map(t => (
-        <button
-          key={t.id}
-          className={`pill ${selected===t.id?'active':''}`}
-          onClick={()=>onSelect(t.id)}
-          onDoubleClick={()=>onEdit(t)}
-          title="Double-clic pour modifier"
-        >
-          <span className="dot" style={{background:t.color}}></span>
-          <span>{t.name}</span>
-        </button>
-      ))}
+      {order.map(id => {
+        const t = byId[id];
+        if (!t) return null;
+        return (
+          <button
+            key={t.id}
+            ref={setNodeRef(t.id)}
+            className={`pill ${selected===t.id?'active':''} ${dragId===t.id?'dragging':''}`}
+            onPointerDown={(e)=>{ dragStartRef.current = { x:e.clientX, y:e.clientY }; startDrag(t.id)(e); }}
+            onClickCapture={(e)=>{
+              const s = dragStartRef.current;
+              if (s && (Math.abs(e.clientX-s.x) > 6 || Math.abs(e.clientY-s.y) > 6)){ e.preventDefault(); e.stopPropagation(); }
+            }}
+            onClick={()=>onSelect(t.id)}
+            onDoubleClick={()=>onEdit(t)}
+            title="Glisser pour réordonner · double-clic pour modifier"
+          >
+            <span className="dot" style={{background:t.color}}></span>
+            <span>{t.name}</span>
+          </button>
+        );
+      })}
       <button className="pill add" onClick={onAdd}>＋ Nouveau tracker</button>
     </div>
   );
@@ -407,7 +559,7 @@ function TrackerRail({ trackers, selected, onSelect, onAdd, onEdit }){
    Day view — fill / edit every tracker for one given day.
    Used by the "Jour" tab (today) and the Historique calendar (any day).
    ============================================================ */
-function TodayView({ trackers, masters = [], trackerById = {}, entries, onAddEntry, onDeleteEntry }){
+function TodayView({ trackers, masters = [], trackerById = {}, entries, onAddEntry, onDeleteEntry, onReorder }){
   const todayTs = startOfDay(Date.now());
   const dk = dayKey(todayTs);
 
@@ -427,9 +579,7 @@ function TodayView({ trackers, masters = [], trackerById = {}, entries, onAddEnt
   return (
     <div>
       {masters.length > 0 && (
-        <div className="master-strips">
-          {masters.map(m => <MasterStrip key={m.id} master={m} trackerById={trackerById} entries={entries} />)}
-        </div>
+        <MasterStrips masters={masters} trackerById={trackerById} entries={entries} onReorder={onReorder} />
       )}
       <div className="today-head">
         <p className="section-label" style={{textTransform:'capitalize',margin:0}}>{todayLabel}</p>
@@ -438,7 +588,7 @@ function TodayView({ trackers, masters = [], trackerById = {}, entries, onAddEnt
         )}
       </div>
       {trackers.length > 0
-        ? <DayGrid trackers={trackers} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} dayTs={todayTs} isToday={true} />
+        ? <DayGrid trackers={trackers} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} dayTs={todayTs} isToday={true} onReorder={onReorder} />
         : <div className="empty" style={{padding:'30px 0'}}><span className="em-serif">Aucun tracker à remplir.</span> Vos masters se calculent tout seuls.</div>}
     </div>
   );
@@ -446,8 +596,9 @@ function TodayView({ trackers, masters = [], trackerById = {}, entries, onAddEnt
 
 // Grid of one editable card per tracker, for the given day.
 // Trackers are split into two groups so daily ("une entrée/jour") and
-// multi-entry trackers don't get mixed in the same visual set.
-function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, dayTs, isToday }){
+// multi-entry trackers don't get mixed in the same visual set. Each group
+// is its own reorderable subset (see mergeSubOrder).
+function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, dayTs, isToday, onReorder }){
   const dk = dayKey(dayTs);
   const byTracker = useMemo(() => {
     const m = {};
@@ -458,40 +609,53 @@ function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, dayTs, isToday 
     return m;
   }, [entries, trackers, dk]);
 
+  const byId = useMemo(() => Object.fromEntries(trackers.map(t => [t.id, t])), [trackers]);
+  const dailyIds = useMemo(() => trackers.filter(t => t.daily).map(t => t.id), [trackers]);
+  const multiIds = useMemo(() => trackers.filter(t => !t.daily).map(t => t.id), [trackers]);
+  const dailyDrag = useDragReorder(dailyIds, onReorder);
+  const multiDrag = useDragReorder(multiIds, onReorder);
+
   if (!trackers.length){
     return <div className="empty"><span className="em-serif">Aucun tracker.</span></div>;
   }
 
-  const dailyTrackers = trackers.filter(t => t.daily);
-  const multiTrackers = trackers.filter(t => !t.daily);
-
-  const renderGrid = (list) => (
+  const renderGrid = (drag) => (
     <div className="today-grid">
-      {list.map(t => (
-        <DayCard key={t.id} tracker={t} dayEntries={byTracker[t.id] || []} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} dayTs={dayTs} isToday={isToday} />
-      ))}
+      {drag.order.map(id => {
+        const t = byId[id];
+        if (!t) return null;
+        return (
+          <DayCard
+            key={t.id} tracker={t} dayEntries={byTracker[t.id] || []}
+            onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} dayTs={dayTs} isToday={isToday}
+            containerRef={drag.setNodeRef(t.id)}
+            dragging={drag.dragId === t.id}
+            onDragStart={drag.startDrag(t.id)}
+          />
+        );
+      })}
     </div>
   );
 
-  if (!dailyTrackers.length || !multiTrackers.length){
-    return renderGrid(trackers);
+  if (!dailyIds.length || !multiIds.length){
+    return renderGrid(dailyIds.length ? dailyDrag : multiDrag);
   }
 
   return (
     <div className="day-groups">
       <div className="day-group">
         <p className="section-label">Quotidiens</p>
-        {renderGrid(dailyTrackers)}
+        {renderGrid(dailyDrag)}
       </div>
       <div className="day-group">
         <p className="section-label">Plusieurs par jour</p>
-        {renderGrid(multiTrackers)}
+        {renderGrid(multiDrag)}
       </div>
     </div>
   );
 }
 
-function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, dayTs, isToday }){
+function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, dayTs, isToday, containerRef, dragging, onDragStart }){
   const t = tracker;
   const daily = !!t.daily;
   const existing = daily && dayEntries.length ? dayEntries[0] : null;
@@ -573,8 +737,9 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, dayTs, isToda
   };
 
   return (
-    <div className={`today-card ${existing?'done':''} ${flash?'flash':''}`}>
+    <div ref={containerRef} className={`today-card ${existing?'done':''} ${flash?'flash':''} ${dragging?'dragging':''}`}>
       <div className="tc-head">
+        {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
         <div className="tc-name"><span className="dot" style={{background:t.color}}></span>{t.name}</div>
         {daily
           ? (existing
@@ -646,7 +811,7 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, dayTs, isToda
 /* ============================================================
    Log view — the entries, split into "Jour" (today) and "Historique"
    ============================================================ */
-function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry, onEditEntry }){
+function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry, onEditEntry, onReorder }){
   return (
     <div>
       <div className="log-subnav">
@@ -659,7 +824,7 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, se
         </span>
       </div>
       {logSub === 'jour' ? (
-        <TodayView trackers={trackers} masters={masters} trackerById={trackerById} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} />
+        <TodayView trackers={trackers} masters={masters} trackerById={trackerById} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onReorder={onReorder} />
       ) : (
         <HistoryView
           trackers={trackers}
@@ -669,6 +834,7 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, se
           onAddEntry={onAddEntry}
           onDeleteEntry={onDeleteEntry}
           onEditEntry={onEditEntry}
+          onReorder={onReorder}
         />
       )}
     </div>
@@ -678,7 +844,7 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, se
 /* ============================================================
    History — a month calendar to open any day and edit its entries
    ============================================================ */
-function HistoryView({ trackers, trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry, onEditEntry }){
+function HistoryView({ trackers, trackerById, entries, selectedTracker, onAddEntry, onDeleteEntry, onEditEntry, onReorder }){
   const [monthTs, setMonthTs] = useState(() => startOfMonth(Date.now()));
   const [selectedDay, setSelectedDay] = useState(() => startOfDay(Date.now()));
 
@@ -720,7 +886,7 @@ function HistoryView({ trackers, trackerById, entries, selectedTracker, onAddEnt
         {viewTrackers.length === 0 ? (
           <div className="empty"><span className="em-serif">Aucun tracker.</span> Créez-en un pour commencer.</div>
         ) : (
-          <DayGrid trackers={viewTrackers} entries={viewEntries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} dayTs={selectedDay} isToday={isToday} />
+          <DayGrid trackers={viewTrackers} entries={viewEntries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} dayTs={selectedDay} isToday={isToday} onReorder={onReorder} />
         )}
 
         {dayEntries.length > 0 && (
@@ -822,17 +988,22 @@ function MonthCalendar({ monthTs, onPrev, onNext, entries, selectedKey, onSelect
 /* ============================================================
    Trackers view — manage trackers and edit their properties
    ============================================================ */
-function TrackersView({ trackers, entries, onAdd, onEdit, onArchive, onUnarchive }){
+function TrackersView({ trackers, entries, onAdd, onEdit, onArchive, onUnarchive, onReorder }){
   const countByTracker = useMemo(() => {
     const m = {};
     for (const e of entries) m[e.trackerId] = (m[e.trackerId] || 0) + 1;
     return m;
   }, [entries]);
 
+  const byId = useMemo(() => Object.fromEntries(trackers.map(t => [t.id, t])), [trackers]);
   const active = trackers.filter(t => !t.archived);
   const archived = trackers.filter(t => t.archived);
+  const activeIds = useMemo(() => active.map(t => t.id), [active]);
+  const archivedIds = useMemo(() => archived.map(t => t.id), [archived]);
+  const activeDrag = useDragReorder(activeIds, onReorder);
+  const archivedDrag = useDragReorder(archivedIds, onReorder);
 
-  const card = (t) => {
+  const card = (t, drag) => {
     const typeLabel = isMaster(t) ? 'Master' : (TYPES.find(x => x.id === t.type)?.label || t.type);
     const chips = [];
     if (isMaster(t)){
@@ -851,9 +1022,10 @@ function TrackersView({ trackers, entries, onAdd, onEdit, onArchive, onUnarchive
     }
     const count = countByTracker[t.id] || 0;
     return (
-      <div className={`tk-card ${t.archived?'archived':''}`} key={t.id}>
+      <div ref={drag.setNodeRef(t.id)} className={`tk-card ${t.archived?'archived':''} ${drag.dragId===t.id?'dragging':''}`} key={t.id}>
         <div className="tk-info">
           <div className="tk-name">
+            <DragHandle onPointerDown={drag.startDrag(t.id)} dragging={drag.dragId===t.id} />
             {isMaster(t)
               ? <span className="master-mark" style={{background:t.color}}></span>
               : <span className="dot" style={{background:t.color}}></span>}
@@ -891,13 +1063,13 @@ function TrackersView({ trackers, entries, onAdd, onEdit, onArchive, onUnarchive
       ) : (
         <>
           <div className="trackers-grid">
-            {active.map(card)}
+            {activeDrag.order.map(id => byId[id] && card(byId[id], activeDrag))}
           </div>
           {archived.length > 0 && (
             <>
               <p className="section-label" style={{margin:'32px 0 16px'}}>Archivés · {archived.length}</p>
               <div className="trackers-grid">
-                {archived.map(card)}
+                {archivedDrag.order.map(id => byId[id] && card(byId[id], archivedDrag))}
               </div>
             </>
           )}
@@ -910,7 +1082,7 @@ function TrackersView({ trackers, entries, onAdd, onEdit, onArchive, onUnarchive
 /* ============================================================
    Vues view (charts / heatmap / grid)
    ============================================================ */
-function VuesView({ trackers, trackerById, entries, selectedTracker }){
+function VuesView({ trackers, trackerById, entries, selectedTracker, onReorder }){
   const [mode, setMode] = useState('chart'); // chart | calendar | summary
   const [range, setRange] = useState(30);    // days
   const [layout, setLayout] = useState('list'); // list | grid | master | average
@@ -924,6 +1096,10 @@ function VuesView({ trackers, trackerById, entries, selectedTracker }){
 
   // When a single tracker is selected, master/average don't make sense
   const effectiveLayout = (selectedTracker && (layout === 'master' || layout === 'average')) ? 'list' : layout;
+
+  const visibleById = useMemo(() => Object.fromEntries(visibleTrackers.map(t => [t.id, t])), [visibleTrackers]);
+  const visibleIds = useMemo(() => visibleTrackers.map(t => t.id), [visibleTrackers]);
+  const cardsDrag = useDragReorder(visibleIds, onReorder);
 
   return (
     <div>
@@ -964,19 +1140,25 @@ function VuesView({ trackers, trackerById, entries, selectedTracker }){
             </div>
           </div>
 
-          {effectiveLayout === 'list' && visibleTrackers.map(t => (
-            isMaster(t)
-              ? <MasterTrackerCard key={t.id} master={t} trackerById={trackerById} entries={entries} rangeDays={range} />
-              : <ChartCard key={t.id} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} />
-          ))}
+          {effectiveLayout === 'list' && cardsDrag.order.map(id => {
+            const t = visibleById[id];
+            if (!t) return null;
+            const dragProps = { containerRef: cardsDrag.setNodeRef(t.id), dragging: cardsDrag.dragId===t.id, onDragStart: cardsDrag.startDrag(t.id) };
+            return isMaster(t)
+              ? <MasterTrackerCard key={t.id} master={t} trackerById={trackerById} entries={entries} rangeDays={range} {...dragProps} />
+              : <ChartCard key={t.id} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} {...dragProps} />;
+          })}
 
           {effectiveLayout === 'grid' && (
             <div className="chart-grid-layout">
-              {visibleTrackers.map(t => (
-                isMaster(t)
-                  ? <MasterTrackerCard key={t.id} compact master={t} trackerById={trackerById} entries={entries} rangeDays={range} />
-                  : <ChartCard key={t.id} compact tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} />
-              ))}
+              {cardsDrag.order.map(id => {
+                const t = visibleById[id];
+                if (!t) return null;
+                const dragProps = { containerRef: cardsDrag.setNodeRef(t.id), dragging: cardsDrag.dragId===t.id, onDragStart: cardsDrag.startDrag(t.id) };
+                return isMaster(t)
+                  ? <MasterTrackerCard key={t.id} compact master={t} trackerById={trackerById} entries={entries} rangeDays={range} {...dragProps} />
+                  : <ChartCard key={t.id} compact tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} {...dragProps} />;
+              })}
             </div>
           )}
 
@@ -1009,7 +1191,7 @@ function VuesView({ trackers, trackerById, entries, selectedTracker }){
 /* ============================================================
    Chart card — line chart with axes
    ============================================================ */
-function ChartCard({ tracker, entries, rangeDays, compact = false }){
+function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef, dragging, onDragStart }){
   const now = Date.now();
   const start = now - rangeDays*86400000;
 
@@ -1108,9 +1290,12 @@ function ChartCard({ tracker, entries, rangeDays, compact = false }){
   const yTicks = Array.from({length:yTickCount},(_,i)=>yMin + (yMax-yMin)*i/(yTickCount-1));
 
   return (
-    <div className={`chart-card ${compact?'compact':''}`}>
+    <div ref={containerRef} className={`chart-card ${compact?'compact':''} ${dragging?'dragging':''}`}>
       <div className="chart-head">
-        <div className="name"><span className="dot" style={{background:tracker.color}}></span>{tracker.name}</div>
+        <div className="name">
+          {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
+          <span className="dot" style={{background:tracker.color}}></span>{tracker.name}
+        </div>
         <div className="stats">
           {compact ? (
             <div><span className="v">{latest != null ? fmtValue(tracker, latest) : '—'}</span></div>
@@ -1500,10 +1685,27 @@ function computeMasterSeries(master, members, entries, rangeDays){
 }
 
 /* ============================================================
-   Master strip — flat, read-only reading of a master's current
-   index (0–100), shown atop the "Jour" view.
+   Master strips — flat, read-only readings of each master's current
+   index (0–100), shown atop the "Jour" view. Reorderable among themselves.
    ============================================================ */
-function MasterStrip({ master, trackerById, entries }){
+function MasterStrips({ masters, trackerById, entries, onReorder }){
+  const byId = useMemo(() => Object.fromEntries(masters.map(m => [m.id, m])), [masters]);
+  const ids = useMemo(() => masters.map(m => m.id), [masters]);
+  const drag = useDragReorder(ids, onReorder);
+  return (
+    <div className="master-strips">
+      {drag.order.map(id => {
+        const m = byId[id];
+        if (!m) return null;
+        return (
+          <MasterStrip key={m.id} master={m} trackerById={trackerById} entries={entries}
+            containerRef={drag.setNodeRef(m.id)} dragging={drag.dragId === m.id} onDragStart={drag.startDrag(m.id)} />
+        );
+      })}
+    </div>
+  );
+}
+function MasterStrip({ master, trackerById, entries, containerRef, dragging, onDragStart }){
   const members = masterMembers(master, trackerById);
   const latest = useMemo(() => {
     const s = computeMasterSeries(master, members, entries, 30);
@@ -1512,8 +1714,9 @@ function MasterStrip({ master, trackerById, entries }){
   }, [master, members, entries]);
   const pct = latest != null ? Math.round(latest*100) : null;
   return (
-    <div className="master-strip">
+    <div ref={containerRef} className={`master-strip ${dragging?'dragging':''}`}>
       <div className="ms-head">
+        {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
         <span className="master-mark" style={{background:master.color}}></span>
         <span className="ms-name">{master.name}</span>
         <span className="master-tag">master</span>
@@ -1530,7 +1733,7 @@ function MasterStrip({ master, trackerById, entries }){
    Master tracker card — a saved index: average of the normalized
    performance of its chosen member trackers (0–100 per day).
    ============================================================ */
-function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = false }){
+function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = false, containerRef, dragging, onDragStart }){
   const members = masterMembers(master, trackerById);
 
   // Per-member normalized+filled series, then the master's own active window.
@@ -1568,9 +1771,10 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = 
   ] : [];
 
   return (
-    <div className={`chart-card ${compact?'compact':''}`}>
+    <div ref={containerRef} className={`chart-card ${compact?'compact':''} ${dragging?'dragging':''}`}>
       <div className="chart-head">
         <div className="name">
+          {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
           <span className="master-mark" style={{background:master.color}}></span>{master.name}
           <span className="master-tag">master</span>
         </div>
