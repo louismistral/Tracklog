@@ -65,10 +65,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function trackerFromRow(r){
-  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
+  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
 }
 function trackerToRow(t, userId){
-  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
+  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
 }
 function entryFromRow(r){
   return { id:r.id, trackerId:r.tracker_id, value:r.value, note:r.note || '', ts:r.ts };
@@ -147,6 +147,7 @@ function startOfDay(ts){ const d = new Date(ts); d.setHours(0,0,0,0); return d.g
    Dates are 'YYYY-MM-DD' strings so they compare lexicographically. */
 function trackerStartKey(t){ return t.startDate || (t.createdAt ? dayKey(t.createdAt) : null); }
 function trackerActiveOnKey(t, dk){
+  if (t.windowEnabled === false) return true; // window disabled → always counts
   const s = trackerStartKey(t);
   if (s && dk < s) return false;
   if (t.endDate && dk > t.endDate) return false;
@@ -2256,6 +2257,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
   const [daily, setDaily] = useState(!!tracker?.daily);
   const [aggregate, setAggregate] = useState(tracker?.aggregate || 'avg');
   const [multiple, setMultiple] = useState(!!tracker?.multiple);
+  const [windowEnabled, setWindowEnabled] = useState(tracker ? tracker.windowEnabled !== false : true);
   const [startDate, setStartDate] = useState(tracker?.startDate || dayKey(tracker?.createdAt || Date.now()));
   const [endDate, setEndDate] = useState(tracker?.endDate || '');
   const [color, setColor] = useState(tracker?.color || COLORS[1]);
@@ -2279,8 +2281,9 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
   const submit = () => {
     if (!canSave) return;
     const t = { name: name.trim(), color };
-    t.startDate = startDate || null;
-    t.endDate = endDate || null;
+    t.windowEnabled = windowEnabled;
+    t.startDate = windowEnabled ? (startDate || null) : null;
+    t.endDate = windowEnabled ? (endDate || null) : null;
     if (isMasterKind){
       t.type = 'master';
       t.members = members;
@@ -2444,24 +2447,31 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         )}
 
         <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:10,paddingTop:14}}>
-          <label style={{width:'auto',display:'inline-flex',alignItems:'center',gap:8}}>
-            Période d’activité
+          <label className="period-toggle" style={{width:'auto'}}>
+            <input type="checkbox" checked={windowEnabled} onChange={e=>setWindowEnabled(e.target.checked)}
+              style={{flex:'none',width:16,height:16,margin:0,accentColor:'var(--accent)',cursor:'pointer'}} />
+            <span>Période d’activité</span>
             <InfoBubble>
-              Ce tracker n’influence les graphes et moyennes qu’entre ces deux dates.
+              Cochée, ce tracker n’influence les graphes et moyennes qu’entre les deux dates.
               <span className="k"> Début</span> par défaut = jour de création (utile si vous ne l’utilisez qu’après quelques jours).
               Laissez <span className="k">Fin</span> vide tant qu’il est actif — l’archivage la renseigne automatiquement.
+              Décochée, le tracker compte <span className="k">tous les jours</span>, sans limite.
             </InfoBubble>
           </label>
-          <div className="period-row">
-            <div className="period-field">
-              <span>Début</span>
-              <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
+          {windowEnabled ? (
+            <div className="period-row">
+              <div className="period-field">
+                <span>Début</span>
+                <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
+              </div>
+              <div className="period-field">
+                <span>Fin</span>
+                <input type="date" value={endDate} min={startDate || undefined} onChange={e=>setEndDate(e.target.value)} />
+              </div>
             </div>
-            <div className="period-field">
-              <span>Fin</span>
-              <input type="date" value={endDate} min={startDate || undefined} onChange={e=>setEndDate(e.target.value)} />
-            </div>
-          </div>
+          ) : (
+            <span className="tc-empty-note">Ce tracker compte tous les jours, sans limite de période.</span>
+          )}
           {isEdit && (
             tracker.archived
               ? <button type="button" className="period-arch unarchive" onClick={onUnarchive}>Désarchiver ce tracker</button>

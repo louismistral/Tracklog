@@ -330,6 +330,8 @@
   .member.on .dot{outline:1px solid var(--bg);outline-offset:1px}
 
   /* Active period (dates + archive) */
+  .period-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+  .period-toggle input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;flex-shrink:0}
   .period-row{display:flex;gap:10px;width:100%}
   .period-field{flex:1;display:flex;flex-direction:column;gap:5px}
   .period-field span{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3)}
@@ -534,6 +536,6 @@
 })();
 </script>
 
-<script type="text/babel" src="app.jsx?v=18"></script>
+<script type="text/babel" src="app.jsx?v=19"></script>
 </body>
 </html>
