@@ -389,6 +389,7 @@ function App({ session }){
   // set intact (shown greyed) so it isn't lost.
   const [selectedIds, setSelectedIds] = useState([]);
   const [showAll, setShowAll] = useState(true);
+  const [railOpen, setRailOpen] = useState(true);
   const [newTrackerOpen, setNewTrackerOpen] = useState(false);
   const [editTracker, setEditTracker] = useState(null);
   const [editEntry, setEditEntry] = useState(null);
@@ -533,6 +534,8 @@ function App({ session }){
           onAdd={()=>setNewTrackerOpen(true)}
           onEdit={(t)=>setEditTracker(t)}
           onReorder={reorderTrackers}
+          open={railOpen}
+          onToggleOpen={()=>setRailOpen(v=>!v)}
         />
       )}
 
@@ -611,7 +614,7 @@ function App({ session }){
 /* ============================================================
    Tracker rail (selectable pills)
    ============================================================ */
-function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onToggleAll, onAdd, onEdit, onReorder }){
+function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onToggleAll, onAdd, onEdit, onReorder, open, onToggleOpen }){
   const byId = useMemo(() => Object.fromEntries(trackers.map(t => [t.id, t])), [trackers]);
   const ids = useMemo(() => trackers.map(t => t.id), [trackers]);
   const { order, dragId, startDrag, setNodeRef } = useDragReorder(ids, onReorder);
@@ -619,42 +622,51 @@ function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onTog
   const selSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   return (
-    <div className="rail">
-      <button
-        className={`pill ${!filterActive?'active':''}`}
-        onClick={onToggleAll}
-        title={selectedIds.length ? 'Tout afficher (garde votre sélection en mémoire)' : 'Tout afficher'}
-      >
-        <span style={{fontSize:13}}>Tout</span>
+    <div className="rail-wrap">
+      <button className={`rail-toggle ${open?'open':''}`} onClick={onToggleOpen} aria-expanded={open}>
+        <svg width="9" height="6" viewBox="0 0 9 6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M1 1L4.5 5L8 1"/></svg>
+        <span>Filtres</span>
+        {filterActive && <span className="rail-count">{selectedIds.length}</span>}
       </button>
-      {order.map(id => {
-        const t = byId[id];
-        if (!t) return null;
-        const selected = selSet.has(t.id);
-        // Selected + filtering = fully on. Selected + "Tout" = remembered (greyed).
-        const cls = selected ? (filterActive ? 'active' : 'dimmed') : '';
-        return (
+      {open && (
+        <div className="rail">
           <button
-            key={t.id}
-            ref={setNodeRef(t.id)}
-            className={`pill ${cls} ${dragId===t.id?'dragging':''}`}
-            onPointerDown={(e)=>{ dragStartRef.current = { x:e.clientX, y:e.clientY }; startDrag(t.id)(e); }}
-            onClickCapture={(e)=>{
-              const s = dragStartRef.current;
-              if (s && (Math.abs(e.clientX-s.x) > 6 || Math.abs(e.clientY-s.y) > 6)){ e.preventDefault(); e.stopPropagation(); }
-            }}
-            onClick={()=>onToggle(t.id)}
-            onDoubleClick={()=>onEdit(t)}
-            title="Cliquer pour filtrer · glisser pour réordonner · double-clic pour modifier"
+            className={`pill ${!filterActive?'active':''}`}
+            onClick={onToggleAll}
+            title={selectedIds.length ? 'Tout afficher (garde votre sélection en mémoire)' : 'Tout afficher'}
           >
-            {isMaster(t)
-              ? <span className="master-mark" style={{background:t.color, width:8, height:8}}></span>
-              : <span className="dot" style={{background:t.color}}></span>}
-            <span>{t.name}</span>
+            <span style={{fontSize:13}}>Tout</span>
           </button>
-        );
-      })}
-      <button className="pill add" onClick={onAdd}>＋ Nouveau tracker</button>
+          {order.map(id => {
+            const t = byId[id];
+            if (!t) return null;
+            const selected = selSet.has(t.id);
+            // Selected + filtering = fully on. Selected + "Tout" = remembered (greyed).
+            const cls = selected ? (filterActive ? 'active' : 'dimmed') : '';
+            return (
+              <button
+                key={t.id}
+                ref={setNodeRef(t.id)}
+                className={`pill ${cls} ${dragId===t.id?'dragging':''}`}
+                onPointerDown={(e)=>{ dragStartRef.current = { x:e.clientX, y:e.clientY }; startDrag(t.id)(e); }}
+                onClickCapture={(e)=>{
+                  const s = dragStartRef.current;
+                  if (s && (Math.abs(e.clientX-s.x) > 6 || Math.abs(e.clientY-s.y) > 6)){ e.preventDefault(); e.stopPropagation(); }
+                }}
+                onClick={()=>onToggle(t.id)}
+                onDoubleClick={()=>onEdit(t)}
+                title="Cliquer pour filtrer · glisser pour réordonner · double-clic pour modifier"
+              >
+                {isMaster(t)
+                  ? <span className="master-mark" style={{background:t.color, width:8, height:8}}></span>
+                  : <span className="dot" style={{background:t.color}}></span>}
+                <span>{t.name}</span>
+              </button>
+            );
+          })}
+          <button className="pill add" onClick={onAdd}>＋ Nouveau tracker</button>
+        </div>
+      )}
     </div>
   );
 }
