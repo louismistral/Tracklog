@@ -398,6 +398,26 @@
   .today-card .primary.sm{background:var(--accent);color:#fff;padding:8px 16px;border-radius:999px;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em;transition:background .3s}
   .today-card .primary.sm:hover{background:#f0613b}
   .today-card .primary.sm:disabled{opacity:0.3;cursor:not-allowed}
+  /* Multi tracker: the count badge toggles a compact, editable list of the day's entries */
+  .tc-badge.badge-btn{cursor:pointer;transition:color .3s,border-color .3s,background .3s}
+  .tc-badge.badge-btn::after{content:'▾';margin-left:5px;font-size:7px;display:inline-block;transition:transform .35s var(--ease)}
+  .tc-badge.badge-btn:hover{color:var(--ink-2);border-color:var(--ink-2)}
+  .tc-badge.badge-btn.open{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+  .tc-badge.badge-btn.open::after{transform:rotate(180deg)}
+  /* Mounted even when closed (for the transition); the negative margin cancels the
+     parent's 14px flex gap so a collapsed list leaves no empty space. */
+  .tc-log{display:flex;flex-direction:column;overflow:hidden;max-height:0;margin-top:-14px;transition:max-height .4s var(--ease),margin-top .4s var(--ease)}
+  .tc-log.open{max-height:min(60vh,420px);margin-top:0;overflow-y:auto}
+  .tc-log-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:baseline;padding:8px 2px;border-top:1px solid var(--line)}
+  .tc-log-row .t{font-family:"Geist Mono",monospace;font-size:10.5px;color:var(--ink-3);letter-spacing:0.03em;font-feature-settings:"tnum"}
+  .tc-log-row .v{font-family:"Geist Mono",monospace;font-size:13px;font-weight:500;text-align:right;font-feature-settings:"tnum"}
+  .tc-log-row .v .u{color:var(--ink-3);font-weight:400;font-size:11px;margin-left:2px}
+  .tc-log-actions{display:flex;gap:2px;opacity:0;transition:opacity .3s var(--ease)}
+  .tc-log-row:hover .tc-log-actions{opacity:1}
+  .tc-log-actions button{font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink-3);padding:3px 7px;border-radius:999px;transition:color .3s,background .3s}
+  .tc-log-actions button:hover{color:var(--ink);background:var(--bg-3)}
+  .tc-log-actions button.del:hover{color:var(--warn)}
+  @media (hover:none){ .tc-log-actions{opacity:1} }
 
   .log-subnav{display:flex;align-items:center;gap:22px;margin-bottom:26px}
   .log-subhint{font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.08em}
