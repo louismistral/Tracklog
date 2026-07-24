@@ -675,7 +675,7 @@ function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onTog
    Day view — fill / edit every tracker for one given day.
    Used by the "Jour" tab (today) and the Historique calendar (any day).
    ============================================================ */
-function TodayView({ trackers, masters = [], trackerById = {}, entries, filterIds, onAddEntry, onDeleteEntry, onReorder }){
+function TodayView({ trackers, masters = [], trackerById = {}, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder }){
   const todayTs = startOfDay(Date.now());
   const dk = dayKey(todayTs);
 
@@ -710,7 +710,7 @@ function TodayView({ trackers, masters = [], trackerById = {}, entries, filterId
         )}
       </div>
       {trackers.length > 0
-        ? <DayGrid trackers={trackers} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} dayTs={todayTs} isToday={true} onReorder={onReorder} />
+        ? <DayGrid trackers={trackers} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} dayTs={todayTs} isToday={true} onReorder={onReorder} />
         : <div className="empty" style={{padding:'30px 0'}}><span className="em-serif">Aucun tracker à remplir.</span> Vos masters se calculent tout seuls.</div>}
     </div>
   );
@@ -720,7 +720,7 @@ function TodayView({ trackers, masters = [], trackerById = {}, entries, filterId
 // Trackers are split into two groups so daily ("une entrée/jour") and
 // multi-entry trackers don't get mixed in the same visual set. Each group
 // is its own reorderable subset (see mergeSubOrder).
-function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, dayTs, isToday, onReorder }){
+function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, onReorder }){
   const dk = dayKey(dayTs);
   const byTracker = useMemo(() => {
     const m = {};
@@ -749,7 +749,7 @@ function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, dayTs, isToday,
         return (
           <DayCard
             key={t.id} tracker={t} dayEntries={byTracker[t.id] || []}
-            onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} dayTs={dayTs} isToday={isToday}
+            onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} dayTs={dayTs} isToday={isToday}
             containerRef={drag.setNodeRef(t.id)}
             dragging={drag.dragId === t.id}
             onDragStart={drag.startDrag(t.id)}
@@ -777,11 +777,18 @@ function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, dayTs, isToday,
   );
 }
 
-function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, dayTs, isToday, containerRef, dragging, onDragStart }){
+function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, containerRef, dragging, onDragStart }){
   const t = tracker;
   const daily = !!t.daily;
   const existing = daily && dayEntries.length ? dayEntries[0] : null;
   const count = dayEntries.length;
+  // Multi trackers can hold several entries a day; the badge reveals them,
+  // read chronologically, so you can re-read or edit them without leaving the card.
+  const [logOpen, setLogOpen] = useState(false);
+  const logEntries = useMemo(
+    () => [...dayEntries].sort((a,b) => a.ts - b.ts),
+    [dayEntries]
+  );
 
   const [num, setNum]     = useState('');
   const [scale, setScale] = useState(null);
@@ -867,8 +874,33 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, dayTs, isToda
           ? (existing
               ? <span className="tc-badge on">✓ noté</span>
               : <span className="tc-badge">1×/jour</span>)
-          : (count > 0 && <span className="tc-badge">{count}×</span>)}
+          : (count > 0 && (
+              <button
+                className={`tc-badge badge-btn ${logOpen?'open':''}`}
+                onClick={()=>setLogOpen(o=>!o)}
+                aria-expanded={logOpen}
+                title={logOpen ? 'Masquer les entrées' : 'Voir les entrées'}
+              >{count}×</button>
+            ))}
       </div>
+
+      {!daily && count > 0 && (
+        <div className={`tc-log ${logOpen?'open':''}`}>
+          {logEntries.map(e => {
+            const unit = fmtUnit(t);
+            return (
+              <div className="tc-log-row" key={e.id}>
+                <span className="t">{timeLabel(e.ts)}</span>
+                <span className="tc-log-actions">
+                  {onEditEntry && <button onClick={()=>onEditEntry(e)}>modifier</button>}
+                  <button className="del" onClick={()=>onDeleteEntry(e.id)}>suppr.</button>
+                </span>
+                <span className="v">{fmtValue(t, e.value)}{unit && <span className="u">{unit}</span>}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="tc-input">
         {t.type === 'number' && (
@@ -946,7 +978,7 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
         </span>
       </div>
       {logSub === 'jour' ? (
-        <TodayView trackers={trackers} masters={masters} trackerById={trackerById} entries={entries} filterIds={filterIds} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onReorder={onReorder} />
+        <TodayView trackers={trackers} masters={masters} trackerById={trackerById} entries={entries} filterIds={filterIds} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} onReorder={onReorder} />
       ) : (
         <HistoryView
           trackers={trackers}
@@ -1015,7 +1047,7 @@ function HistoryView({ trackers, masters = [], trackerById, entries, filterIds, 
         {viewTrackers.length === 0 ? (
           <div className="empty"><span className="em-serif">Aucun tracker.</span> Créez-en un pour commencer.</div>
         ) : (
-          <DayGrid trackers={viewTrackers} entries={viewEntries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} dayTs={selectedDay} isToday={isToday} onReorder={onReorder} />
+          <DayGrid trackers={viewTrackers} entries={viewEntries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} dayTs={selectedDay} isToday={isToday} onReorder={onReorder} />
         )}
 
         {dayEntries.length > 0 && (
