@@ -402,7 +402,9 @@
   .master-strips{display:flex;flex-direction:column;gap:8px;margin-bottom:24px}
   .master-strip{display:flex;align-items:center;gap:16px;background:var(--bg-2);border:1px solid var(--line);border-radius:999px;padding:12px 20px;transition:border-color .5s var(--ease)}
   .master-strip:hover{border-color:var(--line-2)}
-  .ms-head{display:flex;align-items:center;gap:9px;min-width:0;flex-shrink:0;width:200px}
+  /* Fixed so every strip's meter starts on the same line; widened to keep the name
+     readable now that a partial index also shows its coverage badge. */
+  .ms-head{display:flex;align-items:center;gap:9px;min-width:0;flex-shrink:0;width:250px}
   .ms-head .master-mark{width:9px;height:9px}
   .ms-name{font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .ms-meter{flex:1;height:6px;border-radius:999px;background:var(--bg-3);overflow:hidden;min-width:40px}
