@@ -367,7 +367,7 @@ function useDragReorder(ids, onReorder){
 function DragHandle({ onPointerDown, dragging }){
   return (
     <span className={`drag-handle ${dragging?'dragging':''}`} onPointerDown={onPointerDown} aria-label="Réordonner" title="Glisser pour réordonner">
-      <svg width="10" height="16" viewBox="0 0 10 16"><circle cx="2.5" cy="2.5" r="1.4"/><circle cx="7.5" cy="2.5" r="1.4"/><circle cx="2.5" cy="8" r="1.4"/><circle cx="7.5" cy="8" r="1.4"/><circle cx="2.5" cy="13.5" r="1.4"/><circle cx="7.5" cy="13.5" r="1.4"/></svg>
+      <svg width="9" height="15" viewBox="0 0 9 15"><circle cx="2.2" cy="2.2" r="1"/><circle cx="6.8" cy="2.2" r="1"/><circle cx="2.2" cy="7.5" r="1"/><circle cx="6.8" cy="7.5" r="1"/><circle cx="2.2" cy="12.8" r="1"/><circle cx="6.8" cy="12.8" r="1"/></svg>
     </span>
   );
 }
@@ -865,6 +865,56 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
     }
   };
 
+  const inputControls = (
+    <>
+      {t.type === 'number' && (
+        <div style={{display:'flex',alignItems:'baseline',gap:6}}>
+          <input type="number" step="any" value={num} onChange={e=>setNum(e.target.value)}
+            onKeyDown={e=>{ if(e.key==='Enter') submit(); }} placeholder="0" style={{width:'100%'}} />
+          {t.unit && <span className="unit">{t.unit}</span>}
+        </div>
+      )}
+      {t.type === 'scale' && (
+        <div className="scale">
+          {Array.from({length: t.scaleMax||5}).map((_,i)=>(
+            <button key={i} className={scale===i+1?'on':''} onClick={()=>setScale(i+1)}>{i+1}</button>
+          ))}
+        </div>
+      )}
+      {t.type === 'boolean' && (
+        <div className="bool">
+          <button className={bool===true?'on':''} onClick={()=>setBool(true)}>Oui</button>
+          <button className={bool===false?'on':''} onClick={()=>setBool(false)}>Non</button>
+        </div>
+      )}
+      {t.type === 'duration' && (
+        <div style={{display:'flex',gap:6,alignItems:'baseline'}}>
+          <input type="number" min="0" placeholder="0" value={durH} onChange={e=>setDurH(e.target.value)} style={{width:44,textAlign:'right'}} />
+          <span className="unit">h</span>
+          <input type="number" min="0" max="59" placeholder="00" value={durM} onChange={e=>setDurM(e.target.value)} style={{width:44,textAlign:'right'}} />
+          <span className="unit">min</span>
+        </div>
+      )}
+      {t.type === 'choice' && (
+        (t.choices && t.choices.length) ? (
+          <div className="choices">
+            {t.choices.map(opt => {
+              const active = t.multiple ? (Array.isArray(choice) && choice.includes(opt)) : choice === opt;
+              return (
+                <button key={opt} className={active?'on':''} onClick={()=>toggleChoice(opt)}>{opt}</button>
+              );
+            })}
+          </div>
+        ) : (
+          <span className="tc-empty-note">Aucun choix défini. Modifiez le tracker pour en ajouter.</span>
+        )
+      )}
+      {t.type === 'text' && (
+        <textarea value={text} onChange={e=>setText(e.target.value)} rows={2} placeholder="…" style={{width:'100%'}} />
+      )}
+    </>
+  );
+
   return (
     <div ref={containerRef} className={`today-card ${existing?'done':''} ${flash?'flash':''} ${dragging?'dragging':''}`}>
       <div className="tc-head">
@@ -884,80 +934,44 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
             ))}
       </div>
 
-      {!daily && count > 0 && (
-        <div className={`tc-log ${logOpen?'open':''}`}>
-          {logEntries.map(e => {
-            const unit = fmtUnit(t);
-            return (
-              <div className="tc-log-row" key={e.id}>
-                <span className="t">{timeLabel(e.ts)}</span>
-                <span className="tc-log-actions">
-                  {onEditEntry && <button onClick={()=>onEditEntry(e)}>modifier</button>}
-                  <button className="del" onClick={()=>onDeleteEntry(e.id)}>suppr.</button>
-                </span>
-                <span className="v">{fmtValue(t, e.value)}{unit && <span className="u">{unit}</span>}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {daily ? (
+        <>
+          <div className="tc-input">{inputControls}</div>
+          <div className="tc-foot">
+            {existing && <button className="tc-clear" onClick={()=>onDeleteEntry(existing.id)}>Effacer</button>}
+            <button className="primary sm" disabled={!canSave} onClick={submit}>
+              {existing ? 'Remplacer' : 'Noter'}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="tc-input-row">
+            <div className="tc-input">{inputControls}</div>
+            <button className="primary sm" disabled={!canSave} onClick={submit}>Ajouter</button>
+          </div>
 
-      <div className="tc-input">
-        {t.type === 'number' && (
-          <div style={{display:'flex',alignItems:'baseline',gap:6}}>
-            <input type="number" step="any" value={num} onChange={e=>setNum(e.target.value)}
-              onKeyDown={e=>{ if(e.key==='Enter') submit(); }} placeholder="0" style={{width:'100%'}} />
-            {t.unit && <span className="unit">{t.unit}</span>}
-          </div>
-        )}
-        {t.type === 'scale' && (
-          <div className="scale">
-            {Array.from({length: t.scaleMax||5}).map((_,i)=>(
-              <button key={i} className={scale===i+1?'on':''} onClick={()=>setScale(i+1)}>{i+1}</button>
-            ))}
-          </div>
-        )}
-        {t.type === 'boolean' && (
-          <div className="bool">
-            <button className={bool===true?'on':''} onClick={()=>setBool(true)}>Oui</button>
-            <button className={bool===false?'on':''} onClick={()=>setBool(false)}>Non</button>
-          </div>
-        )}
-        {t.type === 'duration' && (
-          <div style={{display:'flex',gap:6,alignItems:'baseline'}}>
-            <input type="number" min="0" placeholder="0" value={durH} onChange={e=>setDurH(e.target.value)} style={{width:44,textAlign:'right'}} />
-            <span className="unit">h</span>
-            <input type="number" min="0" max="59" placeholder="00" value={durM} onChange={e=>setDurM(e.target.value)} style={{width:44,textAlign:'right'}} />
-            <span className="unit">min</span>
-          </div>
-        )}
-        {t.type === 'choice' && (
-          (t.choices && t.choices.length) ? (
-            <div className="choices">
-              {t.choices.map(opt => {
-                const active = t.multiple ? (Array.isArray(choice) && choice.includes(opt)) : choice === opt;
+          {count > 0 && (
+            <div className={`tc-log ${logOpen?'open':''}`}>
+              <span className="tc-log-label">Entrées précédentes</span>
+              {logEntries.map(e => {
+                const unit = fmtUnit(t);
                 return (
-                  <button key={opt} className={active?'on':''} onClick={()=>toggleChoice(opt)}>{opt}</button>
+                  <div className="tc-log-row" key={e.id}>
+                    <span className="t">{timeLabel(e.ts)}</span>
+                    <span></span>
+                    <span className="tc-log-actions">
+                      {onEditEntry && <button onClick={()=>onEditEntry(e)}>modifier</button>}
+                      <button className="del" onClick={()=>onDeleteEntry(e.id)}>suppr.</button>
+                    </span>
+                    <span className="v">{fmtValue(t, e.value)}{unit && <span className="u">{unit}</span>}</span>
+                  </div>
                 );
               })}
             </div>
-          ) : (
-            <span className="tc-empty-note">Aucun choix défini. Modifiez le tracker pour en ajouter.</span>
-          )
-        )}
-        {t.type === 'text' && (
-          <textarea value={text} onChange={e=>setText(e.target.value)} rows={2} placeholder="…" style={{width:'100%'}} />
-        )}
-      </div>
-
-      <div className="tc-foot">
-        {daily && existing && (
-          <button className="tc-clear" onClick={()=>onDeleteEntry(existing.id)}>Effacer</button>
-        )}
-        <button className="primary sm" disabled={!canSave} onClick={submit}>
-          {existing ? 'Remplacer' : daily ? 'Noter' : 'Ajouter'}
-        </button>
-      </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
