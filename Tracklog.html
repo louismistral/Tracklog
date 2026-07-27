@@ -105,6 +105,11 @@
   .rail-toggle svg{transition:transform .3s var(--ease)}
   .rail-toggle.open svg{transform:rotate(180deg)}
   .rail-count{background:var(--accent);color:#fff;font-size:10px;font-family:"Geist Mono",monospace;border-radius:999px;padding:1px 7px;line-height:1.5}
+  /* An active sort is announced on the collapsed toggle, so the list order is never
+     silently different from the one you arranged. */
+  .rail-sort-tag{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-2);border:1px solid var(--line-2);border-radius:999px;padding:2px 8px}
+  .rail-sort{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:0 0 16px}
+  .rail-sort-label{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3)}
   .rail{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:0 0 22px}
   .pill{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;font-size:12px;letter-spacing:0.02em;background:transparent;border:1px solid var(--line-2);color:var(--ink-2);transition:color .4s var(--ease),border-color .4s var(--ease),background .4s var(--ease),transform .4s var(--ease)}
   .pill .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
@@ -139,6 +144,22 @@
   .scale button{width:34px;height:34px;border-radius:0;border:1px solid var(--line-2);font-size:13px;color:var(--ink-2);font-family:"Geist Mono",monospace;transition:all .35s var(--ease)}
   .scale button:hover{border-color:var(--ink-2);color:var(--ink)}
   .scale button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  /* Scale slider — fills the room left of the save button. The accent portion is
+     driven by a --fill custom property so the track reads as a gauge, not a plain bar. */
+  .scale-slider{display:flex;align-items:center;gap:10px;width:100%;min-width:0}
+  .scale-slider input[type=range]{-webkit-appearance:none;appearance:none;flex:1;min-width:0;height:18px;background:transparent;cursor:pointer}
+  .scale-slider input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;
+    background:linear-gradient(to right,var(--accent) var(--fill,50%),var(--line-2) var(--fill,50%))}
+  .scale-slider input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:var(--line-2)}
+  .scale-slider input[type=range]::-moz-range-progress{height:3px;border-radius:2px;background:var(--accent)}
+  .scale-slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;background:var(--ink);border:none;margin-top:-5.5px;transition:transform .2s var(--ease),background .2s var(--ease)}
+  .scale-slider input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--ink);border:none}
+  .scale-slider input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.15)}
+  .scale-slider input[type=range]:active::-webkit-slider-thumb{background:var(--accent)}
+  .scale-slider input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}
+  .scale-val{font-family:"Geist Mono",monospace;font-feature-settings:"tnum";font-size:15px;font-weight:500;flex-shrink:0;min-width:34px;text-align:right}
+  .scale-val.unset{color:var(--ink-3)}
+  .scale-val .scale-max{font-size:11px;color:var(--ink-3);font-weight:400}
   .bool{display:flex;gap:8px}
   .bool button{padding:7px 15px;border-radius:999px;border:1px solid var(--line-2);font-size:12px;color:var(--ink-2);transition:all .35s var(--ease)}
   .bool button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
@@ -363,6 +384,11 @@
 
   .today-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
   .today-progress{font-size:11px;color:var(--ink-2);font-family:"Geist Mono",monospace;background:transparent;border:1px solid var(--line-2);padding:5px 12px;border-radius:999px;letter-spacing:0.05em}
+  /* Appears only while several cards hold unsaved input, so it never sits there inert. */
+  .submit-all-bar{display:flex;justify-content:flex-end;margin-bottom:-4px}
+  .submit-all{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:#fff;padding:9px 18px;border-radius:999px;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em;transition:background .3s var(--ease),transform .3s var(--ease)}
+  .submit-all:hover{background:#f0613b;transform:translateY(-1px)}
+  .sa-count{font-family:"Geist Mono",monospace;background:rgba(255,255,255,.22);border-radius:999px;padding:1px 7px;font-size:10px;letter-spacing:0}
   .day-groups{display:flex;flex-direction:column;gap:28px}
   .day-group .section-label{margin-bottom:12px}
 
@@ -400,6 +426,9 @@
   /* Controls that lay out in several rows (scale, choices, textarea) claim the full width
      instead, and let the button drop to its own line underneath. */
   .tc-input.wide{flex-basis:auto}
+  /* A range input reports a ~159px min-content width; the slider is meant to be
+     squeezable, so it opts out of that floor and keeps the button on its line. */
+  .tc-input.squeeze{min-width:0}
   .tc-input input,.tc-input textarea{font-size:14px}
   .tc-input input{min-width:0}
   .tc-input textarea{resize:none;line-height:1.4;width:100%}
@@ -502,6 +531,8 @@
   /* Master marker (diamond) */
   .master-mark{width:10px;height:10px;flex-shrink:0;transform:rotate(45deg);border-radius:2px}
   .master-tag{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:2px 7px;margin-left:8px}
+  /* Coverage hint: an index built on some of its members, not all of them. */
+  .ms-partial{font-size:9px;font-family:"Geist Mono",monospace;color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:2px 7px;margin-left:6px;white-space:nowrap}
   .chart-head .name .master-mark{margin-right:2px}
 
   /* History calendar + day editor */
@@ -624,6 +655,6 @@
 })();
 </script>
 
-<script type="text/babel" src="app.jsx?v=26"></script>
+<script type="text/babel" src="app.jsx?v=27"></script>
 </body>
 </html>
