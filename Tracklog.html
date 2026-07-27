@@ -465,6 +465,18 @@
   .chrono-btn.ghost:hover{color:var(--ink);background:var(--bg-3)}
   .chrono-btn.del:hover{color:var(--warn);background:var(--bg-3)}
   .chrono-save{width:100%;justify-content:center}
+  .chrono-bar{display:flex;gap:6px;align-items:center;margin-bottom:16px}
+  .chrono-detached{padding:50px 20px;text-align:center;color:var(--ink-3)}
+  .chrono-detached .em-serif{font-family:"Instrument Serif",serif;font-style:italic;font-size:22px;color:var(--ink-2)}
+
+  /* Floating picture-in-picture window: no page chrome, so the cards fill it edge to
+     edge in a single column, and the clock stays the biggest thing in a small pane. */
+  body.pip-body{padding:10px;background:var(--bg);overflow-x:hidden}
+  body.pip-body::before{display:none}
+  body.pip-body .today-grid{grid-template-columns:1fr;gap:8px}
+  body.pip-body .today-card{padding:12px;animation:none}
+  body.pip-body .chrono-time{font-size:26px}
+  body.pip-body .chrono-btn{padding:7px 11px}
 
   .log-subnav{display:flex;align-items:center;gap:22px;margin-bottom:26px}
   .log-subhint{font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.08em}
@@ -612,6 +624,6 @@
 })();
 </script>
 
-<script type="text/babel" src="app.jsx?v=25"></script>
+<script type="text/babel" src="app.jsx?v=26"></script>
 </body>
 </html>
