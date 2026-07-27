@@ -388,19 +388,29 @@
   .today-card.done{border-color:var(--accent);background:var(--accent-soft)}
   .today-card.flash{box-shadow:0 0 0 1px var(--accent),0 0 30px -6px rgba(226,84,47,.5)}
   .tc-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-  .tc-name{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;min-width:0}
+  .tc-name{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;min-width:0;flex:1}
   .tc-name .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
   .tc-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tc-badge{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:3px 8px;flex-shrink:0;white-space:nowrap}
   .tc-badge.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
-  .tc-input{min-height:34px;display:flex;align-items:center;flex:1;min-width:0}
+  /* flex-basis 0 so a compact field (number, duration) stays on the save button's line —
+     flexbox breaks lines on natural size, before any shrinking, so basis auto would wrap.
+     min-content keeps it from being squeezed under its own controls. */
+  .tc-input{min-height:34px;display:flex;align-items:center;flex:1 1 0;min-width:min-content}
+  /* Controls that lay out in several rows (scale, choices, textarea) claim the full width
+     instead, and let the button drop to its own line underneath. */
+  .tc-input.wide{flex-basis:auto}
   .tc-input input,.tc-input textarea{font-size:14px}
+  .tc-input input{min-width:0}
   .tc-input textarea{resize:none;line-height:1.4;width:100%}
-  .tc-input-row{display:flex;align-items:center;gap:12px}
+  /* Input and the save button share a line when they fit; the button drops to its own
+     right-aligned line rather than overlapping the controls in a narrow card. */
+  .tc-input-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;row-gap:10px}
+  .tc-input-row .primary.sm{margin-left:auto}
   .tc-foot{display:flex;justify-content:flex-end;align-items:center;gap:10px}
   .tc-clear{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3);padding:8px 4px;margin-right:auto;transition:color .3s}
   .tc-clear:hover{color:var(--warn)}
-  .today-card .primary.sm{background:var(--accent);color:#fff;padding:8px 16px;border-radius:999px;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em;transition:background .3s;flex-shrink:0}
+  .today-card .primary.sm{background:var(--accent);color:#fff;padding:8px 13px;border-radius:999px;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.1em;transition:background .3s;flex-shrink:0}
   .today-card .primary.sm:hover{background:#f0613b}
   .today-card .primary.sm:disabled{opacity:0.3;cursor:not-allowed}
   /* Multi tracker: the count badge toggles a compact, editable list of the day's entries.
@@ -417,12 +427,13 @@
     transition:max-height .4s var(--ease),opacity .3s var(--ease),border-color .3s var(--ease),padding .4s var(--ease),margin-top .4s var(--ease)}
   .tc-log.open{max-height:min(60vh,420px);opacity:1;margin-top:0;overflow-y:auto;border-color:var(--line);padding:4px 10px}
   .tc-log-label{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3);padding:8px 2px 2px}
-  .tc-log-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:baseline;padding:8px 2px;border-top:1px solid var(--line)}
+  /* Time on the left, actions pushed right up against the value, value last on the right edge. */
+  .tc-log-row{display:flex;align-items:baseline;gap:8px;padding:8px 2px;border-top:1px solid var(--line)}
   .tc-log-row:first-of-type{border-top:none}
-  .tc-log-row .t{font-family:"Geist Mono",monospace;font-size:10.5px;color:var(--ink-3);letter-spacing:0.03em;font-feature-settings:"tnum"}
-  .tc-log-row .v{font-family:"Geist Mono",monospace;font-size:13px;font-weight:500;text-align:right;font-feature-settings:"tnum"}
+  .tc-log-row .t{font-family:"Geist Mono",monospace;font-size:10.5px;color:var(--ink-3);letter-spacing:0.03em;font-feature-settings:"tnum";flex-shrink:0}
+  .tc-log-row .v{font-family:"Geist Mono",monospace;font-size:13px;font-weight:500;text-align:right;font-feature-settings:"tnum";flex-shrink:0}
   .tc-log-row .v .u{color:var(--ink-3);font-weight:400;font-size:11px;margin-left:2px}
-  .tc-log-actions{display:flex;gap:2px;opacity:0;transition:opacity .3s var(--ease)}
+  .tc-log-actions{display:flex;gap:2px;margin-left:auto;min-width:0;opacity:0;transition:opacity .3s var(--ease)}
   .tc-log-row:hover .tc-log-actions{opacity:1}
   .tc-log-actions button{font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink-3);padding:3px 7px;border-radius:999px;transition:color .3s,background .3s}
   .tc-log-actions button:hover{color:var(--ink);background:var(--bg-3)}
@@ -575,6 +586,6 @@
 })();
 </script>
 
-<script type="text/babel" src="app.jsx?v=23"></script>
+<script type="text/babel" src="app.jsx?v=24"></script>
 </body>
 </html>
