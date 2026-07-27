@@ -1,4 +1,4 @@
-const { useState, useEffect, useMemo, useRef } = React;
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 /* ============================================================
    Data model
@@ -86,12 +86,64 @@ function fmtDuration(min){
   if (m === 0) return `${h}h`;
   return `${h}h${String(m).padStart(2,'0')}`;
 }
+/* ---- Chart scales ---------------------------------------------------------
+   Axes land on values a human would have chosen. Durations get their own ladder
+   of steps because rounding minutes on powers of ten gives 10h36 → 5h24; the
+   readable breaks of a clock are 15/30 min and whole hours. */
+function niceStep(raw, type){
+  if (raw <= 0) return 1;
+  if (type === 'duration'){
+    const steps = [1,2,5,10,15,20,30,60,90,120,180,240,360,480,720,1440];
+    return steps.find(s => s >= raw) ?? Math.ceil(raw/1440)*1440;
+  }
+  const base = Math.pow(10, Math.floor(Math.log10(raw)));
+  const frac = raw / base;
+  const mult = frac <= 1 ? 1 : frac <= 2 ? 2 : frac <= 2.5 ? 2.5 : frac <= 5 ? 5 : 10;
+  return mult * base;
+}
+// Widen [min,max] outward to whole steps and hand back the ticks in between.
+function niceDomain(min, max, tickCount, type){
+  if (!isFinite(min) || !isFinite(max)){ min = 0; max = 1; }
+  if (min === max){ const d = Math.abs(min) * 0.1 || 1; min -= d; max += d; }
+  const step = niceStep((max - min) / Math.max(1, tickCount - 1), type);
+  const lo = Math.floor(min / step) * step;
+  const hi = Math.ceil(max / step) * step;
+  const ticks = [];
+  for (let v = lo; v <= hi + step * 1e-9; v += step) ticks.push(+v.toFixed(10));
+  return { min: lo, max: hi, ticks };
+}
+
+// Straight dashed hops across the days with no data, so a broken series still
+// reads as one line instead of looking like unrelated fragments.
+function bridgesBetween(segments){
+  const out = [];
+  for (let i = 1; i < segments.length; i++){
+    const from = segments[i-1][segments[i-1].length - 1];
+    const to = segments[i][0];
+    if (from && to) out.push({ from, to });
+  }
+  return out;
+}
+
+// Minutes never stay above 59: 90 becomes 1h30, so the two fields always read
+// the way the value will be stored and shown everywhere else.
+function normalizeHM(h, m){
+  const total = (parseInt(h || '0', 10) || 0) * 60 + (parseInt(m || '0', 10) || 0);
+  return { h: String(Math.floor(total / 60)), m: String(total % 60).padStart(2, '0') };
+}
+
 // Running clock display, H:MM:SS (or M:SS under an hour).
 function fmtChrono(ms){
   const total = Math.max(0, Math.floor(ms/1000));
   const h = Math.floor(total/3600), m = Math.floor((total%3600)/60), s = total%60;
   const mm = String(m).padStart(2,'0'), ss = String(s).padStart(2,'0');
   return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+}
+// A chrono reads in the same unit its entry will be stored in — minutes — so what
+// you watch is what gets logged. Seconds are opt-in, per chrono, for short sessions.
+function fmtChronoDisplay(ms, showSeconds){
+  if (showSeconds) return fmtChrono(ms);
+  return fmtDuration(Math.floor(Math.max(0, ms) / 60000));
 }
 // A chrono banks time in `accumulatedMs` and, while running, counts from `startedAt`.
 // Deriving elapsed from timestamps (rather than ticking a counter) keeps it exact
@@ -373,6 +425,10 @@ function useDragReorder(ids, onReorder){
     window.addEventListener('pointercancel', handleUp);
   };
 
+  // Without a reorder handler (the list is under an automatic sort) dragging would
+  // fight the sort, so hand back inert controls: `startDrag` yielding null also
+  // removes the grip, since cards only draw one when given a handler.
+  if (!onReorder) return { order: ids, dragId: null, setNodeRef: () => undefined, startDrag: () => null };
   return { order, dragId, setNodeRef, startDrag };
 }
 
@@ -416,7 +472,10 @@ function App({ session }){
   // set intact (shown greyed) so it isn't lost.
   const [selectedIds, setSelectedIds] = useState([]);
   const [showAll, setShowAll] = useState(true);
-  const [railOpen, setRailOpen] = useState(true);
+  // Filters and sorting start collapsed everywhere — they're occasional controls,
+  // and on a phone an expanded rail pushed the day's cards below the fold.
+  const [railOpen, setRailOpen] = useState(false);
+  const [sortMode, setSortMode] = useState('manuel'); // manuel | alpha | recent | type
   const [newTrackerOpen, setNewTrackerOpen] = useState(false);
   const [editTracker, setEditTracker] = useState(null);
   const [editEntry, setEditEntry] = useState(null);
@@ -483,6 +542,7 @@ function App({ session }){
     setChronos(s => s.map(c => c.id !== id ? c : { ...c, accumulatedMs: 0, startedAt: null }));
   };
   const removeChrono = (id) => setChronos(s => s.filter(c => c.id !== id));
+  const updateChrono = (id, patch) => setChronos(s => s.map(c => c.id === id ? { ...c, ...patch } : c));
   // Bank the elapsed time as a real entry on the linked tracker, then start the chrono over.
   const saveChronoAsEntry = async (id) => {
     const c = chronos.find(x => x.id === id);
@@ -539,8 +599,34 @@ function App({ session }){
     return <div className="empty"><span className="em-serif">Chargement…</span></div>;
   }
 
+  // Last time each tracker was logged — backs the "activité récente" sort.
+  const lastEntryByTracker = useMemo(() => {
+    const m = {};
+    for (const e of entries){
+      if (!m[e.trackerId] || e.ts > m[e.trackerId]) m[e.trackerId] = e.ts;
+    }
+    return m;
+  }, [entries]);
+
+  // Sorting is a view over the manual order, never a rewrite of it: leaving a sort
+  // mode restores the arrangement you dragged into place.
+  const sortTrackers = (list) => {
+    const arr = [...list];
+    switch (sortMode){
+      case 'alpha':
+        return arr.sort((a,b) => a.name.localeCompare(b.name, 'fr', { sensitivity:'base' }));
+      case 'recent': // never-logged trackers sink to the bottom rather than topping the list
+        return arr.sort((a,b) => (lastEntryByTracker[b.id] ?? -Infinity) - (lastEntryByTracker[a.id] ?? -Infinity));
+      case 'type':
+        return arr.sort((a,b) => (a.type || '').localeCompare(b.type || '') || a.name.localeCompare(b.name, 'fr'));
+      default:
+        return arr; // 'manuel' — keep the drag order
+    }
+  };
+  const manualSort = sortMode === 'manuel';
+
   // Trackers you still log every day: not archived, and not a computed master.
-  const activeTrackers = trackers.filter(t => !t.archived);
+  const activeTrackers = sortTrackers(trackers.filter(t => !t.archived));
   const loggableTrackers = activeTrackers.filter(t => !isMaster(t));
   const masterTrackers = activeTrackers.filter(t => isMaster(t));
 
@@ -586,9 +672,11 @@ function App({ session }){
           onToggleAll={toggleAll}
           onAdd={()=>setNewTrackerOpen(true)}
           onEdit={(t)=>setEditTracker(t)}
-          onReorder={reorderTrackers}
+          onReorder={manualSort ? reorderTrackers : null}
           open={railOpen}
           onToggleOpen={()=>setRailOpen(v=>!v)}
+          sortMode={sortMode}
+          onSortMode={setSortMode}
         />
       )}
 
@@ -604,7 +692,7 @@ function App({ session }){
           onAddEntry={addEntry}
           onDeleteEntry={deleteEntry}
           onEditEntry={(e)=>setEditEntry(e)}
-          onReorder={reorderTrackers}
+          onReorder={manualSort ? reorderTrackers : null}
           chronos={chronos}
           allTrackers={trackers}
           onAddChrono={addChrono}
@@ -613,6 +701,7 @@ function App({ session }){
           onResetChrono={resetChrono}
           onRemoveChrono={removeChrono}
           onSaveChrono={saveChronoAsEntry}
+          onUpdateChrono={updateChrono}
         />
       ) : tab === 'trackers' ? (
         <TrackersView
@@ -623,7 +712,7 @@ function App({ session }){
           onEdit={(t)=>setEditTracker(t)}
           onArchive={archiveTracker}
           onUnarchive={unarchiveTracker}
-          onReorder={reorderTrackers}
+          onReorder={manualSort ? reorderTrackers : null}
         />
       ) : (
         <VuesView
@@ -631,7 +720,7 @@ function App({ session }){
           trackerById={trackerById}
           entries={entries}
           filterIds={filterIds}
-          onReorder={reorderTrackers}
+          onReorder={manualSort ? reorderTrackers : null}
         />
       )}
 
@@ -675,7 +764,14 @@ function App({ session }){
 /* ============================================================
    Tracker rail (selectable pills)
    ============================================================ */
-function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onToggleAll, onAdd, onEdit, onReorder, open, onToggleOpen }){
+const SORTS = [
+  { id:'manuel', label:'Manuel',  hint:'votre ordre — glissez les cartes pour le changer' },
+  { id:'alpha',  label:'A → Z',   hint:'par nom' },
+  { id:'recent', label:'Récents', hint:'renseignés le plus récemment en premier' },
+  { id:'type',   label:'Type',    hint:'regroupés par type de tracker' },
+];
+
+function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onToggleAll, onAdd, onEdit, onReorder, open, onToggleOpen, sortMode, onSortMode }){
   const byId = useMemo(() => Object.fromEntries(trackers.map(t => [t.id, t])), [trackers]);
   const ids = useMemo(() => trackers.map(t => t.id), [trackers]);
   const { order, dragId, startDrag, setNodeRef } = useDragReorder(ids, onReorder);
@@ -686,9 +782,23 @@ function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onTog
     <div className="rail-wrap">
       <button className={`rail-toggle ${open?'open':''}`} onClick={onToggleOpen} aria-expanded={open}>
         <svg width="9" height="6" viewBox="0 0 9 6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M1 1L4.5 5L8 1"/></svg>
-        <span>Filtres</span>
+        <span>Filtres & tri</span>
         {filterActive && <span className="rail-count">{selectedIds.length}</span>}
+        {sortMode !== 'manuel' && (
+          <span className="rail-sort-tag">{SORTS.find(s=>s.id===sortMode)?.label}</span>
+        )}
       </button>
+      {open && (
+        <div className="rail-sort">
+          <span className="rail-sort-label">Trier</span>
+          <div className="vue-mode small">
+            {SORTS.map(s => (
+              <button key={s.id} className={sortMode===s.id?'on':''} title={s.hint}
+                onClick={()=>onSortMode(s.id)}>{s.label}</button>
+            ))}
+          </div>
+        </div>
+      )}
       {open && (
         <div className="rail">
           <button
@@ -798,6 +908,21 @@ function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, da
   const dailyDrag = useDragReorder(dailyIds, onReorder);
   const multiDrag = useDragReorder(multiIds, onReorder);
 
+  // Cards keep their own draft state; each one hands up a submit function while it holds
+  // something unsaved, which is what "Tout ajouter" fires in one go.
+  const submitters = useRef({});
+  const [pendingIds, setPendingIds] = useState([]);
+  const registerSubmit = useCallback((id, fn) => {
+    if (fn) submitters.current[id] = fn; else delete submitters.current[id];
+    const ids = Object.keys(submitters.current);
+    setPendingIds(prev =>
+      (prev.length === ids.length && prev.every(x => ids.includes(x))) ? prev : ids);
+  }, []);
+  const submitAll = () => {
+    // Snapshot first: submitting mutates the registry as cards reset.
+    Object.values({ ...submitters.current }).forEach(ref => ref?.current?.());
+  };
+
   if (!trackers.length){
     return <div className="empty"><span className="em-serif">Aucun tracker.</span></div>;
   }
@@ -814,18 +939,35 @@ function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, da
             containerRef={drag.setNodeRef(t.id)}
             dragging={drag.dragId === t.id}
             onDragStart={drag.startDrag(t.id)}
+            registerSubmit={registerSubmit}
           />
         );
       })}
     </div>
   );
 
+  // Only worth offering once more than one card is waiting — with a single one,
+  // that card's own button is right there.
+  const submitAllBar = pendingIds.length > 1 && (
+    <div className="submit-all-bar">
+      <button className="submit-all" onClick={submitAll}>
+        Tout ajouter <span className="sa-count">{pendingIds.length}</span>
+      </button>
+    </div>
+  );
+
   if (!dailyIds.length || !multiIds.length){
-    return renderGrid(dailyIds.length ? dailyDrag : multiDrag);
+    return (
+      <>
+        {submitAllBar}
+        {renderGrid(dailyIds.length ? dailyDrag : multiDrag)}
+      </>
+    );
   }
 
   return (
     <div className="day-groups">
+      {submitAllBar}
       <div className="day-group">
         <p className="section-label">Quotidiens</p>
         {renderGrid(dailyDrag)}
@@ -838,7 +980,7 @@ function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, da
   );
 }
 
-function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, containerRef, dragging, onDragStart }){
+function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, containerRef, dragging, onDragStart, registerSubmit }){
   const t = tracker;
   const daily = !!t.daily;
   const existing = daily && dayEntries.length ? dayEntries[0] : null;
@@ -905,20 +1047,22 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
     return false;
   }, [t.type, t.multiple, num, scale, bool, durH, durM, text, choice]);
 
+  const draftValue = () => {
+    switch (t.type){
+      case 'number':   return parseFloat(num);
+      case 'scale':    return scale;
+      case 'boolean':  return bool;
+      case 'duration': return parseInt(durH||'0',10)*60 + parseInt(durM||'0',10);
+      case 'choice':   return choice;
+      case 'text':     return text.trim();
+    }
+  };
+
   const submit = () => {
     if (!canSave) return;
-    let value;
-    switch (t.type){
-      case 'number':   value = parseFloat(num); break;
-      case 'scale':    value = scale; break;
-      case 'boolean':  value = bool; break;
-      case 'duration': value = parseInt(durH||'0',10)*60 + parseInt(durM||'0',10); break;
-      case 'choice':   value = choice; break;
-      case 'text':     value = text.trim(); break;
-    }
     // Today keeps the real clock time; a past day is anchored at noon.
     const ts = isToday ? Date.now() : dayTs + 12*3600000;
-    onAddEntry({ trackerId: t.id, value, ts });
+    onAddEntry({ trackerId: t.id, value: draftValue(), ts });
     setFlash(true);
     setTimeout(()=>setFlash(false), 900);
     if (!daily){
@@ -926,9 +1070,36 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
     }
   };
 
-  // Scale buttons, choice chips and the textarea lay out over several rows, so they take the
-  // full width and push the save button below; compact fields stay on its line.
-  const wideInput = t.type === 'scale' || t.type === 'choice' || t.type === 'text';
+  // "Pending" = something typed that isn't recorded yet. A daily tracker whose card
+  // merely echoes the entry already saved for that day is not pending — otherwise
+  // "Tout ajouter" would keep rewriting entries that never changed.
+  const sameAsSaved = daily && existing && (() => {
+    const a = draftValue(), b = existing.value;
+    return Array.isArray(a) || Array.isArray(b)
+      ? JSON.stringify([...(a||[])].sort()) === JSON.stringify([...(b||[])].sort())
+      : a === b;
+  })();
+  const pending = canSave && !sameAsSaved;
+
+  // The parent gets a ref, not the closure itself: re-registering on every render would
+  // make each render queue an unregister + register, and loop forever. The ref keeps the
+  // submit function current while registration only fires when the pending flag flips.
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
+  useEffect(() => {
+    if (!registerSubmit) return;
+    registerSubmit(t.id, pending ? submitRef : null);
+    return () => registerSubmit(t.id, null);
+  }, [pending, t.id, registerSubmit]);
+
+  // Choice chips and the textarea lay out over several rows, so they take the full width
+  // and push the save button below; compact fields — including the scale slider, which
+  // stretches into whatever room is left — stay on its line.
+  const wideInput = t.type === 'choice' || t.type === 'text';
+
+  // A range input reports a ~159px min-content width, which would force the save button
+  // onto its own line; the slider is meant to be squeezable, so it opts out of that floor.
+  const inputClass = `tc-input ${wideInput?'wide':''} ${t.type==='scale'?'squeeze':''}`;
 
   const inputControls = (
     <>
@@ -939,13 +1110,24 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
           {t.unit && <span className="unit">{t.unit}</span>}
         </div>
       )}
-      {t.type === 'scale' && (
-        <div className="scale">
-          {Array.from({length: t.scaleMax||5}).map((_,i)=>(
-            <button key={i} className={scale===i+1?'on':''} onClick={()=>setScale(i+1)}>{i+1}</button>
-          ))}
-        </div>
-      )}
+      {t.type === 'scale' && (() => {
+        const max = t.scaleMax || 5;
+        return (
+          <div className="scale-slider">
+            <input
+              type="range" min="1" max={max} step="1"
+              value={scale ?? Math.ceil(max/2)}
+              onChange={e=>setScale(parseInt(e.target.value,10))}
+              aria-label={`Note sur ${max}`}
+              style={{'--fill': `${(((scale ?? Math.ceil(max/2)) - 1) / Math.max(1, max-1)) * 100}%`}}
+            />
+            {/* Reads "—" until touched, so an untouched slider never looks like a score. */}
+            <span className={`scale-val ${scale==null?'unset':''}`}>
+              {scale == null ? '—' : scale}<span className="scale-max">/{max}</span>
+            </span>
+          </div>
+        );
+      })()}
       {t.type === 'boolean' && (
         <div className="bool">
           <button className={bool===true?'on':''} onClick={()=>setBool(true)}>Oui</button>
@@ -956,7 +1138,18 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
         <div style={{display:'flex',gap:6,alignItems:'baseline'}}>
           <input type="number" min="0" placeholder="0" value={durH} onChange={e=>setDurH(e.target.value)} style={{width:44,textAlign:'right'}} />
           <span className="unit">h</span>
-          <input type="number" min="0" max="59" placeholder="00" value={durM} onChange={e=>setDurM(e.target.value)} style={{width:44,textAlign:'right'}} />
+          <input type="number" min="0" placeholder="00" value={durM}
+            onChange={e=>{
+              const raw = e.target.value;
+              // Carry into hours as soon as the minutes pass 59 — typing "90" lands on 1h30.
+              if ((parseInt(raw || '0', 10) || 0) >= 60){
+                const n = normalizeHM(durH, raw);
+                setDurH(n.h); setDurM(n.m);
+              } else {
+                setDurM(raw);
+              }
+            }}
+            style={{width:44,textAlign:'right'}} />
           <span className="unit">min</span>
         </div>
       )}
@@ -1001,7 +1194,7 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
 
       {daily ? (
         <>
-          <div className={`tc-input ${wideInput?'wide':''}`}>{inputControls}</div>
+          <div className={inputClass}>{inputControls}</div>
           <div className="tc-foot">
             {existing && <button className="tc-clear" onClick={()=>onDeleteEntry(existing.id)}>Effacer</button>}
             <button className="primary sm" disabled={!canSave} onClick={submit}>
@@ -1012,7 +1205,7 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
       ) : (
         <>
           <div className="tc-input-row">
-            <div className={`tc-input ${wideInput?'wide':''}`}>{inputControls}</div>
+            <div className={inputClass}>{inputControls}</div>
             <button className="primary sm" disabled={!canSave} onClick={submit}>Ajouter</button>
           </div>
 
@@ -1053,8 +1246,9 @@ function copyStylesTo(win){
 }
 const PIP_SUPPORTED = typeof window !== 'undefined' && 'documentPictureInPicture' in window;
 
-function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, onReset, onRemove, onSave }){
+function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, onReset, onRemove, onSave, onUpdate }){
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null);
   const running = chronos.some(c => c.startedAt);
   const [now, setNow] = useState(() => Date.now());
   const [pipWin, setPipWin] = useState(null);
@@ -1092,7 +1286,7 @@ function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, o
           key={c.id} chrono={c} now={now}
           tracker={c.trackerId ? trackerById[c.trackerId] : null}
           onStart={onStart} onPause={onPause} onReset={onReset}
-          onRemove={onRemove} onSave={onSave}
+          onSave={onSave} onEdit={()=>setEditing(c)}
         />
       ))}
     </div>
@@ -1132,18 +1326,23 @@ function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, o
       {/* Rendered into the floating window, but still part of this React tree. */}
       {pipWin && ReactDOM.createPortal(cards, pipWin.document.body)}
 
-      {adding && (
+      {(adding || editing) && (
         <ChronoModal
+          chrono={editing}
           trackers={durationTrackers}
-          onClose={()=>setAdding(false)}
-          onSave={(data)=>{ onAdd(data); setAdding(false); }}
+          onClose={()=>{ setAdding(false); setEditing(null); }}
+          onSave={(data)=>{
+            if (editing) onUpdate(editing.id, data); else onAdd(data);
+            setAdding(false); setEditing(null);
+          }}
+          onDelete={editing ? ()=>{ onRemove(editing.id); setEditing(null); } : null}
         />
       )}
     </div>
   );
 }
 
-function ChronoCard({ chrono: c, now, tracker, onStart, onPause, onReset, onRemove, onSave }){
+function ChronoCard({ chrono: c, now, tracker, onStart, onPause, onReset, onSave, onEdit }){
   const elapsed = chronoElapsed(c, now);
   const isRunning = !!c.startedAt;
   const minutes = Math.round(elapsed / 60000);
@@ -1164,7 +1363,7 @@ function ChronoCard({ chrono: c, now, tracker, onStart, onPause, onReset, onRemo
             : null}
       </div>
 
-      <div className={`chrono-time ${isRunning?'running':''}`}>{fmtChrono(elapsed)}</div>
+      <div className={`chrono-time ${isRunning?'running':''}`}>{fmtChronoDisplay(elapsed, c.showSeconds)}</div>
 
       <div className="chrono-actions">
         {isRunning ? (
@@ -1174,14 +1373,14 @@ function ChronoCard({ chrono: c, now, tracker, onStart, onPause, onReset, onRemo
             {elapsed > 0 ? 'Reprendre' : 'Lancer'}
           </button>
         )}
-        {/* Destructive actions stay out of reach while the clock is running, and sit
-            together on the right so a narrow card wraps them as one deliberate group. */}
+        {/* Deleting lives in the settings dialog, like a tracker's — the board stays a
+            place to run clocks, not to lose them by mis-tapping. */}
         {!isRunning && (
           <span className="chrono-secondary">
             {elapsed > 0 && (
               <button className="chrono-btn ghost" onClick={()=>onReset(c.id)} title="Remettre à zéro">À zéro</button>
             )}
-            <button className="chrono-btn del" onClick={()=>onRemove(c.id)} title="Supprimer le chrono">Suppr.</button>
+            <button className="chrono-btn ghost" onClick={onEdit} title="Paramètres du chrono">Réglages</button>
           </span>
         )}
       </div>
@@ -1201,18 +1400,23 @@ function ChronoCard({ chrono: c, now, tracker, onStart, onPause, onReset, onRemo
   );
 }
 
-function ChronoModal({ trackers, onClose, onSave }){
-  const [trackerId, setTrackerId] = useState('');
-  const [label, setLabel] = useState('');
+// Serves both creation and settings, the way a tracker's dialog does — same fields,
+// plus deletion once the chrono exists.
+function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
+  const editing = !!chrono;
+  const [trackerId, setTrackerId] = useState(chrono?.trackerId || '');
+  const [label, setLabel] = useState(chrono?.label || '');
+  const [showSeconds, setShowSeconds] = useState(!!chrono?.showSeconds);
   const linked = trackers.find(t => t.id === trackerId);
   // The tracker's name is the natural default, so a linked chrono needs no typing.
   const finalLabel = label.trim() || linked?.name || '';
   const canSave = finalLabel.length > 0;
+  const payload = { label: finalLabel, trackerId, showSeconds };
 
   return (
     <div className="scrim" onClick={onClose}>
       <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:380}}>
-        <h2>Nouveau chrono</h2>
+        <h2>{editing ? 'Paramètres du chrono' : 'Nouveau chrono'}</h2>
         <div className="modal-sub">
           Liez-le à un tracker de durée pour enregistrer le temps mesuré, ou nommez-le librement.
         </div>
@@ -1224,11 +1428,22 @@ function ChronoModal({ trackers, onClose, onSave }){
             {trackers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </div>
-        <div className="field" style={{borderBottom:'none'}}>
+        <div className="field">
           <label>Nom</label>
           <input autoFocus value={label} onChange={e=>setLabel(e.target.value)}
-            onKeyDown={e=>{ if(e.key==='Enter' && canSave) onSave({ label: finalLabel, trackerId }); }}
+            onKeyDown={e=>{ if(e.key==='Enter' && canSave) onSave(payload); }}
             placeholder={linked ? linked.name : 'ex. Lecture'} />
+        </div>
+        <div className="field" style={{borderBottom:'none'}}>
+          <label>Secondes</label>
+          <div className="seg">
+            <button className={!showSeconds?'on':''} onClick={()=>setShowSeconds(false)}>Minutes</button>
+            <button className={showSeconds?'on':''} onClick={()=>setShowSeconds(true)}>Sec.</button>
+          </div>
+          <InfoBubble>
+            Par défaut le chrono affiche la minute, comme les trackers l’enregistrent.
+            Activez les secondes pour suivre des sessions courtes.
+          </InfoBubble>
         </div>
 
         {trackers.length === 0 && (
@@ -1238,9 +1453,10 @@ function ChronoModal({ trackers, onClose, onSave }){
         )}
 
         <div className="modal-actions">
+          {onDelete && <button className="danger" onClick={onDelete}>Supprimer</button>}
           <button className="ghost" onClick={onClose}>Annuler</button>
-          <button className="primary" disabled={!canSave} onClick={()=>onSave({ label: finalLabel, trackerId })}>
-            Créer
+          <button className="primary" disabled={!canSave} onClick={()=>onSave(payload)}>
+            {editing ? 'Enregistrer' : 'Créer'}
           </button>
         </div>
       </div>
@@ -1252,7 +1468,7 @@ function ChronoModal({ trackers, onClose, onSave }){
    Log view — the entries, split into "Jour", "Historique" and "Chrono"
    ============================================================ */
 function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder,
-                  chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono }){
+                  chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono, onUpdateChrono }){
   const hint = logSub === 'jour' ? "les entrées d’aujourd’hui"
              : logSub === 'historique' ? "ouvrez n’importe quel jour pour l’éditer"
              : "chronométrez vos sessions, puis enregistrez-les";
@@ -1277,6 +1493,7 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
           onReset={onResetChrono}
           onRemove={onRemoveChrono}
           onSave={onSaveChrono}
+          onUpdate={onUpdateChrono}
         />
       ) : logSub === 'jour' ? (
         <TodayView trackers={trackers} masters={masters} trackerById={trackerById} entries={entries} filterIds={filterIds} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} onReorder={onReorder} />
@@ -1706,16 +1923,24 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
   const innerH = H - PAD_T - PAD_B;
 
   // Domain
-  let yMin = Math.min(...numericValues, Infinity);
-  let yMax = Math.max(...numericValues, -Infinity);
-  if (!isFinite(yMin) || !isFinite(yMax)){ yMin = 0; yMax = 1; }
-  if (yMin === yMax){ yMin -= 1; yMax += 1; }
-  // Pad domain
-  const pad = (yMax - yMin) * 0.15;
-  yMin -= pad; yMax += pad;
-  if (tracker.type === 'boolean' || tracker.type === 'scale'){
-    yMin = 0; yMax = tracker.type === 'scale' ? (tracker.scaleMax || 5) : 1;
-  }
+  // Scales and booleans have a fixed, meaningful range; everything else gets a
+  // domain snapped outward to round steps so the axis never reads 5h24 → 10h36.
+  const fixedScale = tracker.type === 'boolean' || tracker.type === 'scale';
+  const domain = fixedScale
+    ? (() => {
+        const max = tracker.type === 'scale' ? (tracker.scaleMax || 5) : 1;
+        const ticks = tracker.type === 'scale'
+          ? [0, Math.round(max/2), max]
+          : [0, 1];
+        return { min: 0, max, ticks };
+      })()
+    : niceDomain(
+        Math.min(...numericValues, Infinity),
+        Math.max(...numericValues, -Infinity),
+        compact ? 3 : 4,
+        tracker.type
+      );
+  const yMin = domain.min, yMax = domain.max;
 
   const xAt = (i) => PAD_L + (i / Math.max(1, points.length - 1)) * innerW;
   const yAt = (v) => PAD_T + innerH - ((v - yMin)/(yMax - yMin)) * innerH;
@@ -1747,9 +1972,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
     { i: points.length-1, label: shortDate(points[points.length-1]?.ts) },
   ].filter(t => points[t.i]);
 
-  // Y-axis ticks
-  const yTickCount = 3;
-  const yTicks = Array.from({length:yTickCount},(_,i)=>yMin + (yMax-yMin)*i/(yTickCount-1));
+  const yTicks = domain.ticks;
 
   return (
     <div ref={containerRef} className={`chart-card ${compact?'compact':''} ${dragging?'dragging':''}`}>
@@ -1792,6 +2015,16 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
               </g>
             );
           })}
+          {/* Interpolation over days with no data — dashed, so it never passes for a reading */}
+          {bridgesBetween(segments).map((b, i) => (
+            <line key={`b${i}`} x1={b.from[0]} y1={b.from[1]} x2={b.to[0]} y2={b.to[1]}
+              stroke={tracker.color} strokeWidth="1.2" strokeDasharray="3 4" opacity="0.5" />
+          ))}
+          {/* Lone readings would otherwise be invisible: a segment of one draws no path */}
+          {segments.filter(s => s.length === 1).map((s, i) => (
+            <circle key={`l${i}`} cx={s[0][0]} cy={s[0][1]} r="2.5" fill="none"
+              stroke={tracker.color} strokeWidth="1.2" />
+          ))}
           {/* Points */}
           {points.map((p,i)=> p.value != null && (
             <circle key={i} cx={xAt(i)} cy={yAt(p.value)} r="2" fill={tracker.color}>
@@ -1944,6 +2177,11 @@ function MasterChart({ trackers, entries, rangeDays }){
           if (cur.length) segs.push(cur);
           return (
             <g key={s.tracker.id}>
+              {bridgesBetween(segs).map((b, i) => (
+                <line key={`b${i}`} x1={b.from[0]} y1={b.from[1]} x2={b.to[0]} y2={b.to[1]}
+                  stroke={s.tracker.color} strokeWidth="1.1" strokeDasharray="3 4"
+                  opacity={hover==null?0.45:0.25} />
+              ))}
               {segs.map((seg, si) => seg.length >= 2 && (
                 <path key={si}
                   d={seg.map((p,i)=>`${i===0?'M':'L'}${p[0]},${p[1]}`).join(' ')}
@@ -2129,9 +2367,13 @@ function masterMembers(master, trackerById){
 }
 /* Daily 0..1 index for a master: average of its members' normalized, gap-filled
    performance, masked to the master's own active window. */
+// Each day's index reflects only what its members actually recorded that day.
+// Deliberately no forward-fill here: carrying the last reading onwards made a
+// single old entry keep scoring for weeks, so a master read a confident number
+// while its members held nothing. Gaps stay gaps — the charts draw them dashed.
 function computeMasterSeries(master, members, entries, rangeDays, endTs = Date.now()){
   const series = members.map(t =>
-    forwardFill(normalizeSeries(t, buildDailySeries(t, entries.filter(e=>e.trackerId===t.id), rangeDays, endTs)))
+    normalizeSeries(t, buildDailySeries(t, entries.filter(e=>e.trackerId===t.id), rangeDays, endTs))
   );
   if (!series.length) return [];
   const len = series[0].length;
@@ -2139,9 +2381,14 @@ function computeMasterSeries(master, members, entries, rangeDays, endTs = Date.n
   for (let i = 0; i < len; i++){
     const ts = series[0][i].ts;
     const k = dayKey(ts);
-    if (!trackerActiveOnKey(master, k)){ out.push({ ts, value: null }); continue; }
+    if (!trackerActiveOnKey(master, k)){ out.push({ ts, value: null, filled: 0, total: members.length }); continue; }
     const vals = series.map(s => s[i]?.value).filter(v => v != null);
-    out.push({ ts, value: vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null });
+    out.push({
+      ts,
+      value: vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null,
+      filled: vals.length,
+      total: members.length,
+    });
   }
   return out;
 }
@@ -2171,20 +2418,16 @@ function MasterStrips({ masters, trackerById, entries, dayTs, onReorder }){
 }
 function MasterStrip({ master, trackerById, entries, dayTs, containerRef, dragging, onDragStart }){
   const members = masterMembers(master, trackerById);
-  const latest = useMemo(() => {
-    // Historique: the index exactly as of the opened day (a 30-day window
-    // ending that day). An archived/not-yet-active day reads "—" rather than
-    // carrying a stale value forward.
-    if (dayTs != null && dayKey(dayTs) !== dayKey(Date.now())){
-      const s = computeMasterSeries(master, members, entries, 30, startOfDay(dayTs));
-      return s.length ? s[s.length - 1].value : null;
-    }
-    // Jour (today): the most recent non-null reading.
-    const s = computeMasterSeries(master, members, entries, 30);
-    for (let i = s.length - 1; i >= 0; i--){ if (s[i].value != null) return s[i].value; }
-    return null;
+  // The reading is always *that day's*, never the last one found further back:
+  // an index is a statement about a day, so a day with nothing recorded reads "—".
+  const today = useMemo(() => {
+    const end = (dayTs != null) ? startOfDay(dayTs) : Date.now();
+    const s = computeMasterSeries(master, members, entries, 30, end);
+    return s.length ? s[s.length - 1] : null;
   }, [master, members, entries, dayTs]);
-  const pct = latest != null ? Math.round(latest*100) : null;
+  const pct = today?.value != null ? Math.round(today.value*100) : null;
+  // A partial index (2 of 4 members recorded) shouldn't read like a complete one.
+  const partial = pct != null && today.filled < today.total;
   return (
     <div ref={containerRef} className={`master-strip ${dragging?'dragging':''}`}>
       <div className="ms-head">
@@ -2192,6 +2435,11 @@ function MasterStrip({ master, trackerById, entries, dayTs, containerRef, draggi
         <span className="master-mark" style={{background:master.color}}></span>
         <span className="ms-name">{master.name}</span>
         <span className="master-tag">master</span>
+        {partial && (
+          <span className="ms-partial" title={`${today.filled} membre(s) renseigné(s) sur ${today.total}`}>
+            {today.filled}/{today.total}
+          </span>
+        )}
       </div>
       <div className="ms-meter">
         <div className="ms-fill" style={{width:`${pct||0}%`, background:master.color}}></div>
@@ -2273,6 +2521,11 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = 
               <line className="chart-grid" x1={PAD_L} x2={W-PAD_R} y1={yAt(v)} y2={yAt(v)} />
               <text className="chart-axis" x={PAD_L-6} y={yAt(v)+3} textAnchor="end">{Math.round(v*100)}</text>
             </g>
+          ))}
+          {/* Days where no member recorded anything are bridged dashed, not drawn solid */}
+          {bridgesBetween(segments).map((b, i) => (
+            <line key={`b${i}`} x1={b.from[0]} y1={b.from[1]} x2={b.to[0]} y2={b.to[1]}
+              stroke={master.color} strokeWidth="1.4" strokeDasharray="3 4" opacity="0.5" />
           ))}
           {segments.map((seg, si) => {
             if (seg.length < 2) return seg.length === 1
@@ -2568,7 +2821,17 @@ function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
               <div style={{display:'flex',gap:8,alignItems:'baseline'}}>
                 <input type="number" min="0" placeholder="0" value={durH} onChange={e=>setDurH(e.target.value)} style={{width:50,textAlign:'right'}} />
                 <span className="unit">h</span>
-                <input type="number" min="0" max="59" placeholder="00" value={durM} onChange={e=>setDurM(e.target.value)} style={{width:50,textAlign:'right'}} />
+                <input type="number" min="0" placeholder="00" value={durM}
+                  onChange={e=>{
+                    const raw = e.target.value;
+                    if ((parseInt(raw || '0', 10) || 0) >= 60){
+                      const n = normalizeHM(durH, raw);
+                      setDurH(n.h); setDurM(n.m);
+                    } else {
+                      setDurM(raw);
+                    }
+                  }}
+                  style={{width:50,textAlign:'right'}} />
                 <span className="unit">min</span>
               </div>
             )}
