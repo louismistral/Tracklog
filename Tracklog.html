@@ -310,10 +310,10 @@
   /* Drag-to-reorder — grip handle + lifted state, reused by every
      reorderable list (rail pills, day cards, tracker cards, master
      strips, chart cards). */
-  .drag-handle{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex-shrink:0;color:var(--ink-3);cursor:grab;touch-action:none;border-radius:4px;transition:color .25s var(--ease),background .25s var(--ease)}
-  .drag-handle:hover{color:var(--ink);background:var(--bg-3)}
+  .drag-handle{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex-shrink:0;color:var(--ink-3);opacity:.65;cursor:grab;touch-action:none;border-radius:4px;transition:color .25s var(--ease),background .25s var(--ease),opacity .25s var(--ease)}
+  .drag-handle:hover{color:var(--ink);background:var(--bg-3);opacity:1}
   .drag-handle svg circle{fill:currentColor}
-  .drag-handle.dragging{cursor:grabbing;color:var(--accent)}
+  .drag-handle.dragging{cursor:grabbing;color:var(--accent);opacity:1}
   /* The dragged card stays fully visible and floats above the rest while it
      follows the pointer (transform applied inline). No opacity, no transition
      so it tracks the finger 1:1. */
@@ -393,26 +393,32 @@
   .tc-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tc-badge{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:3px 8px;flex-shrink:0;white-space:nowrap}
   .tc-badge.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
-  .tc-input{min-height:34px;display:flex;align-items:center}
+  .tc-input{min-height:34px;display:flex;align-items:center;flex:1;min-width:0}
   .tc-input input,.tc-input textarea{font-size:14px}
   .tc-input textarea{resize:none;line-height:1.4;width:100%}
+  .tc-input-row{display:flex;align-items:center;gap:12px}
   .tc-foot{display:flex;justify-content:flex-end;align-items:center;gap:10px}
   .tc-clear{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3);padding:8px 4px;margin-right:auto;transition:color .3s}
   .tc-clear:hover{color:var(--warn)}
-  .today-card .primary.sm{background:var(--accent);color:#fff;padding:8px 16px;border-radius:999px;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em;transition:background .3s}
+  .today-card .primary.sm{background:var(--accent);color:#fff;padding:8px 16px;border-radius:999px;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em;transition:background .3s;flex-shrink:0}
   .today-card .primary.sm:hover{background:#f0613b}
   .today-card .primary.sm:disabled{opacity:0.3;cursor:not-allowed}
-  /* Multi tracker: the count badge toggles a compact, editable list of the day's entries */
-  .tc-badge.badge-btn{cursor:pointer;transition:color .3s,border-color .3s,background .3s}
-  .tc-badge.badge-btn::after{content:'▾';margin-left:5px;font-size:7px;display:inline-block;transition:transform .35s var(--ease)}
+  /* Multi tracker: the count badge toggles a compact, editable list of the day's entries.
+     Round shape (no dropdown arrow) is the interactive affordance on its own. */
+  .tc-badge.badge-btn{cursor:pointer;width:24px;height:24px;padding:0;border-radius:50%;
+    display:inline-flex;align-items:center;justify-content:center;font-family:"Geist Mono",monospace;
+    transition:color .3s,border-color .3s,background .3s}
   .tc-badge.badge-btn:hover{color:var(--ink-2);border-color:var(--ink-2)}
   .tc-badge.badge-btn.open{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
-  .tc-badge.badge-btn.open::after{transform:rotate(180deg)}
-  /* Mounted even when closed (for the transition); the negative margin cancels the
-     parent's 14px flex gap so a collapsed list leaves no empty space. */
-  .tc-log{display:flex;flex-direction:column;overflow:hidden;max-height:0;margin-top:-14px;transition:max-height .4s var(--ease),margin-top .4s var(--ease)}
-  .tc-log.open{max-height:min(60vh,420px);margin-top:0;overflow-y:auto}
-  .tc-log-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:baseline;padding:8px 2px;border-top:1px solid var(--line)}
+  /* Boxed, labelled, collapsed by default — expands under the input row when the badge is clicked.
+     The negative margin cancels the parent's 14px flex gap so a collapsed list leaves no empty space. */
+  .tc-log{display:flex;flex-direction:column;overflow:hidden;max-height:0;opacity:0;margin-top:-14px;
+    border:1px solid transparent;border-radius:var(--radius);
+    transition:max-height .4s var(--ease),opacity .3s var(--ease),border-color .3s var(--ease),padding .4s var(--ease),margin-top .4s var(--ease)}
+  .tc-log.open{max-height:min(60vh,420px);opacity:1;margin-top:0;overflow-y:auto;border-color:var(--line);padding:4px 10px}
+  .tc-log-label{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3);padding:8px 2px 2px}
+  .tc-log-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:baseline;padding:8px 2px;border-top:1px solid var(--line)}
+  .tc-log-row:first-of-type{border-top:none}
   .tc-log-row .t{font-family:"Geist Mono",monospace;font-size:10.5px;color:var(--ink-3);letter-spacing:0.03em;font-feature-settings:"tnum"}
   .tc-log-row .v{font-family:"Geist Mono",monospace;font-size:13px;font-weight:500;text-align:right;font-feature-settings:"tnum"}
   .tc-log-row .v .u{color:var(--ink-3);font-weight:400;font-size:11px;margin-left:2px}
@@ -569,6 +575,6 @@
 })();
 </script>
 
-<script type="text/babel" src="app.jsx?v=22"></script>
+<script type="text/babel" src="app.jsx?v=23"></script>
 </body>
 </html>
