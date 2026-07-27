@@ -440,6 +440,32 @@
   .tc-log-actions button.del:hover{color:var(--warn)}
   @media (hover:none){ .tc-log-actions{opacity:1} }
 
+  /* Chrono — stopwatch cards. A running one is ringed in accent so the board reads
+     at a glance: what is counting right now, and what is only banked. */
+  .chrono-empty{padding:70px 20px;text-align:center}
+  .chrono-empty .em-serif{font-family:"Instrument Serif",serif;font-style:italic;font-size:30px;color:var(--ink-2)}
+  .chrono-empty-sub{font-size:13px;color:var(--ink-3);line-height:1.6;max-width:44ch;margin:0 auto 26px}
+  .chrono-add-big{background:var(--accent);color:#fff;padding:14px 28px;border-radius:999px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.14em;transition:background .4s var(--ease),transform .4s var(--ease)}
+  .chrono-add-big:hover{background:#f0613b;transform:translateY(-1px)}
+  .chrono-add{margin-top:16px;padding:12px 20px;border-radius:999px;border:1px dashed var(--line-2);color:var(--ink-3);font-size:10px;text-transform:uppercase;letter-spacing:0.12em;transition:color .35s var(--ease),border-color .35s var(--ease)}
+  .chrono-add:hover{color:var(--accent);border-color:var(--accent)}
+  .chrono-card.running{border-color:var(--accent);background:var(--accent-soft)}
+  .chrono-link{overflow:hidden;text-overflow:ellipsis;max-width:45%}
+  .chrono-time{font-family:"Geist Mono",monospace;font-feature-settings:"tnum";font-size:32px;font-weight:500;letter-spacing:0.01em;color:var(--ink-2);transition:color .4s var(--ease)}
+  .chrono-time.running{color:var(--ink)}
+  .chrono-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .chrono-secondary{display:flex;gap:4px;align-items:center;margin-left:auto}
+  .chrono-btn{font-size:10px;text-transform:uppercase;letter-spacing:0.1em;padding:8px 14px;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-2);transition:color .3s,border-color .3s,background .3s}
+  .chrono-btn:hover{color:var(--ink);border-color:var(--ink-2)}
+  .chrono-btn.start{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .chrono-btn.start:hover{background:#fff;border-color:#fff}
+  .chrono-btn.pause{border-color:var(--accent);color:var(--accent)}
+  .chrono-btn.pause:hover{background:var(--accent);color:#fff}
+  .chrono-btn.ghost,.chrono-btn.del{border-color:transparent;color:var(--ink-3);padding:8px 9px;letter-spacing:0.06em}
+  .chrono-btn.ghost:hover{color:var(--ink);background:var(--bg-3)}
+  .chrono-btn.del:hover{color:var(--warn);background:var(--bg-3)}
+  .chrono-save{width:100%;justify-content:center}
+
   .log-subnav{display:flex;align-items:center;gap:22px;margin-bottom:26px}
   .log-subhint{font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.08em}
 
@@ -586,6 +612,6 @@
 })();
 </script>
 
-<script type="text/babel" src="app.jsx?v=24"></script>
+<script type="text/babel" src="app.jsx?v=25"></script>
 </body>
 </html>

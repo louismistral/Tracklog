@@ -86,6 +86,20 @@ function fmtDuration(min){
   if (m === 0) return `${h}h`;
   return `${h}h${String(m).padStart(2,'0')}`;
 }
+// Running clock display, H:MM:SS (or M:SS under an hour).
+function fmtChrono(ms){
+  const total = Math.max(0, Math.floor(ms/1000));
+  const h = Math.floor(total/3600), m = Math.floor((total%3600)/60), s = total%60;
+  const mm = String(m).padStart(2,'0'), ss = String(s).padStart(2,'0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+}
+// A chrono banks time in `accumulatedMs` and, while running, counts from `startedAt`.
+// Deriving elapsed from timestamps (rather than ticking a counter) keeps it exact
+// across reloads, backgrounded tabs and a phone that went to sleep.
+function chronoElapsed(c, now){
+  return (c.accumulatedMs || 0) + (c.startedAt ? Math.max(0, now - c.startedAt) : 0);
+}
+
 function fmtValue(tracker, v){
   if (v == null || v === '') return '—';
   switch (tracker.type){
@@ -383,7 +397,20 @@ function App({ session }){
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('log');        // log | trackers | vues
-  const [logSub, setLogSub] = useState('jour'); // jour | historique — sub-sections of Log
+  const [logSub, setLogSub] = useState('jour'); // jour | historique | chrono — sub-sections of Log
+  // Chronos are per-device working state (what's running right now), not history, so they
+  // live in localStorage — only the entry a chrono produces is saved to the database.
+  const chronoKey = `tracklog.chronos.${userId}`;
+  const [chronos, setChronos] = useState(() => {
+    try {
+      const raw = localStorage.getItem(`tracklog.chronos.${session.user.id}`);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(chronoKey, JSON.stringify(chronos)); } catch {}
+  }, [chronos, chronoKey]);
   // Multi-select filter for the rail. `selectedIds` is the remembered set;
   // `showAll` temporarily overrides it (the "Tout" toggle) while keeping the
   // set intact (shown greyed) so it isn't lost.
@@ -440,6 +467,32 @@ function App({ session }){
     const { error } = await supabase.from('entries').update(entryToRow(updated, userId)).eq('id', id);
     if (!error) setEntries(s => s.map(e => e.id===id ? updated : e));
   };
+  const addChrono = ({ label, trackerId }) => {
+    setChronos(s => [...s, { id: uid('c_'), label, trackerId: trackerId || null, accumulatedMs: 0, startedAt: null }]);
+  };
+  const startChrono = (id) => {
+    setChronos(s => s.map(c => c.id !== id || c.startedAt ? c : { ...c, startedAt: Date.now() }));
+  };
+  // Pausing banks the running segment, so elapsed time never depends on render timing.
+  const pauseChrono = (id) => {
+    const now = Date.now();
+    setChronos(s => s.map(c => (c.id !== id || !c.startedAt) ? c
+      : { ...c, accumulatedMs: chronoElapsed(c, now), startedAt: null }));
+  };
+  const resetChrono = (id) => {
+    setChronos(s => s.map(c => c.id !== id ? c : { ...c, accumulatedMs: 0, startedAt: null }));
+  };
+  const removeChrono = (id) => setChronos(s => s.filter(c => c.id !== id));
+  // Bank the elapsed time as a real entry on the linked tracker, then start the chrono over.
+  const saveChronoAsEntry = async (id) => {
+    const c = chronos.find(x => x.id === id);
+    if (!c || !c.trackerId) return;
+    const minutes = Math.round(chronoElapsed(c, Date.now()) / 60000);
+    if (minutes < 1) return;
+    await addEntry({ trackerId: c.trackerId, value: minutes, ts: Date.now() });
+    resetChrono(id);
+  };
+
   const addTracker = async (t) => {
     const nextOrder = trackers.length ? Math.max(...trackers.map(x => x.order || 0)) + 1 : 0;
     const tracker = { id: uid('t_'), createdAt: Date.now(), order: nextOrder, ...t };
@@ -552,6 +605,14 @@ function App({ session }){
           onDeleteEntry={deleteEntry}
           onEditEntry={(e)=>setEditEntry(e)}
           onReorder={reorderTrackers}
+          chronos={chronos}
+          allTrackers={trackers}
+          onAddChrono={addChrono}
+          onStartChrono={startChrono}
+          onPauseChrono={pauseChrono}
+          onResetChrono={resetChrono}
+          onRemoveChrono={removeChrono}
+          onSaveChrono={saveChronoAsEntry}
         />
       ) : tab === 'trackers' ? (
         <TrackersView
@@ -980,21 +1041,200 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
 }
 
 /* ============================================================
-   Log view — the entries, split into "Jour" (today) and "Historique"
+   Chrono — stopwatches for timing sessions across the day. Each one can be
+   tied to a duration tracker so the time it measures becomes a real entry.
    ============================================================ */
-function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder }){
+function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, onReset, onRemove, onSave }){
+  const [adding, setAdding] = useState(false);
+  const running = chronos.some(c => c.startedAt);
+  const [now, setNow] = useState(() => Date.now());
+
+  // Only tick while something is actually running — a paused board costs nothing.
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [running]);
+
+  // Only time-based trackers can receive a chrono's result.
+  const durationTrackers = useMemo(
+    () => trackers.filter(t => t.type === 'duration' && !t.archived),
+    [trackers]
+  );
+
+  return (
+    <div>
+      {chronos.length === 0 ? (
+        <div className="chrono-empty">
+          <p className="em-serif" style={{margin:'0 0 6px'}}>Aucun chrono.</p>
+          <p className="chrono-empty-sub">
+            Lancez un chrono quand vous commencez une tâche, mettez-le en pause quand vous en changez.
+          </p>
+          <button className="chrono-add-big" onClick={()=>setAdding(true)}>+ Ajouter un chrono</button>
+        </div>
+      ) : (
+        <>
+          <div className="today-grid">
+            {chronos.map(c => (
+              <ChronoCard
+                key={c.id} chrono={c} now={now}
+                tracker={c.trackerId ? trackerById[c.trackerId] : null}
+                onStart={onStart} onPause={onPause} onReset={onReset}
+                onRemove={onRemove} onSave={onSave}
+              />
+            ))}
+          </div>
+          <button className="chrono-add" onClick={()=>setAdding(true)}>+ Ajouter un chrono</button>
+        </>
+      )}
+
+      {adding && (
+        <ChronoModal
+          trackers={durationTrackers}
+          onClose={()=>setAdding(false)}
+          onSave={(data)=>{ onAdd(data); setAdding(false); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ChronoCard({ chrono: c, now, tracker, onStart, onPause, onReset, onRemove, onSave }){
+  const elapsed = chronoElapsed(c, now);
+  const isRunning = !!c.startedAt;
+  const minutes = Math.round(elapsed / 60000);
+
+  return (
+    <div className={`today-card chrono-card ${isRunning?'running':''}`}>
+      <div className="tc-head">
+        <div className="tc-name">
+          {tracker && <span className="dot" style={{background:tracker.color}}></span>}
+          {c.label}
+        </div>
+        {/* The coloured dot already says "linked"; only name the tracker when the
+            chrono carries a different label, so the card never repeats itself. */}
+        {!tracker
+          ? <span className="tc-badge">libre</span>
+          : c.label !== tracker.name
+            ? <span className="tc-badge on chrono-link">{tracker.name}</span>
+            : null}
+      </div>
+
+      <div className={`chrono-time ${isRunning?'running':''}`}>{fmtChrono(elapsed)}</div>
+
+      <div className="chrono-actions">
+        {isRunning ? (
+          <button className="chrono-btn pause" onClick={()=>onPause(c.id)}>Pause</button>
+        ) : (
+          <button className="chrono-btn start" onClick={()=>onStart(c.id)}>
+            {elapsed > 0 ? 'Reprendre' : 'Lancer'}
+          </button>
+        )}
+        {/* Destructive actions stay out of reach while the clock is running, and sit
+            together on the right so a narrow card wraps them as one deliberate group. */}
+        {!isRunning && (
+          <span className="chrono-secondary">
+            {elapsed > 0 && (
+              <button className="chrono-btn ghost" onClick={()=>onReset(c.id)} title="Remettre à zéro">À zéro</button>
+            )}
+            <button className="chrono-btn del" onClick={()=>onRemove(c.id)} title="Supprimer le chrono">Suppr.</button>
+          </span>
+        )}
+      </div>
+
+      {tracker && (
+        <button
+          className="primary sm chrono-save"
+          disabled={isRunning || minutes < 1}
+          onClick={()=>onSave(c.id)}
+          title={isRunning ? 'Mettez le chrono en pause pour enregistrer'
+               : minutes < 1 ? 'Moins d’une minute' : ''}
+        >
+          Enregistrer {minutes >= 1 ? fmtDuration(minutes) : ''}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ChronoModal({ trackers, onClose, onSave }){
+  const [trackerId, setTrackerId] = useState('');
+  const [label, setLabel] = useState('');
+  const linked = trackers.find(t => t.id === trackerId);
+  // The tracker's name is the natural default, so a linked chrono needs no typing.
+  const finalLabel = label.trim() || linked?.name || '';
+  const canSave = finalLabel.length > 0;
+
+  return (
+    <div className="scrim" onClick={onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:380}}>
+        <h2>Nouveau chrono</h2>
+        <div className="modal-sub">
+          Liez-le à un tracker de durée pour enregistrer le temps mesuré, ou nommez-le librement.
+        </div>
+
+        <div className="field">
+          <label>Tracker</label>
+          <select value={trackerId} onChange={e=>setTrackerId(e.target.value)}>
+            <option value="">Aucun — nom libre</option>
+            {trackers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+        <div className="field" style={{borderBottom:'none'}}>
+          <label>Nom</label>
+          <input autoFocus value={label} onChange={e=>setLabel(e.target.value)}
+            onKeyDown={e=>{ if(e.key==='Enter' && canSave) onSave({ label: finalLabel, trackerId }); }}
+            placeholder={linked ? linked.name : 'ex. Lecture'} />
+        </div>
+
+        {trackers.length === 0 && (
+          <div style={{fontSize:12,color:'var(--ink-3)',marginTop:10}}>
+            Aucun tracker de durée pour l’instant — le chrono sera simplement nommé.
+          </div>
+        )}
+
+        <div className="modal-actions">
+          <button className="ghost" onClick={onClose}>Annuler</button>
+          <button className="primary" disabled={!canSave} onClick={()=>onSave({ label: finalLabel, trackerId })}>
+            Créer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   Log view — the entries, split into "Jour", "Historique" and "Chrono"
+   ============================================================ */
+function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder,
+                  chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono }){
+  const hint = logSub === 'jour' ? "les entrées d’aujourd’hui"
+             : logSub === 'historique' ? "ouvrez n’importe quel jour pour l’éditer"
+             : "chronométrez vos sessions, puis enregistrez-les";
   return (
     <div>
       <div className="log-subnav">
         <div className="vue-mode">
           <button className={logSub==='jour'?'on':''} onClick={()=>onLogSub('jour')}>Jour</button>
           <button className={logSub==='historique'?'on':''} onClick={()=>onLogSub('historique')}>Historique</button>
+          <button className={logSub==='chrono'?'on':''} onClick={()=>onLogSub('chrono')}>Chrono</button>
         </div>
-        <span className="log-subhint serif">
-          {logSub==='jour' ? "les entrées d’aujourd’hui" : "ouvrez n’importe quel jour pour l’éditer"}
-        </span>
+        <span className="log-subhint serif">{hint}</span>
       </div>
-      {logSub === 'jour' ? (
+      {logSub === 'chrono' ? (
+        <ChronoView
+          chronos={chronos}
+          trackers={allTrackers}
+          trackerById={trackerById}
+          onAdd={onAddChrono}
+          onStart={onStartChrono}
+          onPause={onPauseChrono}
+          onReset={onResetChrono}
+          onRemove={onRemoveChrono}
+          onSave={onSaveChrono}
+        />
+      ) : logSub === 'jour' ? (
         <TodayView trackers={trackers} masters={masters} trackerById={trackerById} entries={entries} filterIds={filterIds} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} onReorder={onReorder} />
       ) : (
         <HistoryView
