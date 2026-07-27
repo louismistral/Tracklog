@@ -1044,10 +1044,20 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
    Chrono — stopwatches for timing sessions across the day. Each one can be
    tied to a duration tracker so the time it measures becomes a real entry.
    ============================================================ */
+// A picture-in-picture window is a separate document: it inherits none of the page's
+// CSS, so the theme has to be cloned into it for the cards to look like themselves.
+function copyStylesTo(win){
+  document.querySelectorAll('style, link[rel="stylesheet"]').forEach(node => {
+    win.document.head.appendChild(node.cloneNode(true));
+  });
+}
+const PIP_SUPPORTED = typeof window !== 'undefined' && 'documentPictureInPicture' in window;
+
 function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, onReset, onRemove, onSave }){
   const [adding, setAdding] = useState(false);
   const running = chronos.some(c => c.startedAt);
   const [now, setNow] = useState(() => Date.now());
+  const [pipWin, setPipWin] = useState(null);
 
   // Only tick while something is actually running — a paused board costs nothing.
   useEffect(() => {
@@ -1062,6 +1072,32 @@ function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, o
     [trackers]
   );
 
+  // The floating window runs in this same JS context, so the chronos it shows are the
+  // very same state — no syncing, and the buttons in it drive the app directly.
+  const openPip = async () => {
+    if (!PIP_SUPPORTED || pipWin) return;
+    try {
+      const win = await window.documentPictureInPicture.requestWindow({ width: 300, height: 380 });
+      copyStylesTo(win);
+      win.document.body.classList.add('pip-body');
+      win.addEventListener('pagehide', () => setPipWin(null));
+      setPipWin(win);
+    } catch { /* user dismissed the window request */ }
+  };
+
+  const cards = (
+    <div className="today-grid">
+      {chronos.map(c => (
+        <ChronoCard
+          key={c.id} chrono={c} now={now}
+          tracker={c.trackerId ? trackerById[c.trackerId] : null}
+          onStart={onStart} onPause={onPause} onReset={onReset}
+          onRemove={onRemove} onSave={onSave}
+        />
+      ))}
+    </div>
+  );
+
   return (
     <div>
       {chronos.length === 0 ? (
@@ -1074,19 +1110,27 @@ function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, o
         </div>
       ) : (
         <>
-          <div className="today-grid">
-            {chronos.map(c => (
-              <ChronoCard
-                key={c.id} chrono={c} now={now}
-                tracker={c.trackerId ? trackerById[c.trackerId] : null}
-                onStart={onStart} onPause={onPause} onReset={onReset}
-                onRemove={onRemove} onSave={onSave}
-              />
-            ))}
-          </div>
+          {PIP_SUPPORTED && (
+            <div className="chrono-bar">
+              <button className="chrono-btn" onClick={openPip} disabled={!!pipWin}>
+                {pipWin ? 'Fenêtre flottante ouverte' : '⧉ Fenêtre flottante'}
+              </button>
+              {pipWin && <button className="chrono-btn ghost" onClick={()=>pipWin.close()}>Refermer</button>}
+            </div>
+          )}
+
+          {pipWin
+            ? <div className="chrono-detached">
+                <span className="em-serif">Vos chronos sont dans la fenêtre flottante.</span>
+              </div>
+            : cards}
+
           <button className="chrono-add" onClick={()=>setAdding(true)}>+ Ajouter un chrono</button>
         </>
       )}
+
+      {/* Rendered into the floating window, but still part of this React tree. */}
+      {pipWin && ReactDOM.createPortal(cards, pipWin.document.body)}
 
       {adding && (
         <ChronoModal
