@@ -595,11 +595,9 @@ function App({ session }){
     Promise.all(changed.map(t => supabase.from('trackers').update({ order_index: orderMap[t.id] }).eq('id', t.id)));
   };
 
-  if (loading){
-    return <div className="empty"><span className="em-serif">Chargement…</span></div>;
-  }
-
   // Last time each tracker was logged — backs the "activité récente" sort.
+  // Must stay above the loading guard: a hook skipped on the first render and run on
+  // the next changes the hook order, which React refuses — it blanks the whole app.
   const lastEntryByTracker = useMemo(() => {
     const m = {};
     for (const e of entries){
@@ -607,6 +605,10 @@ function App({ session }){
     }
     return m;
   }, [entries]);
+
+  if (loading){
+    return <div className="empty"><span className="em-serif">Chargement…</span></div>;
+  }
 
   // Sorting is a view over the manual order, never a rewrite of it: leaving a sort
   // mode restores the arrangement you dragged into place.
