@@ -865,6 +865,10 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
     }
   };
 
+  // Scale buttons, choice chips and the textarea lay out over several rows, so they take the
+  // full width and push the save button below; compact fields stay on its line.
+  const wideInput = t.type === 'scale' || t.type === 'choice' || t.type === 'text';
+
   const inputControls = (
     <>
       {t.type === 'number' && (
@@ -936,7 +940,7 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
 
       {daily ? (
         <>
-          <div className="tc-input">{inputControls}</div>
+          <div className={`tc-input ${wideInput?'wide':''}`}>{inputControls}</div>
           <div className="tc-foot">
             {existing && <button className="tc-clear" onClick={()=>onDeleteEntry(existing.id)}>Effacer</button>}
             <button className="primary sm" disabled={!canSave} onClick={submit}>
@@ -947,7 +951,7 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
       ) : (
         <>
           <div className="tc-input-row">
-            <div className="tc-input">{inputControls}</div>
+            <div className={`tc-input ${wideInput?'wide':''}`}>{inputControls}</div>
             <button className="primary sm" disabled={!canSave} onClick={submit}>Ajouter</button>
           </div>
 
@@ -959,7 +963,6 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
                 return (
                   <div className="tc-log-row" key={e.id}>
                     <span className="t">{timeLabel(e.ts)}</span>
-                    <span></span>
                     <span className="tc-log-actions">
                       {onEditEntry && <button onClick={()=>onEditEntry(e)}>modifier</button>}
                       <button className="del" onClick={()=>onDeleteEntry(e.id)}>suppr.</button>
