@@ -195,6 +195,12 @@
   .empty{padding:80px 20px;text-align:center;color:var(--ink-3);font-size:13px;text-transform:uppercase;letter-spacing:0.1em}
   .empty .em-serif{font-family:"Instrument Serif",serif;font-style:italic;font-size:30px;color:var(--ink-2);margin-bottom:10px;display:block;text-transform:none;letter-spacing:0}
 
+  /* Initial boot placeholder, swapped for the React app once it mounts (or
+     for an explanatory message if boot fails — see the watchdog script). */
+  .boot-fallback{padding:120px 20px;text-align:center;color:var(--ink-3);font-size:13px}
+  .boot-fallback .em-serif{font-family:"Instrument Serif",serif;font-style:italic;font-size:30px;color:var(--ink-2);margin-bottom:14px;display:block}
+  .boot-fallback p{max-width:440px;margin:0 auto;line-height:1.6;font-size:13px}
+
   /* Vues */
   .vue-controls{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
   .vue-mode{display:flex;gap:2px;background:var(--bg-2);padding:3px;border-radius:999px;border:1px solid var(--line)}
@@ -619,7 +625,35 @@
 </style>
 </head>
 <body>
-<div id="root"></div>
+<div id="root"><div class="boot-fallback" id="boot-fallback"><span class="em-serif">Chargement…</span><p id="boot-msg"></p></div></div>
+
+<!-- Boot watchdog: the app depends on React/Babel/Supabase loading live from
+     CDNs (see script tags below) and on app.jsx running without throwing.
+     If any of that fails — CDN blocked/down, offline, ad-blocker — React
+     never mounts and #root would otherwise stay on its initial "Chargement…"
+     forever with no clue why. This catches load failures and any uncaught
+     error/rejection during boot and swaps in a plain-language message with
+     a retry button, so the screen is never just the background gradient. -->
+<script>
+(function(){
+  var done = false; // set true once app.jsx has actually mounted React
+  window.__tkBootDone = function(){ done = true; };
+  function show(msg){
+    if (done) return;
+    var el = document.getElementById('boot-msg');
+    if (el) el.innerHTML = msg + '<br><button onclick="location.reload()" style="margin-top:14px;background:var(--accent);color:#fff;padding:9px 18px;border-radius:999px;font-size:11px;font-weight:500;letter-spacing:.1em;text-transform:uppercase">Réessayer</button>';
+  }
+  window.addEventListener('error', function(e){
+    show('Un script n’a pas pu se charger ou a échoué (' + (e.message || (e.target && e.target.src) || 'erreur inconnue') + '). Vérifie ta connexion ou désactive un éventuel bloqueur de scripts, puis réessaie.');
+  }, true);
+  window.addEventListener('unhandledrejection', function(e){
+    show('Une erreur est survenue au chargement (' + (e.reason && e.reason.message || e.reason) + '). Réessaie.');
+  });
+  setTimeout(function(){
+    if (!done) show('Le chargement prend trop de temps — probablement une ressource externe (CDN) inaccessible depuis ce réseau. Vérifie ta connexion, puis réessaie.');
+  }, 12000);
+})();
+</script>
 
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
@@ -655,6 +689,6 @@
 })();
 </script>
 
-<script type="text/babel" src="app.jsx?v=27"></script>
+<script type="text/babel" src="app.jsx?v=28"></script>
 </body>
 </html>

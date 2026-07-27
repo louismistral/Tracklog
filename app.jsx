@@ -3321,4 +3321,5 @@ function Root(){
 
 /* ============================================================ */
 
+if (window.__tkBootDone) window.__tkBootDone();
 ReactDOM.createRoot(document.getElementById('root')).render(<Root />);
