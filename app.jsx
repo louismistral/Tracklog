@@ -541,6 +541,10 @@ function App({ session }){
   const resetChrono = (id) => {
     setChronos(s => s.map(c => c.id !== id ? c : { ...c, accumulatedMs: 0, startedAt: null }));
   };
+  // Bulk action: stops and zeroes every chrono on the board at once.
+  const resetAllChronos = () => {
+    setChronos(s => s.map(c => ({ ...c, accumulatedMs: 0, startedAt: null })));
+  };
   const removeChrono = (id) => setChronos(s => s.filter(c => c.id !== id));
   const updateChrono = (id, patch) => setChronos(s => s.map(c => c.id === id ? { ...c, ...patch } : c));
   // Bank the elapsed time as a real entry on the linked tracker, then start the chrono over.
@@ -701,6 +705,7 @@ function App({ session }){
           onStartChrono={startChrono}
           onPauseChrono={pauseChrono}
           onResetChrono={resetChrono}
+          onResetAllChronos={resetAllChronos}
           onRemoveChrono={removeChrono}
           onSaveChrono={saveChronoAsEntry}
           onUpdateChrono={updateChrono}
@@ -1248,7 +1253,7 @@ function copyStylesTo(win){
 }
 const PIP_SUPPORTED = typeof window !== 'undefined' && 'documentPictureInPicture' in window;
 
-function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, onReset, onRemove, onSave, onUpdate }){
+function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, onReset, onRemove, onSave, onUpdate, onResetAll }){
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
   const running = chronos.some(c => c.startedAt);
@@ -1306,14 +1311,22 @@ function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, o
         </div>
       ) : (
         <>
-          {PIP_SUPPORTED && (
-            <div className="chrono-bar">
-              <button className="chrono-btn" onClick={openPip} disabled={!!pipWin}>
-                {pipWin ? 'Fenêtre flottante ouverte' : '⧉ Fenêtre flottante'}
-              </button>
-              {pipWin && <button className="chrono-btn ghost" onClick={()=>pipWin.close()}>Refermer</button>}
-            </div>
-          )}
+          <div className="chrono-bar">
+            {PIP_SUPPORTED && (
+              <>
+                <button className="chrono-btn" onClick={openPip} disabled={!!pipWin}>
+                  {pipWin ? 'Fenêtre flottante ouverte' : '⧉ Fenêtre flottante'}
+                </button>
+                {pipWin && <button className="chrono-btn ghost" onClick={()=>pipWin.close()}>Refermer</button>}
+              </>
+            )}
+            <button
+              className="chrono-btn ghost"
+              onClick={()=>{ if (confirm('Remettre tous les chronos à zéro ?')) onResetAll(); }}
+            >
+              Reset all
+            </button>
+          </div>
 
           {pipWin
             ? <div className="chrono-detached">
@@ -1380,7 +1393,7 @@ function ChronoCard({ chrono: c, now, tracker, onStart, onPause, onReset, onSave
         {!isRunning && (
           <span className="chrono-secondary">
             {elapsed > 0 && (
-              <button className="chrono-btn ghost" onClick={()=>onReset(c.id)} title="Remettre à zéro">À zéro</button>
+              <button className="chrono-btn ghost" onClick={()=>onReset(c.id)} title="Remettre à zéro">Reset</button>
             )}
             <button className="chrono-btn ghost" onClick={onEdit} title="Paramètres du chrono">Réglages</button>
           </span>
@@ -1470,7 +1483,7 @@ function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
    Log view — the entries, split into "Jour", "Historique" and "Chrono"
    ============================================================ */
 function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder,
-                  chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono, onUpdateChrono }){
+                  chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono, onUpdateChrono, onResetAllChronos }){
   const hint = logSub === 'jour' ? "les entrées d’aujourd’hui"
              : logSub === 'historique' ? "ouvrez n’importe quel jour pour l’éditer"
              : "chronométrez vos sessions, puis enregistrez-les";
@@ -1493,6 +1506,7 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
           onStart={onStartChrono}
           onPause={onPauseChrono}
           onReset={onResetChrono}
+          onResetAll={onResetAllChronos}
           onRemove={onRemoveChrono}
           onSave={onSaveChrono}
           onUpdate={onUpdateChrono}
