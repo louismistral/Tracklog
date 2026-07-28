@@ -97,6 +97,18 @@
   .topbar-actions{display:flex;align-items:center;gap:22px}
   .account-btn{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.14em;transition:color .4s var(--ease)}
   .account-btn:hover{color:var(--accent)}
+  /* Settings: a gear replaces the two loose "Mot de passe"/"Déconnexion" text
+     buttons that used to sit in the top bar — one icon, one destination. */
+  .gear-btn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;color:var(--ink-3);transition:color .3s var(--ease),background .3s var(--ease)}
+  .gear-btn:hover{color:var(--ink);background:var(--bg-3)}
+  .gear-btn.active{color:var(--accent)}
+  .gear-btn svg{transition:transform .4s var(--ease)}
+  .gear-btn:hover svg{transform:rotate(25deg)}
+  .settings-view{max-width:480px}
+  .settings-card{margin-bottom:20px}
+  .settings-section-title{font-family:"Instrument Serif",serif;font-style:italic;font-size:19px;margin:0 0 6px}
+  .settings-value{font-size:13px;color:var(--ink-2)}
+  .settings-hint{font-size:12px;color:var(--ink-3);line-height:1.6;margin:12px 0 0}
 
   /* Tracker rail */
   .rail-wrap{border-bottom:1px solid var(--line);margin-bottom:34px}
@@ -691,6 +703,6 @@
 })();
 </script>
 
-<script type="text/babel" src="app.jsx?v=30"></script>
+<script type="text/babel" src="app.jsx?v=31"></script>
 </body>
 </html>
