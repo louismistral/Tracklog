@@ -1,4 +1,4 @@
-const { useState, useEffect, useMemo, useRef, useCallback } = React;
+const { useState, useEffect, useMemo, useRef, useCallback, useContext } = React;
 
 /* ============================================================
    Data model
@@ -222,7 +222,14 @@ function trackerActiveOnKey(t, dk){
 const isMaster = (t) => t.type === 'master';
 
 /* Small "i" button that reveals an explanation only when clicked. */
+// Global on/off for the "i" explainer bubbles. A context because InfoBubble is used
+// from many unrelated, deeply nested components (modals, cards…) — threading a prop
+// through every one of them would touch nearly every component signature in the file,
+// and more call sites are coming later, per Louis.
+const InfoVisibilityContext = React.createContext(true);
+
 function InfoBubble({ children }){
+  const infoEnabled = useContext(InfoVisibilityContext);
   const [open, setOpen] = useState(false);
   const ref = useRef();
   useEffect(() => {
@@ -232,6 +239,7 @@ function InfoBubble({ children }){
     document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') setOpen(false); });
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
+  if (!infoEnabled) return null;
   return (
     <span className="info" ref={ref}>
       <button type="button" className={`info-btn ${open?'on':''}`} onClick={()=>setOpen(o=>!o)} aria-label="Plus d'infos">i</button>
@@ -476,6 +484,15 @@ function App({ session }){
   useEffect(() => {
     try { localStorage.setItem(exclusiveKey, chronoExclusive ? '1' : '0'); } catch {}
   }, [chronoExclusive, exclusiveKey]);
+  // Whether the "i" explainer bubbles show up at all — a per-device preference for
+  // once the app is familiar, not data worth syncing across devices.
+  const infoKey = `tracklog.infoEnabled.${userId}`;
+  const [infoEnabled, setInfoEnabled] = useState(() => {
+    try { const v = localStorage.getItem(infoKey); return v === null ? true : v === '1'; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(infoKey, infoEnabled ? '1' : '0'); } catch {}
+  }, [infoEnabled, infoKey]);
   // Multi-select filter for the rail. `selectedIds` is the remembered set;
   // `showAll` temporarily overrides it (the "Tout" toggle) while keeping the
   // set intact (shown greyed) so it isn't lost.
@@ -667,6 +684,7 @@ function App({ session }){
   const showRail = tab === 'log' || tab === 'trackers' || tab === 'vues';
 
   return (
+    <InfoVisibilityContext.Provider value={infoEnabled}>
     <div className="app">
       <header className="topbar">
         <div className="brand">
@@ -680,8 +698,17 @@ function App({ session }){
             <button className={tab==='trackers'?'active':''} onClick={()=>setTab('trackers')}>Trackers</button>
             <button className={tab==='vues'?'active':''} onClick={()=>setTab('vues')}>Vues</button>
           </div>
-          <button className="account-btn" onClick={()=>setPwOpen(true)}>Mot de passe</button>
-          <button className="account-btn" onClick={()=>supabase.auth.signOut()}>Déconnexion</button>
+          <button
+            className={`gear-btn ${tab==='parametres'?'active':''}`}
+            onClick={()=>setTab('parametres')}
+            aria-label="Paramètres"
+            title="Paramètres"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+              <circle cx="8" cy="8" r="2.3" />
+              <path d="M8 1.6v1.7M8 12.7v1.7M14.4 8h-1.7M3.3 8H1.6M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2M12.5 12.5l-1.2-1.2M4.7 4.7 3.5 3.5" strokeLinecap="round" />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -739,13 +766,21 @@ function App({ session }){
           onUnarchive={unarchiveTracker}
           onReorder={manualSort ? reorderTrackers : null}
         />
-      ) : (
+      ) : tab === 'vues' ? (
         <VuesView
           trackers={activeTrackers}
           trackerById={trackerById}
           entries={entries}
           filterIds={filterIds}
           onReorder={manualSort ? reorderTrackers : null}
+        />
+      ) : (
+        <SettingsView
+          email={session.user.email}
+          onChangePassword={()=>setPwOpen(true)}
+          onSignOut={()=>supabase.auth.signOut()}
+          infoEnabled={infoEnabled}
+          onSetInfoEnabled={setInfoEnabled}
         />
       )}
 
@@ -782,6 +817,51 @@ function App({ session }){
       )}
       {pwOpen && <PasswordModal onClose={()=>setPwOpen(false)} />}
       <DropIndicatorMount />
+    </div>
+    </InfoVisibilityContext.Provider>
+  );
+}
+
+/* ============================================================
+   Settings — account actions (password, sign-out) merged with
+   display preferences (info bubbles), one place instead of two
+   loose top-bar buttons.
+   ============================================================ */
+function SettingsView({ email, onChangePassword, onSignOut, infoEnabled, onSetInfoEnabled }){
+  return (
+    <div className="settings-view">
+      <p className="section-label" style={{margin:'0 0 16px'}}>Paramètres</p>
+
+      <div className="card settings-card">
+        <p className="settings-section-title">Compte</p>
+        <div className="field">
+          <label>Connecté</label>
+          <span className="settings-value">{email}</span>
+        </div>
+        <div className="field">
+          <label>Mot de passe</label>
+          <button className="account-btn" onClick={onChangePassword}>Changer</button>
+        </div>
+        <div className="field" style={{borderBottom:'none'}}>
+          <label>Session</label>
+          <button className="account-btn" onClick={onSignOut}>Déconnexion</button>
+        </div>
+      </div>
+
+      <div className="card settings-card">
+        <p className="settings-section-title">Affichage</p>
+        <div className="field" style={{borderBottom:'none'}}>
+          <label>Bulles d'info</label>
+          <div className="vue-mode small">
+            <button className={infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(true)}>Activées</button>
+            <button className={!infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(false)}>Désactivées</button>
+          </div>
+        </div>
+        <p className="settings-hint">
+          Les petits « i » qui expliquent chaque réglage, un peu partout dans l'app.
+          Désactivez-les une fois l'app bien en main.
+        </p>
+      </div>
     </div>
   );
 }
