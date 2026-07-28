@@ -467,6 +467,15 @@ function App({ session }){
   useEffect(() => {
     try { localStorage.setItem(chronoKey, JSON.stringify(chronos)); } catch {}
   }, [chronos, chronoKey]);
+  // Whether starting a chrono pauses every other one — a per-device preference,
+  // not data, so it lives next to the chronos themselves in localStorage.
+  const exclusiveKey = `tracklog.chronoExclusive.${userId}`;
+  const [chronoExclusive, setChronoExclusive] = useState(() => {
+    try { return localStorage.getItem(exclusiveKey) === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(exclusiveKey, chronoExclusive ? '1' : '0'); } catch {}
+  }, [chronoExclusive, exclusiveKey]);
   // Multi-select filter for the rail. `selectedIds` is the remembered set;
   // `showAll` temporarily overrides it (the "Tout" toggle) while keeping the
   // set intact (shown greyed) so it isn't lost.
@@ -530,7 +539,14 @@ function App({ session }){
     setChronos(s => [...s, { id: uid('c_'), label, trackerId: trackerId || null, accumulatedMs: 0, startedAt: null }]);
   };
   const startChrono = (id) => {
-    setChronos(s => s.map(c => c.id !== id || c.startedAt ? c : { ...c, startedAt: Date.now() }));
+    const now = Date.now();
+    setChronos(s => s.map(c => {
+      if (c.id === id) return c.startedAt ? c : { ...c, startedAt: now };
+      // In exclusive mode, starting one banks and stops whichever other was running —
+      // same accounting as a manual pause, just triggered on the other chrono's behalf.
+      if (chronoExclusive && c.startedAt) return { ...c, accumulatedMs: chronoElapsed(c, now), startedAt: null };
+      return c;
+    }));
   };
   // Pausing banks the running segment, so elapsed time never depends on render timing.
   const pauseChrono = (id) => {
@@ -706,6 +722,8 @@ function App({ session }){
           onPauseChrono={pauseChrono}
           onResetChrono={resetChrono}
           onResetAllChronos={resetAllChronos}
+          chronoExclusive={chronoExclusive}
+          onSetChronoExclusive={setChronoExclusive}
           onRemoveChrono={removeChrono}
           onSaveChrono={saveChronoAsEntry}
           onUpdateChrono={updateChrono}
@@ -1253,7 +1271,7 @@ function copyStylesTo(win){
 }
 const PIP_SUPPORTED = typeof window !== 'undefined' && 'documentPictureInPicture' in window;
 
-function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, onReset, onRemove, onSave, onUpdate, onResetAll }){
+function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, onReset, onRemove, onSave, onUpdate, onResetAll, exclusive, onSetExclusive }){
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
   const running = chronos.some(c => c.startedAt);
@@ -1312,6 +1330,13 @@ function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, o
       ) : (
         <>
           <div className="chrono-bar">
+            {/* Solo: starting one banks and stops whichever other was running — never
+                more than one clock ticking. Multi: every chrono starts and stops only
+                on its own button, exactly as before. */}
+            <div className="vue-mode small" title={exclusive ? 'Un seul chrono actif à la fois' : 'Plusieurs chronos peuvent tourner ensemble'}>
+              <button className={!exclusive?'on':''} onClick={()=>onSetExclusive(false)}>Multi</button>
+              <button className={exclusive?'on':''} onClick={()=>onSetExclusive(true)}>Solo</button>
+            </div>
             {PIP_SUPPORTED && (
               <>
                 <button className="chrono-btn" onClick={openPip} disabled={!!pipWin}>
@@ -1483,7 +1508,7 @@ function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
    Log view — the entries, split into "Jour", "Historique" and "Chrono"
    ============================================================ */
 function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder,
-                  chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono, onUpdateChrono, onResetAllChronos }){
+                  chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono, onUpdateChrono, onResetAllChronos, chronoExclusive, onSetChronoExclusive }){
   const hint = logSub === 'jour' ? "les entrées d’aujourd’hui"
              : logSub === 'historique' ? "ouvrez n’importe quel jour pour l’éditer"
              : "chronométrez vos sessions, puis enregistrez-les";
@@ -1507,6 +1532,8 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
           onPause={onPauseChrono}
           onReset={onResetChrono}
           onResetAll={onResetAllChronos}
+          exclusive={chronoExclusive}
+          onSetExclusive={onSetChronoExclusive}
           onRemove={onRemoveChrono}
           onSave={onSaveChrono}
           onUpdate={onUpdateChrono}
