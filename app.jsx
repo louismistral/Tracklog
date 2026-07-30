@@ -1278,8 +1278,13 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
     </>
   );
 
+  // "Done" reads as "you've logged something today" — for a daily tracker that's the
+  // one entry it holds; for a multi one, having at least one entry already says that,
+  // even though — unlike daily — the card stays fully open to add more.
+  const loggedToday = daily ? !!existing : count > 0;
+
   return (
-    <div ref={containerRef} className={`today-card ${existing?'done':''} ${flash?'flash':''} ${dragging?'dragging':''}`}>
+    <div ref={containerRef} className={`today-card ${loggedToday?'done':''} ${flash?'flash':''} ${dragging?'dragging':''}`}>
       <div className="tc-head">
         {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
         <div className="tc-name"><span className="dot" style={{background:t.color}}></span>{t.name}</div>
