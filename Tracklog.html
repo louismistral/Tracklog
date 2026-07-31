@@ -2,6 +2,15 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8" />
+<script>
+  // Set before the stylesheet is parsed, so the light/dark choice never flashes
+  // the wrong theme on load. A device preference, not account data — read here
+  // without waiting on Supabase auth to resolve.
+  try{
+    var t = localStorage.getItem('tracklog.theme');
+    if (t === 'light') document.documentElement.dataset.theme = 'light';
+  } catch(e){}
+</script>
 <title>Tracklog</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="mobile-web-app-capable" content="yes" />
@@ -28,6 +37,12 @@
      original so app.jsx behaviour is identical.
      ============================================================ */
   :root{
+    --radius: 3px;
+    --ease: cubic-bezier(.19,1,.22,1);
+  }
+  /* Dark — "Aristide": warm near-black canvas, off-white ink. The default,
+     and what every existing user already has, so it's the un-attributed root. */
+  :root, :root[data-theme="dark"]{
     --bg: #100f0d;
     --bg-2: #191712;
     --bg-3: #221f18;
@@ -40,23 +55,42 @@
     --accent-2: #d14836;
     --accent-soft: rgba(226,84,47,.14);
     --warn: #e2542f;
-    --radius: 3px;
-    --ease: cubic-bezier(.19,1,.22,1);
+    --vignette: rgba(0,0,0,.55);
+  }
+  /* Light — same editorial bones, warm cream canvas instead of near-black,
+     white elevated cards for depth, same burnt-orange accent throughout. */
+  :root[data-theme="light"]{
+    --bg: #f6f2e9;
+    --bg-2: #ffffff;
+    --bg-3: #ece5d6;
+    --ink: #211d17;
+    --ink-2: #6b6355;
+    --ink-3: #9a9280;
+    --line: rgba(33,29,23,.09);
+    --line-2: rgba(33,29,23,.18);
+    --accent: #e2542f;
+    --accent-2: #d14836;
+    --accent-soft: rgba(226,84,47,.11);
+    --warn: #c8402a;
+    --vignette: rgba(33,29,23,.05);
   }
   *{box-sizing:border-box}
   html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation;overflow-x:hidden;scroll-behavior:smooth}
-  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:"Geist",ui-sans-serif,system-ui,sans-serif;font-feature-settings:"ss01","cv11";-webkit-font-smoothing:antialiased}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:"Geist",ui-sans-serif,system-ui,sans-serif;font-feature-settings:"ss01","cv11";-webkit-font-smoothing:antialiased;transition:background .3s var(--ease),color .3s var(--ease)}
   body{min-height:100vh;overflow-x:hidden;touch-action:manipulation}
   ::selection{background:var(--accent);color:#fff}
   ::-webkit-scrollbar{width:10px;height:10px}
   ::-webkit-scrollbar-thumb{background:var(--line-2)}
   ::-webkit-scrollbar-track{background:transparent}
 
-  /* Cinematic vignette + subtle top glow, behind everything */
+  /* Cinematic vignette + subtle top glow, behind everything. The bottom vignette
+     deepens toward black on the dark canvas but must stay barely-there on a light
+     one — --vignette carries that per-theme, rather than a flat rgba(0,0,0,.55)
+     smudging the bottom of a cream page. */
   body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
     background:
       radial-gradient(120% 80% at 50% -10%, rgba(226,84,47,.07), transparent 55%),
-      radial-gradient(100% 100% at 50% 120%, rgba(0,0,0,.55), transparent 55%)}
+      radial-gradient(100% 100% at 50% 120%, var(--vignette), transparent 55%)}
 
   .mono{font-family:"Geist Mono",ui-monospace,monospace;font-feature-settings:"tnum"}
   .serif{font-family:"Instrument Serif",serif;font-style:italic;font-weight:400}
@@ -703,6 +737,6 @@
 })();
 </script>
 
-<script type="text/babel" src="app.jsx?v=32"></script>
+<script type="text/babel" src="app.jsx?v=33"></script>
 </body>
 </html>
