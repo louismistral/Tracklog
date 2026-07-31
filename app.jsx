@@ -2135,9 +2135,12 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
       for (let i = rangeDays - 1; i >= 0; i--){
         const d = new Date(now - i*86400000);
         const dayEnd = startOfDay(d.getTime()) + 86400000 - 1;
+        const viBefore = vi;
         while (vi < valid.length && valid[vi].ts <= dayEnd){ running += valid[vi].val; vi++; }
         // Nothing to plot before the first entry — the curve starts there, not at a flat zero.
-        arr.push({ ts: d.getTime(), value: vi > 0 ? running : null });
+        // hasEntry marks only the days that actually got a new entry, so the line stays at
+        // the right height every day but a dot only lands where something was really logged.
+        arr.push({ ts: d.getTime(), value: vi > 0 ? running : null, hasEntry: vi > viBefore });
       }
       return arr;
     }
@@ -2166,7 +2169,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
           v = aggregateNums(tracker, nums);
         }
       }
-      arr.push({ ts: d.getTime(), value: v });
+      arr.push({ ts: d.getTime(), value: v, hasEntry: v != null });
     }
     return arr;
   }, [entries, tracker, rangeDays, start, now, isCumulative]);
@@ -2307,8 +2310,9 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
             <circle key={`l${i}`} cx={s[0][0]} cy={s[0][1]} r="2.5" fill="none"
               stroke={tracker.color} strokeWidth="1.2" />
           ))}
-          {/* Points */}
-          {points.map((p,i)=> p.value != null && (
+          {/* Points — only where something was actually logged, so a dense range (e.g. 365j)
+              doesn't turn into a solid row of dots along an otherwise-continuous curve. */}
+          {points.map((p,i)=> p.value != null && p.hasEntry && (
             <circle key={i} cx={xAt(i)} cy={yAt(p.value)} r="2" fill={tracker.color}>
               <title>{shortDate(p.ts)} · {fmtValue(tracker, +p.value.toFixed(1))}</title>
             </circle>
