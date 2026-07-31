@@ -153,6 +153,7 @@ function chronoElapsed(c, now){
 }
 
 function fmtValue(tracker, v){
+  if (v === JOKER) return '🃏 Joker';
   if (v == null || v === '') return '—';
   switch (tracker.type){
     case 'number':   return `${v}`;
@@ -191,6 +192,17 @@ function readChoice(tracker, v){
 function dayKey(ts){
   const d = new Date(ts);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// A "joker" day (pull day, rest day…) is stored as a regular Entry whose value
+// is this sentinel. Its whole day is then excluded from every aggregate —
+// not counted as zero, simply as if nothing had been logged that day.
+const JOKER = '__joker__';
+function isJokerEntry(e){ return !!e && e.value === JOKER; }
+function jokerDayKeys(trackerEntries){
+  const s = new Set();
+  for (const e of trackerEntries) if (isJokerEntry(e)) s.add(dayKey(e.ts));
+  return s;
 }
 function dayLabel(ts){
   const d = new Date(ts);
@@ -1114,15 +1126,24 @@ function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, da
 function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, containerRef, dragging, onDragStart, registerSubmit }){
   const t = tracker;
   const daily = !!t.daily;
-  const existing = daily && dayEntries.length ? dayEntries[0] : null;
-  const count = dayEntries.length;
+  // The joker entry is a day-level flag, not a logged value — kept out of the
+  // real entries so it never inflates the count or shows up as "0".
+  const jokerEntry = dayEntries.find(isJokerEntry) || null;
+  const realEntries = useMemo(() => dayEntries.filter(e => !isJokerEntry(e)), [dayEntries]);
+  const existing = daily && realEntries.length ? realEntries[0] : null;
+  const count = realEntries.length;
   // Multi trackers can hold several entries a day; the badge reveals them,
   // read chronologically, so you can re-read or edit them without leaving the card.
   const [logOpen, setLogOpen] = useState(false);
   const logEntries = useMemo(
-    () => [...dayEntries].sort((a,b) => a.ts - b.ts),
-    [dayEntries]
+    () => [...realEntries].sort((a,b) => a.ts - b.ts),
+    [realEntries]
   );
+  const toggleJoker = () => {
+    if (jokerEntry) { onDeleteEntry(jokerEntry.id); return; }
+    const ts = isToday ? Date.now() : dayTs + 12*3600000;
+    onAddEntry({ trackerId: t.id, value: JOKER, ts });
+  };
 
   const [num, setNum]     = useState('');
   const [scale, setScale] = useState(null);
@@ -1305,9 +1326,9 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
   );
 
   // "Done" reads as "you've logged something today" — for a daily tracker that's the
-  // one entry it holds; for a multi one, having at least one entry already says that,
-  // even though — unlike daily — the card stays fully open to add more.
-  const loggedToday = daily ? !!existing : count > 0;
+  // one entry it holds; for a multi one, having at least one entry — or a joker —
+  // already says that, even though — unlike daily — the card stays fully open to add more.
+  const loggedToday = daily ? !!existing : (count > 0 || !!jokerEntry);
 
   return (
     <div ref={containerRef} className={`today-card ${loggedToday?'done':''} ${flash?'flash':''} ${dragging?'dragging':''}`}>
@@ -1318,15 +1339,29 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
           ? (existing
               ? <span className="tc-badge on">✓ noté</span>
               : <span className="tc-badge">1×/jour</span>)
-          : (count > 0 && (
-              <button
-                className={`tc-badge badge-btn ${logOpen?'open':''}`}
-                onClick={()=>setLogOpen(o=>!o)}
-                aria-expanded={logOpen}
-                title={logOpen ? 'Masquer les entrées' : 'Voir les entrées'}
-              >{count}×</button>
-            ))}
+          : (
+              <div className="tc-head-actions">
+                {count > 0 && (
+                  <button
+                    className={`tc-badge badge-btn ${logOpen?'open':''}`}
+                    onClick={()=>setLogOpen(o=>!o)}
+                    aria-expanded={logOpen}
+                    title={logOpen ? 'Masquer les entrées' : 'Voir les entrées'}
+                  >{count}×</button>
+                )}
+                <button
+                  className={`tc-badge badge-btn joker-btn ${jokerEntry?'on':''}`}
+                  onClick={toggleJoker}
+                  aria-pressed={!!jokerEntry}
+                  title={jokerEntry ? 'Retirer le joker' : 'Marquer ce jour comme joker (exclu des calculs)'}
+                >🃏</button>
+              </div>
+            )}
       </div>
+
+      {!daily && jokerEntry && (
+        <div className="tc-joker-note">Jour joker — exclu des calculs</div>
+      )}
 
       {daily ? (
         <>
@@ -2030,9 +2065,10 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
 
   // Aggregate per-day: average for number/scale/duration, sum/count for boolean
   const points = useMemo(() => {
+    const jokerKeys = jokerDayKeys(entries);
     const map = new Map();
     for (const e of entries){
-      if (e.ts < start) continue;
+      if (e.ts < start || isJokerEntry(e)) continue;
       const k = dayKey(e.ts);
       if (!map.has(k)) map.set(k, []);
       map.get(k).push(e);
@@ -2044,7 +2080,8 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
       const items = map.get(k) || [];
       let v = null;
       // Only days inside the active window count toward the chart & its stats.
-      if (items.length && trackerActiveOnKey(tracker, k)){
+      // A joker day is excluded outright — not zeroed, just left out.
+      if (items.length && !jokerKeys.has(k) && trackerActiveOnKey(tracker, k)){
         if (tracker.type === 'boolean'){
           v = items.some(x=>x.value === true) ? 1 : 0;
         } else if (tracker.type === 'text' || tracker.type === 'choice'){
@@ -2210,9 +2247,10 @@ function shortDate(ts){
 function buildDailySeries(tracker, entries, rangeDays, endTs = Date.now()){
   const now = endTs;
   const start = now - rangeDays*86400000;
+  const jokerKeys = jokerDayKeys(entries);
   const map = new Map();
   for (const e of entries){
-    if (e.ts < start) continue;
+    if (e.ts < start || isJokerEntry(e)) continue;
     const k = dayKey(e.ts);
     if (!map.has(k)) map.set(k, []);
     map.get(k).push(e);
@@ -2225,7 +2263,8 @@ function buildDailySeries(tracker, entries, rangeDays, endTs = Date.now()){
     let v = null;
     // Outside the tracker's active window it contributes nothing (null), so it
     // never drags an average up or down before it starts or after it's archived.
-    if (items.length && trackerActiveOnKey(tracker, k)){
+    // A joker day is excluded the same way — left out, not zeroed.
+    if (items.length && !jokerKeys.has(k) && trackerActiveOnKey(tracker, k)){
       if (tracker.type === 'boolean'){
         v = items.some(x=>x.value === true) ? 1 : 0;
       } else if (tracker.type === 'text' || tracker.type === 'choice'){
@@ -2729,8 +2768,10 @@ function CalendarCard({ tracker, entries, rangeDays }){
   start.setDate(start.getDate() - dow);
 
   // Aggregate per day
+  const jokerKeys = jokerDayKeys(entries);
   const byDay = new Map();
   for (const e of entries){
+    if (isJokerEntry(e)) continue;
     const k = dayKey(e.ts);
     if (!byDay.has(k)) byDay.set(k, []);
     byDay.get(k).push(e);
@@ -2745,7 +2786,8 @@ function CalendarCard({ tracker, entries, rangeDays }){
   for (let i = 0; i < totalDays; i++){
     const d = new Date(start); d.setDate(d.getDate() + i);
     const k = dayKey(d.getTime());
-    const items = (trackerActiveOnKey(tracker, k) ? byDay.get(k) : null) || [];
+    // A joker day reads as empty — excluded, not a zero.
+    const items = (trackerActiveOnKey(tracker, k) && !jokerKeys.has(k) ? byDay.get(k) : null) || [];
     let v = 0;
     if (items.length){
       if (tracker.type === 'boolean'){
@@ -2834,7 +2876,10 @@ function GridSummary({ trackers, entries, rangeDays }){
   const prevStart = start - rangeDays*86400000;
 
   const cards = trackers.map(t => {
-    const active = (e) => trackerActiveOnKey(t, dayKey(e.ts));
+    const tEntries = entries.filter(e => e.trackerId === t.id);
+    const jokerKeys = jokerDayKeys(tEntries);
+    // A joker day drops out entirely — its entries never enter the average/sum.
+    const active = (e) => !isJokerEntry(e) && !jokerKeys.has(dayKey(e.ts)) && trackerActiveOnKey(t, dayKey(e.ts));
     const inRange = entries.filter(e => e.trackerId === t.id && e.ts >= start && active(e));
     const prev    = entries.filter(e => e.trackerId === t.id && e.ts >= prevStart && e.ts < start && active(e));
     const stat = (items) => {
