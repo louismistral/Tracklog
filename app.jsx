@@ -493,6 +493,23 @@ function App({ session }){
   useEffect(() => {
     try { localStorage.setItem(infoKey, infoEnabled ? '1' : '0'); } catch {}
   }, [infoEnabled, infoKey]);
+  // Light/dark is read by a tiny inline script in <head>, before this app even loads,
+  // so the page never flashes the wrong theme — that script can't know which account
+  // is signing in yet, so this stays one unscoped key rather than per-user like the
+  // preferences above. `document.documentElement.dataset.theme` is the single source
+  // of truth the CSS reads (:root[data-theme="light"|"dark"]); state here just mirrors
+  // it so the settings toggle re-renders.
+  const [theme, setTheme] = useState(() => {
+    try { return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'; } catch { return 'dark'; }
+  });
+  useEffect(() => {
+    try {
+      document.documentElement.dataset.theme = theme;
+      localStorage.setItem('tracklog.theme', theme);
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', theme === 'light' ? '#f6f2e9' : '#100f0d');
+    } catch {}
+  }, [theme]);
   // Multi-select filter for the rail. `selectedIds` is the remembered set;
   // `showAll` temporarily overrides it (the "Tout" toggle) while keeping the
   // set intact (shown greyed) so it isn't lost.
@@ -781,6 +798,8 @@ function App({ session }){
           onSignOut={()=>supabase.auth.signOut()}
           infoEnabled={infoEnabled}
           onSetInfoEnabled={setInfoEnabled}
+          theme={theme}
+          onSetTheme={setTheme}
         />
       )}
 
@@ -827,7 +846,7 @@ function App({ session }){
    display preferences (info bubbles), one place instead of two
    loose top-bar buttons.
    ============================================================ */
-function SettingsView({ email, onChangePassword, onSignOut, infoEnabled, onSetInfoEnabled }){
+function SettingsView({ email, onChangePassword, onSignOut, infoEnabled, onSetInfoEnabled, theme, onSetTheme }){
   return (
     <div className="settings-view">
       <p className="section-label" style={{margin:'0 0 16px'}}>Paramètres</p>
@@ -850,6 +869,13 @@ function SettingsView({ email, onChangePassword, onSignOut, infoEnabled, onSetIn
 
       <div className="card settings-card">
         <p className="settings-section-title">Affichage</p>
+        <div className="field">
+          <label>Thème</label>
+          <div className="vue-mode small">
+            <button className={theme==='dark'?'on':''} onClick={()=>onSetTheme('dark')}>Sombre</button>
+            <button className={theme==='light'?'on':''} onClick={()=>onSetTheme('light')}>Clair</button>
+          </div>
+        </div>
         <div className="field" style={{borderBottom:'none'}}>
           <label>Bulles d'info</label>
           <div className="vue-mode small">
