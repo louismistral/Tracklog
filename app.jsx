@@ -1971,7 +1971,8 @@ function TrackersView({ trackers, entries, filterIds, onAdd, onEdit, onArchive, 
    ============================================================ */
 function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit }){
   const [mode, setMode] = useState('chart'); // chart | calendar | summary
-  const [range, setRange] = useState(30);    // days
+  const [rangeMode, setRangeMode] = useState('30'); // '7'|'30'|'90'|'365'|'ytd'|'all'|'custom'
+  const [customStart, setCustomStart] = useState('');
   const [layout, setLayout] = useState('list'); // list | grid | master | average
 
   const filterSet = filterIds ? new Set(filterIds) : null;
@@ -1986,6 +1987,31 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
   const visibleIds = useMemo(() => visibleTrackers.map(t => t.id), [visibleTrackers]);
   const cardsDrag = useDragReorder(visibleIds, onReorder);
 
+  // "Tout" needs the earliest entry among what's actually shown, so the range
+  // stretches back exactly to where the visible trackers' history begins.
+  const earliestTs = useMemo(() => {
+    const ids = new Set(dataVisible.map(t => t.id));
+    let min = null;
+    for (const e of entries){
+      if (!ids.has(e.trackerId)) continue;
+      if (min == null || e.ts < min) min = e.ts;
+    }
+    return min ?? Date.now();
+  }, [entries, dataVisible]);
+
+  // Every card still just wants "how many days back from today" — presets,
+  // YTD, "Tout" and a custom start date all resolve down to that one number.
+  const range = useMemo(() => {
+    const daysSince = (ts) => Math.max(1, Math.floor((startOfDay(Date.now()) - startOfDay(ts)) / 86400000) + 1);
+    if (rangeMode === 'ytd'){
+      const jan1 = new Date(); jan1.setMonth(0, 1); jan1.setHours(0,0,0,0);
+      return daysSince(jan1.getTime());
+    }
+    if (rangeMode === 'all') return daysSince(earliestTs);
+    if (rangeMode === 'custom') return customStart ? daysSince(new Date(customStart + 'T00:00:00').getTime()) : 30;
+    return parseInt(rangeMode, 10);
+  }, [rangeMode, customStart, earliestTs]);
+
   return (
     <div>
       <div className="vue-controls">
@@ -1995,9 +2021,21 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
           <button className={mode==='summary'?'on':''} onClick={()=>setMode('summary')}>Grille</button>
         </div>
         <div className="range">
-          {[7,30,90,365].map(r => (
-            <button key={r} className={range===r?'on':''} onClick={()=>setRange(r)}>{r}j</button>
+          {['7','30','90','365'].map(r => (
+            <button key={r} className={rangeMode===r?'on':''} onClick={()=>setRangeMode(r)}>{r}j</button>
           ))}
+          <button className={rangeMode==='ytd'?'on':''} onClick={()=>setRangeMode('ytd')}>YTD</button>
+          <button className={rangeMode==='all'?'on':''} onClick={()=>setRangeMode('all')}>Tout</button>
+          <button className={rangeMode==='custom'?'on':''} onClick={()=>setRangeMode('custom')}>Personnalisé</button>
+          {rangeMode === 'custom' && (
+            <input
+              type="date"
+              className="range-custom-date"
+              value={customStart}
+              max={dayKey(Date.now())}
+              onChange={e=>setCustomStart(e.target.value)}
+            />
+          )}
         </div>
       </div>
 
@@ -2098,7 +2136,8 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
         const d = new Date(now - i*86400000);
         const dayEnd = startOfDay(d.getTime()) + 86400000 - 1;
         while (vi < valid.length && valid[vi].ts <= dayEnd){ running += valid[vi].val; vi++; }
-        arr.push({ ts: d.getTime(), value: valid.length ? running : null });
+        // Nothing to plot before the first entry — the curve starts there, not at a flat zero.
+        arr.push({ ts: d.getTime(), value: vi > 0 ? running : null });
       }
       return arr;
     }
@@ -2254,7 +2293,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
             return (
               <g key={si}>
                 <path d={area} fill={tracker.color} opacity="0.08" />
-                <path d={d} fill="none" stroke={tracker.color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+                <path d={d} fill="none" stroke={tracker.color} strokeWidth="1" strokeLinejoin="round" strokeLinecap="round" />
               </g>
             );
           })}
