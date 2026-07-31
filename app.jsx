@@ -5,15 +5,21 @@ const { useState, useEffect, useMemo, useRef, useCallback, useContext } = React;
    ------------------------------------------------------------
    Tracker = { id, name, type, unit?, color, scaleMax?, choices?, multiple?,
                daily?, aggregate?, members?, archived?, startDate?, endDate?,
-               jokerEnabled?, createdAt }
+               jokerEnabled?, cumulative?, createdAt }
      — Cœur : name + type (+ config liée au type : unit, scaleMax, choices,
        ou members pour un master)
      — Paramètres : daily (fréquence), aggregate (calcul), multiple (choix),
        période d'activité (startDate/endDate), jokerEnabled (case joker), color
+     — Vues : cumulative (graphe cumulatif)
 
      jokerEnabled: true = un tracker "plusieurs / jour" peut marquer un jour
        entier comme joker, qui exclut toutes ses entrées des calculs (pas un
        zéro). Désactivé par défaut ; sans effet sur un tracker "une / jour".
+
+     cumulative: true = le graphe (ChartCard) affiche la somme cumulée de
+       toutes les entrées depuis le début plutôt que la valeur du jour — une
+       courbe qui ne peut que monter. Nombre/durée uniquement, désactivé par
+       défaut.
 
      type: 'number' | 'scale' | 'boolean' | 'duration' | 'text' | 'choice' | 'master'
      choices: string[] — options prédéfinies (type 'choice' uniquement)
@@ -69,10 +75,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function trackerFromRow(r){
-  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, jokerEnabled:!!r.joker_enabled, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
+  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, jokerEnabled:!!r.joker_enabled, cumulative:!!r.cumulative, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
 }
 function trackerToRow(t, userId){
-  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, joker_enabled:!!t.jokerEnabled, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
+  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, joker_enabled:!!t.jokerEnabled, cumulative:!!t.cumulative, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
 }
 function entryFromRow(r){
   return { id:r.id, trackerId:r.tracker_id, value:r.value, note:r.note || '', ts:r.ts };
@@ -806,6 +812,7 @@ function App({ session }){
           entries={entries}
           filterIds={filterIds}
           onReorder={manualSort ? reorderTrackers : null}
+          onEdit={(t)=>setEditTracker(t)}
         />
       ) : (
         <SettingsView
@@ -1962,7 +1969,7 @@ function TrackersView({ trackers, entries, filterIds, onAdd, onEdit, onArchive, 
 /* ============================================================
    Vues view (charts / heatmap / grid)
    ============================================================ */
-function VuesView({ trackers, trackerById, entries, filterIds, onReorder }){
+function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit }){
   const [mode, setMode] = useState('chart'); // chart | calendar | summary
   const [range, setRange] = useState(30);    // days
   const [layout, setLayout] = useState('list'); // list | grid | master | average
@@ -2024,7 +2031,7 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder }){
             const dragProps = { containerRef: cardsDrag.setNodeRef(t.id), dragging: cardsDrag.dragId===t.id, onDragStart: cardsDrag.startDrag(t.id) };
             return isMaster(t)
               ? <MasterTrackerCard key={t.id} master={t} trackerById={trackerById} entries={entries} rangeDays={range} {...dragProps} />
-              : <ChartCard key={t.id} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} {...dragProps} />;
+              : <ChartCard key={t.id} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} {...dragProps} />;
           })}
 
           {effectiveLayout === 'grid' && (
@@ -2035,7 +2042,7 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder }){
                 const dragProps = { containerRef: cardsDrag.setNodeRef(t.id), dragging: cardsDrag.dragId===t.id, onDragStart: cardsDrag.startDrag(t.id) };
                 return isMaster(t)
                   ? <MasterTrackerCard key={t.id} compact master={t} trackerById={trackerById} entries={entries} rangeDays={range} {...dragProps} />
-                  : <ChartCard key={t.id} compact tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} {...dragProps} />;
+                  : <ChartCard key={t.id} compact tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} {...dragProps} />;
               })}
             </div>
           )}
@@ -2054,7 +2061,7 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder }){
       {mode === 'calendar' && (
         <>
           {dataVisible.map(t => (
-            <CalendarCard key={t.id} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} />
+            <CalendarCard key={t.id} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} />
           ))}
           {dataVisible.length === 0 && <div className="empty"><span className="em-serif">Pas de tracker à afficher ici.</span></div>}
         </>
@@ -2069,13 +2076,32 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder }){
 /* ============================================================
    Chart card — line chart with axes
    ============================================================ */
-function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef, dragging, onDragStart }){
+function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef, dragging, onDragStart, onEdit }){
   const now = Date.now();
   const start = now - rangeDays*86400000;
+  const isCumulative = !!tracker.cumulative && (tracker.type === 'number' || tracker.type === 'duration');
 
-  // Aggregate per-day: average for number/scale/duration, sum/count for boolean
+  // Aggregate per-day: average for number/scale/duration, sum/count for boolean.
+  // Cumulative trackers instead run a total across the tracker's whole history,
+  // so the range only decides how many days are drawn, not what's summed.
   const points = useMemo(() => {
     const jokerKeys = jokerDayKeys(entries);
+    if (isCumulative){
+      const valid = entries
+        .filter(e => !isJokerEntry(e) && trackerActiveOnKey(tracker, dayKey(e.ts)))
+        .map(e => ({ ts: e.ts, val: Number(e.value) }))
+        .filter(e => !isNaN(e.val))
+        .sort((a,b) => a.ts - b.ts);
+      const arr = [];
+      let vi = 0, running = 0;
+      for (let i = rangeDays - 1; i >= 0; i--){
+        const d = new Date(now - i*86400000);
+        const dayEnd = startOfDay(d.getTime()) + 86400000 - 1;
+        while (vi < valid.length && valid[vi].ts <= dayEnd){ running += valid[vi].val; vi++; }
+        arr.push({ ts: d.getTime(), value: valid.length ? running : null });
+      }
+      return arr;
+    }
     const map = new Map();
     for (const e of entries){
       if (e.ts < start || isJokerEntry(e)) continue;
@@ -2104,7 +2130,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
       arr.push({ ts: d.getTime(), value: v });
     }
     return arr;
-  }, [entries, tracker, rangeDays, start, now]);
+  }, [entries, tracker, rangeDays, start, now, isCumulative]);
 
   const numericValues = points.map(p=>p.value).filter(v=>v!=null);
   const hasData = numericValues.length > 0;
@@ -2115,6 +2141,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
     return sorted[0]?.value ?? null;
   }, [entries]);
   const avg = hasData ? numericValues.reduce((a,b)=>a+b,0)/numericValues.length : null;
+  const cumulativeTotal = isCumulative && points.length ? points[points.length-1].value : null;
   const isSumMode = !tracker.daily && tracker.aggregate === 'sum' && (tracker.type === 'number' || tracker.type === 'duration');
   const total = isSumMode && hasData ? numericValues.reduce((a,b)=>a+b,0) : null;
 
@@ -2182,16 +2209,31 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
           {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
           <span className="dot" style={{background:tracker.color}}></span>{tracker.name}
         </div>
-        <div className="stats">
-          {compact ? (
-            <div><span className="v">{latest != null ? fmtValue(tracker, latest) : '—'}</span></div>
-          ) : (
-            <>
-              <div>actuel <span className="v">{latest != null ? fmtValue(tracker, latest) : '—'}</span></div>
-              <div>{isSumMode ? 'total/jour' : 'moyenne'} <span className="v">{avg != null ? fmtValue(tracker, +avg.toFixed(1)) : '—'}</span></div>
-              {isSumMode && <div>total période <span className="v">{total != null ? fmtValue(tracker, +total.toFixed(1)) : '—'}</span></div>}
-              <div>entrées <span className="v">{entries.filter(e=>e.ts >= start).length}</span></div>
-            </>
+        <div className="chart-head-right">
+          <div className="stats">
+            {compact ? (
+              <div><span className="v">{latest != null ? fmtValue(tracker, latest) : '—'}</span></div>
+            ) : isCumulative ? (
+              <>
+                <div>actuel <span className="v">{latest != null ? fmtValue(tracker, latest) : '—'}</span></div>
+                <div>cumulé <span className="v">{cumulativeTotal != null ? fmtValue(tracker, +cumulativeTotal.toFixed(1)) : '—'}</span></div>
+              </>
+            ) : (
+              <>
+                <div>actuel <span className="v">{latest != null ? fmtValue(tracker, latest) : '—'}</span></div>
+                <div>{isSumMode ? 'total/jour' : 'moyenne'} <span className="v">{avg != null ? fmtValue(tracker, +avg.toFixed(1)) : '—'}</span></div>
+                {isSumMode && <div>total période <span className="v">{total != null ? fmtValue(tracker, +total.toFixed(1)) : '—'}</span></div>}
+                <div>entrées <span className="v">{entries.filter(e=>e.ts >= start).length}</span></div>
+              </>
+            )}
+          </div>
+          {onEdit && (
+            <button className="chart-edit-btn" onClick={()=>onEdit(tracker)} aria-label="Paramètres du tracker" title="Paramètres du tracker">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                <circle cx="8" cy="8" r="2.3" />
+                <path d="M8 1.6v1.7M8 12.7v1.7M14.4 8h-1.7M3.3 8H1.6M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2M12.5 12.5l-1.2-1.2M4.7 4.7 3.5 3.5" strokeLinecap="round" />
+              </svg>
+            </button>
           )}
         </div>
       </div>
@@ -2767,7 +2809,7 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = 
 /* ============================================================
    Calendar heatmap card
    ============================================================ */
-function CalendarCard({ tracker, entries, rangeDays }){
+function CalendarCard({ tracker, entries, rangeDays, onEdit }){
   // Always render last ~365 days of cells (or rangeDays), aligned to weeks
   const days = Math.min(Math.max(rangeDays, 30), 365);
   const now = new Date(); now.setHours(0,0,0,0);
@@ -2824,8 +2866,18 @@ function CalendarCard({ tracker, entries, rangeDays }){
     <div className="chart-card">
       <div className="chart-head">
         <div className="name"><span className="dot" style={{background:tracker.color}}></span>{tracker.name}</div>
-        <div className="stats">
-          <div>jours actifs <span className="v">{dayVals.filter(d=>d.count>0).length}/{totalDays}</span></div>
+        <div className="chart-head-right">
+          <div className="stats">
+            <div>jours actifs <span className="v">{dayVals.filter(d=>d.count>0).length}/{totalDays}</span></div>
+          </div>
+          {onEdit && (
+            <button className="chart-edit-btn" onClick={()=>onEdit(tracker)} aria-label="Paramètres du tracker" title="Paramètres du tracker">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                <circle cx="8" cy="8" r="2.3" />
+                <path d="M8 1.6v1.7M8 12.7v1.7M14.4 8h-1.7M3.3 8H1.6M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2M12.5 12.5l-1.2-1.2M4.7 4.7 3.5 3.5" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
       <svg viewBox={`0 0 ${cols*(CELL+GAP)} ${H}`} preserveAspectRatio="xMinYMid meet" style={{width:'100%',height:`${H}px`}}>
@@ -3107,6 +3159,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
   const [multiple, setMultiple] = useState(!!tracker?.multiple);
   const [windowEnabled, setWindowEnabled] = useState(tracker ? tracker.windowEnabled !== false : true);
   const [jokerEnabled, setJokerEnabled] = useState(!!tracker?.jokerEnabled);
+  const [cumulative, setCumulative] = useState(!!tracker?.cumulative);
   const [startDate, setStartDate] = useState(tracker?.startDate || dayKey(tracker?.createdAt || Date.now()));
   const [endDate, setEndDate] = useState(tracker?.endDate || '');
   const [color, setColor] = useState(tracker?.color || COLORS[1]);
@@ -3143,6 +3196,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
       t.daily = daily;
       t.aggregate = aggregate;
       t.jokerEnabled = !daily && jokerEnabled;
+      t.cumulative = (type === 'number' || type === 'duration') && cumulative;
       t.members = null;
       t.unit = (type === 'number' && unit.trim()) ? unit.trim() : null;
       t.scaleMax = type === 'scale' ? scaleMax : null;
@@ -3344,6 +3398,23 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
               : <button type="button" className="period-arch" onClick={onArchive}>Archiver ce tracker</button>
           )}
         </div>
+
+        {!isMasterKind && (type === 'number' || type === 'duration') && (
+          <>
+            <p className="modal-section">Vues</p>
+            <div className="field">
+              <label className="period-toggle" style={{width:'auto'}}>
+                <input type="checkbox" checked={cumulative} onChange={e=>setCumulative(e.target.checked)}
+                  style={{flex:'none',width:16,height:16,margin:0,accentColor:'var(--accent)',cursor:'pointer'}} />
+                <span>Graphe cumulatif</span>
+                <InfoBubble>
+                  Le graphe affiche la somme de toutes les entrées depuis le début plutôt que la valeur du jour —
+                  une courbe qui ne peut que monter, au lieu de suivre l’entrée du jour.
+                </InfoBubble>
+              </label>
+            </div>
+          </>
+        )}
 
         <div className="field" style={{borderBottom:'none'}}>
           <label>Couleur</label>
