@@ -5,11 +5,15 @@ const { useState, useEffect, useMemo, useRef, useCallback, useContext } = React;
    ------------------------------------------------------------
    Tracker = { id, name, type, unit?, color, scaleMax?, choices?, multiple?,
                daily?, aggregate?, members?, archived?, startDate?, endDate?,
-               createdAt }
+               jokerEnabled?, createdAt }
      — Cœur : name + type (+ config liée au type : unit, scaleMax, choices,
        ou members pour un master)
      — Paramètres : daily (fréquence), aggregate (calcul), multiple (choix),
-       période d'activité (startDate/endDate), color
+       période d'activité (startDate/endDate), jokerEnabled (case joker), color
+
+     jokerEnabled: true = un tracker "plusieurs / jour" peut marquer un jour
+       entier comme joker, qui exclut toutes ses entrées des calculs (pas un
+       zéro). Désactivé par défaut ; sans effet sur un tracker "une / jour".
 
      type: 'number' | 'scale' | 'boolean' | 'duration' | 'text' | 'choice' | 'master'
      choices: string[] — options prédéfinies (type 'choice' uniquement)
@@ -65,10 +69,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function trackerFromRow(r){
-  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
+  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, jokerEnabled:!!r.joker_enabled, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
 }
 function trackerToRow(t, userId){
-  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
+  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, joker_enabled:!!t.jokerEnabled, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
 }
 function entryFromRow(r){
   return { id:r.id, trackerId:r.tracker_id, value:r.value, note:r.note || '', ts:r.ts };
@@ -153,7 +157,7 @@ function chronoElapsed(c, now){
 }
 
 function fmtValue(tracker, v){
-  if (v === JOKER) return '🃏 Joker';
+  if (v === JOKER) return 'Joker';
   if (v == null || v === '') return '—';
   switch (tracker.type){
     case 'number':   return `${v}`;
@@ -1349,12 +1353,18 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
                     title={logOpen ? 'Masquer les entrées' : 'Voir les entrées'}
                   >{count}×</button>
                 )}
-                <button
-                  className={`tc-badge badge-btn joker-btn ${jokerEntry?'on':''}`}
-                  onClick={toggleJoker}
-                  aria-pressed={!!jokerEntry}
-                  title={jokerEntry ? 'Retirer le joker' : 'Marquer ce jour comme joker (exclu des calculs)'}
-                >🃏</button>
+                {t.jokerEnabled && (
+                  <button
+                    className={`tc-badge badge-btn joker-btn ${jokerEntry?'on':''}`}
+                    onClick={toggleJoker}
+                    aria-pressed={!!jokerEntry}
+                    title={jokerEntry ? 'Retirer le joker' : 'Marquer ce jour comme joker (exclu des calculs)'}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+                      <path d="M6 1.8L6 10.2M2.36 3.9L9.64 8.1M2.36 8.1L9.64 3.9"/>
+                    </svg>
+                  </button>
+                )}
               </div>
             )}
       </div>
@@ -3096,6 +3106,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
   const [aggregate, setAggregate] = useState(tracker?.aggregate || 'avg');
   const [multiple, setMultiple] = useState(!!tracker?.multiple);
   const [windowEnabled, setWindowEnabled] = useState(tracker ? tracker.windowEnabled !== false : true);
+  const [jokerEnabled, setJokerEnabled] = useState(!!tracker?.jokerEnabled);
   const [startDate, setStartDate] = useState(tracker?.startDate || dayKey(tracker?.createdAt || Date.now()));
   const [endDate, setEndDate] = useState(tracker?.endDate || '');
   const [color, setColor] = useState(tracker?.color || COLORS[1]);
@@ -3126,10 +3137,12 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
       t.type = 'master';
       t.members = members;
       t.unit = null; t.scaleMax = null; t.choices = null; t.multiple = false;
+      t.jokerEnabled = false;
     } else {
       t.type = type;
       t.daily = daily;
       t.aggregate = aggregate;
+      t.jokerEnabled = !daily && jokerEnabled;
       t.members = null;
       t.unit = (type === 'number' && unit.trim()) ? unit.trim() : null;
       t.scaleMax = type === 'scale' ? scaleMax : null;
@@ -3248,6 +3261,21 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
                 <span className="k">Plusieurs / jour</span> : autant d’entrées que vous voulez chaque jour.
               </InfoBubble>
             </div>
+          </div>
+        )}
+
+        {!isMasterKind && !daily && (
+          <div className="field">
+            <label className="period-toggle" style={{width:'auto'}}>
+              <input type="checkbox" checked={jokerEnabled} onChange={e=>setJokerEnabled(e.target.checked)}
+                style={{flex:'none',width:16,height:16,margin:0,accentColor:'var(--accent)',cursor:'pointer'}} />
+              <span>Case joker</span>
+              <InfoBubble>
+                Ajoute un bouton pour marquer une journée entière comme joker (pull day, repos…).
+                Les entrées de ce jour sont alors exclues des calculs — pas comptées comme zéro.
+                Désactivée par défaut.
+              </InfoBubble>
+            </label>
           </div>
         )}
 
