@@ -482,8 +482,12 @@ function App({ session }){
   const [trackers, setTrackers] = useState([]);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('log');        // log | trackers | vues
+  const [tab, setTab] = useState('log');        // log | bouffe | trackers | vues
   const [logSub, setLogSub] = useState('jour'); // jour | historique | chrono — sub-sections of Log
+  const [foodSub, setFoodSub] = useState('jour'); // jour | aliments | vues — sub-sections of Bouffe
+  // La nutrition a son propre magasin (foods / food_logs / objectifs), chargé ici
+  // une seule fois : la page Bouffe et les compteurs du Jour lisent la même chose.
+  const food = useFoodStore(userId);
   // Chronos are per-device working state (what's running right now), not history, so they
   // live in localStorage — only the entry a chrono produces is saved to the database.
   const chronoKey = `tracklog.chronos.${userId}`;
@@ -719,7 +723,8 @@ function App({ session }){
   };
   const toggleAll = () => setShowAll(prev => !prev);
 
-  // The tracker filter rail is available on every tab now (Log, Trackers, Vues).
+  // The tracker filter rail is available on every tracker tab (Log, Trackers, Vues).
+  // Not on Bouffe: it filters trackers, and the food page has none.
   const showRail = tab === 'log' || tab === 'trackers' || tab === 'vues';
 
   return (
@@ -734,6 +739,7 @@ function App({ session }){
         <div className="topbar-actions">
           <div className="tabs" role="tablist">
             <button className={tab==='log'?'active':''} onClick={()=>setTab('log')}>Log</button>
+            <button className={tab==='bouffe'?'active':''} onClick={()=>setTab('bouffe')}>Bouffe</button>
             <button className={tab==='trackers'?'active':''} onClick={()=>setTab('trackers')}>Trackers</button>
             <button className={tab==='vues'?'active':''} onClick={()=>setTab('vues')}>Vues</button>
           </div>
@@ -793,7 +799,10 @@ function App({ session }){
           onRemoveChrono={removeChrono}
           onSaveChrono={saveChronoAsEntry}
           onUpdateChrono={updateChrono}
+          foodSummary={filterActive ? null : <FoodDaySummary store={food} onOpen={()=>setTab('bouffe')} />}
         />
+      ) : tab === 'bouffe' ? (
+        <FoodPage store={food} sub={foodSub} onSub={setFoodSub} />
       ) : tab === 'trackers' ? (
         <TrackersView
           trackers={trackers}
@@ -1000,7 +1009,7 @@ function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onTog
    Day view — fill / edit every tracker for one given day.
    Used by the "Jour" tab (today) and the Historique calendar (any day).
    ============================================================ */
-function TodayView({ trackers, masters = [], trackerById = {}, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder }){
+function TodayView({ trackers, masters = [], trackerById = {}, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder, foodSummary = null }){
   const todayTs = startOfDay(Date.now());
   const dk = dayKey(todayTs);
 
@@ -1012,9 +1021,12 @@ function TodayView({ trackers, masters = [], trackerById = {}, entries, filterId
 
   if (!trackers.length && !masters.length){
     return (
-      <div className="empty">
-        <span className="em-serif">Aucun tracker.</span>
-        Créez-en un pour commencer à remplir votre journée.
+      <div>
+        <div className="empty">
+          <span className="em-serif">Aucun tracker.</span>
+          Créez-en un pour commencer à remplir votre journée.
+        </div>
+        {foodSummary}
       </div>
     );
   }
@@ -1037,6 +1049,9 @@ function TodayView({ trackers, masters = [], trackerById = {}, entries, filterId
       {trackers.length > 0
         ? <DayGrid trackers={trackers} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} dayTs={todayTs} isToday={true} onReorder={onReorder} />
         : <div className="empty" style={{padding:'30px 0'}}><span className="em-serif">Aucun tracker à remplir.</span> Vos masters se calculent tout seuls.</div>}
+      {/* Troisième catégorie du jour : les compteurs de la page Bouffe. Ils ne se
+          remplissent pas ici — ils se lisent, et mènent à la page qui les nourrit. */}
+      {foodSummary}
     </div>
   );
 }
@@ -1671,7 +1686,8 @@ function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
    Log view — the entries, split into "Jour", "Historique" and "Chrono"
    ============================================================ */
 function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder,
-                  chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono, onUpdateChrono, onResetAllChronos, chronoExclusive, onSetChronoExclusive }){
+                  chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono, onUpdateChrono, onResetAllChronos, chronoExclusive, onSetChronoExclusive,
+                  foodSummary }){
   const hint = logSub === 'jour' ? "les entrées d’aujourd’hui"
              : logSub === 'historique' ? "ouvrez n’importe quel jour pour l’éditer"
              : "chronométrez vos sessions, puis enregistrez-les";
@@ -1702,7 +1718,7 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
           onUpdate={onUpdateChrono}
         />
       ) : logSub === 'jour' ? (
-        <TodayView trackers={trackers} masters={masters} trackerById={trackerById} entries={entries} filterIds={filterIds} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} onReorder={onReorder} />
+        <TodayView trackers={trackers} masters={masters} trackerById={trackerById} entries={entries} filterIds={filterIds} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} onReorder={onReorder} foodSummary={foodSummary} />
       ) : (
         <HistoryView
           trackers={trackers}
@@ -3662,5 +3678,10 @@ function Root(){
 
 /* ============================================================ */
 
-if (window.__tkBootDone) window.__tkBootDone();
-ReactDOM.createRoot(document.getElementById('root')).render(<Root />);
+// Le montage n'a pas lieu ici mais au dernier <script> de Tracklog.html, une fois
+// app.food.jsx exécuté : la page Bouffe y déclare ses composants, et App les
+// utilise dès le premier rendu.
+function mountTracklog(){
+  if (window.__tkBootDone) window.__tkBootDone();
+  ReactDOM.createRoot(document.getElementById('root')).render(<Root />);
+}

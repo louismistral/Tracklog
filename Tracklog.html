@@ -625,6 +625,128 @@
   .de-today:hover{background:var(--ink);border-color:var(--ink);color:var(--bg)}
   .day-entries{margin-top:4px}
 
+  /* ============================================================
+     Bouffe — page nutrition (app.food.jsx). Mêmes jetons de couleur
+     que le reste, donc le mode clair suit sans une règle de plus.
+     ============================================================ */
+  .fd-datebar{display:flex;align-items:center;gap:14px;margin-bottom:20px}
+  .fd-date{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .fd-date-main{font-family:"Instrument Serif",serif;font-style:italic;font-size:26px;color:var(--ink);text-transform:capitalize;line-height:1}
+  .fd-date-sub{font-size:10px;color:var(--ink-3);letter-spacing:0.08em}
+  .fd-datebar .de-today{margin-left:auto}
+  .cal-nav:disabled{opacity:.3}
+
+  .fd-totals{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+  .fd-total{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;display:flex;flex-direction:column;gap:8px;cursor:pointer;transition:border-color .5s var(--ease)}
+  .fd-total:hover{border-color:var(--line-2)}
+  .fd-total-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:var(--ink-3)}
+  .fd-total-v{font-family:"Geist Mono",monospace;font-size:22px;color:var(--ink);line-height:1;display:flex;align-items:baseline;gap:4px}
+  .fd-total.lead .fd-total-v{font-size:28px}
+  .fd-total-v .u{font-size:10px;color:var(--ink-3)}
+  .fd-total-goal{font-size:10px;color:var(--ink-3);letter-spacing:0.06em}
+  .fd-meter{display:block;height:3px;background:var(--bg-3);border-radius:2px;overflow:hidden}
+  .fd-fill{display:block;height:100%;border-radius:2px;transition:width .6s var(--ease)}
+  .fd-fill.over{background:var(--warn)!important}
+
+  .fd-note{font-size:12px;color:var(--ink-2);margin:0 0 16px;line-height:1.6}
+  .fd-note.warn{color:var(--warn)}
+  .fd-link{background:none;border:none;padding:0;color:var(--accent);font-size:12px;text-decoration:underline;text-underline-offset:3px}
+  .fd-link:hover{color:var(--ink)}
+
+  .fd-scan-cta{margin-bottom:22px}
+  .fd-primary{display:inline-flex;align-items:center;gap:10px;background:var(--accent);color:#fff;border:none;border-radius:999px;padding:13px 24px;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;transition:all .35s var(--ease)}
+  .fd-primary:hover{background:var(--accent-2)}
+
+  .fd-meal{margin-bottom:20px}
+  .fd-meal-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
+  .fd-meal-kcal{font-size:11px;color:var(--ink-3)}
+  .fd-row{display:flex;align-items:baseline;gap:14px;padding:11px 2px;border-top:1px solid var(--line)}
+  .fd-row-main{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .fd-row-name{font-size:13px;color:var(--ink)}
+  .fd-row-brand{font-size:11px;color:var(--ink-3)}
+  .fd-row-qty{font-size:11px;color:var(--ink-2)}
+  .fd-row-macros{display:flex;gap:10px;font-size:11px;color:var(--ink-3);flex-shrink:0}
+  .fd-row-macros i{font-style:normal;opacity:.6;margin-left:2px}
+  .fd-row-kcal{font-family:"Geist Mono",monospace;font-size:13px;color:var(--ink);flex-shrink:0}
+  .fd-row-kcal i{font-style:normal;font-size:9px;color:var(--ink-3);margin-left:3px}
+  .fd-row-actions{display:flex;gap:8px;opacity:0;transition:opacity .35s var(--ease);flex-shrink:0}
+  .fd-row:hover .fd-row-actions{opacity:1}
+  .fd-row-actions button{font-size:10px;color:var(--ink-3);background:none;border:none;padding:4px 6px;text-transform:uppercase;letter-spacing:0.08em}
+  .fd-row-actions button:hover{color:var(--ink)}
+  .fd-row-actions button.del:hover{color:var(--warn)}
+  .fd-add{margin-top:8px;font-size:11px;color:var(--ink-3);background:none;border:1px dashed var(--line-2);border-radius:999px;padding:7px 14px;transition:all .35s var(--ease)}
+  .fd-add:hover{color:var(--ink);border-color:var(--ink-3)}
+
+  .fd-micros-block{margin-top:26px;padding-top:18px;border-top:1px solid var(--line)}
+  .fd-micros{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:2px 22px;margin-top:14px}
+  .fd-micro{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line)}
+  .fd-micro-label{font-size:12px;color:var(--ink-2)}
+  .fd-micro-v{font-size:12px;color:var(--ink)}
+  .fd-micro-rda{font-style:normal;font-size:10px;color:var(--ink-3);margin-left:6px}
+
+  /* Scanner */
+  .fd-scan-view{position:relative;background:#000;border-radius:var(--radius);overflow:hidden;aspect-ratio:4/3;border:1px solid var(--line-2)}
+  .fd-scan-view video{width:100%;height:100%;object-fit:cover;display:block}
+  .fd-reticle{position:absolute;inset:16% 10%;pointer-events:none}
+  .fd-reticle span{position:absolute;width:26px;height:26px;border:2px solid rgba(255,255,255,.85)}
+  .fd-reticle span:nth-child(1){top:0;left:0;border-right:none;border-bottom:none}
+  .fd-reticle span:nth-child(2){top:0;right:0;border-left:none;border-bottom:none}
+  .fd-reticle span:nth-child(3){bottom:0;left:0;border-right:none;border-top:none}
+  .fd-reticle span:nth-child(4){bottom:0;right:0;border-left:none;border-top:none}
+  .fd-scan-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-size:12px;line-height:1.6;color:#efe9dd;background:rgba(0,0,0,.72)}
+  .fd-scan-overlay.err{color:#ffb4a0}
+  .fd-torch{position:absolute;right:10px;bottom:10px;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#fff;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.4);border-radius:999px;padding:6px 12px}
+  .fd-torch.on{background:var(--accent);border-color:var(--accent)}
+  .fd-scan-hint{font-size:12px;color:var(--ink-3);margin:10px 0 0;line-height:1.6}
+  .fd-manual{display:flex;align-items:center;gap:10px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line);flex-wrap:wrap}
+  .fd-manual label{font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.12em}
+  .fd-manual input{flex:1;min-width:120px}
+
+  /* Recherche et listes de résultats */
+  .fd-search-bar{display:flex;gap:10px;align-items:center;margin-bottom:12px}
+  .fd-search-bar input{flex:1}
+  .fd-list{max-height:46vh;overflow-y:auto;margin:0 -4px}
+  .fd-item{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:10px 4px;border:none;border-bottom:1px solid var(--line);background:none;transition:background .3s var(--ease)}
+  .fd-item:hover{background:var(--bg-3)}
+  .fd-item img{width:38px;height:38px;object-fit:cover;border-radius:2px;flex-shrink:0;background:var(--bg-3)}
+  .fd-item-ph{width:38px;height:38px;border-radius:2px;flex-shrink:0;background:var(--bg-3);display:flex;align-items:center;justify-content:center;font-family:"Instrument Serif",serif;font-style:italic;color:var(--ink-3)}
+  .fd-item-txt{display:flex;flex-direction:column;gap:3px;min-width:0}
+  .fd-item-txt .n{font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fd-item-txt .m{font-size:10px;color:var(--ink-3)}
+
+  /* Quantité */
+  .fd-qty{display:flex;align-items:center;gap:12px;margin:6px 0 12px;flex-wrap:wrap}
+  .fd-qty input{width:96px;font-size:20px;font-family:"Geist Mono",monospace;text-align:right}
+  .fd-chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+  .fd-chips button{font-size:11px;color:var(--ink-2);border:1px solid var(--line);border-radius:999px;padding:6px 12px;background:transparent;transition:all .35s var(--ease)}
+  .fd-chips button:hover{border-color:var(--line-2);color:var(--ink)}
+  .fd-preview{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:14px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-bottom:6px}
+  .fd-preview>div{display:flex;flex-direction:column;gap:5px;text-align:center}
+  .fd-preview .l{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3)}
+  .fd-preview .v{font-family:"Geist Mono",monospace;font-size:17px;color:var(--ink)}
+  .fd-modal .modal-section{margin-top:18px}
+  .fd-more-fields{margin-top:6px}
+
+  /* Bibliothèque */
+  .fd-lib-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .fd-lib-search{max-width:180px}
+  .fd-food-card{flex-direction:column;align-items:stretch}
+  .fd-food-nums{font-size:11px;color:var(--ink-2);margin-top:8px}
+  .fd-per{color:var(--ink-3)}
+
+  /* Répartition des calories */
+  .fd-split{display:flex;height:12px;border-radius:2px;overflow:hidden;margin:6px 0 14px;background:var(--bg-3)}
+  .fd-split-part{display:block;height:100%}
+
+  /* Les 4 compteurs dans la page Log */
+  .fd-log-group{margin-top:34px;padding-top:26px;border-top:1px solid var(--line)}
+  .fd-log-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:18px}
+  .today-card.fd-card{cursor:pointer;gap:10px}
+  .today-card.fd-card:hover{border-color:var(--line-2)}
+  .fd-card-v{font-family:"Geist Mono",monospace;font-size:24px;color:var(--ink);line-height:1;display:flex;align-items:baseline;gap:4px}
+  .fd-card-v .u{font-size:10px;color:var(--ink-3)}
+  .fd-card-goal{font-size:10px;color:var(--ink-3);letter-spacing:0.06em}
+
   hr.thin{border:none;border-top:1px solid var(--line);margin:22px 0}
 
   .footer-note{margin-top:34px;font-size:10px;color:var(--ink-3);text-align:center;text-transform:uppercase;letter-spacing:0.16em}
@@ -682,6 +804,21 @@
 
     .modal{padding:22px}
     .typegrid{grid-template-columns:repeat(2,1fr)}
+
+    /* Bouffe : les compteurs passent en 2 colonnes, les lignes de repas
+       gardent leurs actions visibles (pas de survol au doigt). */
+    .fd-totals{grid-template-columns:repeat(2,1fr)}
+    .fd-total-v{font-size:19px}
+    .fd-total.lead .fd-total-v{font-size:22px}
+    .fd-row{flex-wrap:wrap;gap:8px 12px}
+    .fd-row-main{flex:1 1 100%}
+    .fd-row-actions{opacity:1;margin-left:auto}
+    .fd-micros{grid-template-columns:1fr}
+    .fd-list{max-height:40vh}
+    .fd-lib-search{max-width:none;flex:1 1 100%;order:-1}
+    .fd-preview{grid-template-columns:repeat(4,1fr);gap:6px}
+    .fd-preview .v{font-size:15px}
+    .fd-primary{width:100%;justify-content:center}
   }
 </style>
 </head>
@@ -750,6 +887,11 @@
 })();
 </script>
 
-<script type="text/babel" src="app.jsx?v=33"></script>
+<!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
+     sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
+     Bouffe, et le dernier script monte React une fois les deux en place. -->
+<script type="text/babel" src="app.jsx?v=34"></script>
+<script type="text/babel" src="app.food.jsx?v=1"></script>
+<script type="text/babel">mountTracklog();</script>
 </body>
 </html>
