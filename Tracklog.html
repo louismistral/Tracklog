@@ -713,6 +713,42 @@
   .fd-item-txt{display:flex;flex-direction:column;gap:3px;min-width:0}
   .fd-item-txt .n{font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fd-item-txt .m{font-size:10px;color:var(--ink-3)}
+  .fd-item{border-bottom:none;flex:1;min-width:0}
+  .fd-item-row{display:flex;align-items:stretch;gap:2px;border-bottom:1px solid var(--line)}
+  .fd-item-row:hover{background:var(--bg-3)}
+  .fd-item-txt .b{font-size:10px;color:var(--ink-2);text-transform:uppercase;letter-spacing:0.1em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fd-item-txt .m b{color:var(--ink-2);font-weight:500}
+  .fd-item-src{display:flex;align-items:center;padding:0 10px;color:var(--ink-3);font-size:13px;text-decoration:none;flex-shrink:0;transition:color .3s var(--ease)}
+  .fd-item-src:hover{color:var(--accent)}
+  .fd-list-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:var(--ink-3);margin:10px 0 2px;padding:0 4px}
+  .fd-search-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:-4px 0 6px;min-height:18px}
+  .fd-search-meta .serif{font-size:12px;color:var(--ink-3)}
+  .fd-thumb-toggle{font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-3);background:none;border:1px solid var(--line);border-radius:999px;padding:3px 10px;flex-shrink:0;transition:color .3s var(--ease),border-color .3s var(--ease)}
+  .fd-thumb-toggle:hover,.fd-thumb-toggle.on{color:var(--accent);border-color:var(--accent)}
+  .fd-src-line{margin-top:12px}
+  .fd-src-line a,.fd-src-link{color:var(--ink-2);text-decoration:none;border-bottom:1px solid var(--line-2);transition:color .3s var(--ease)}
+  .fd-src-line a:hover,.fd-src-link:hover{color:var(--accent);border-color:var(--accent)}
+  a.tk-edit.fd-src-link{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;display:inline-block}
+
+  /* Le bloc Sources, en bas de la page Bouffe */
+  .fd-sources{margin:44px 0 8px;padding-top:20px;border-top:1px solid var(--line);max-width:62ch}
+  .fd-sources p.serif{font-size:12px;line-height:1.7;color:var(--ink-3);margin:0 0 12px}
+  .fd-sources a{color:var(--ink-2);text-decoration:none;border-bottom:1px solid var(--line-2)}
+  .fd-sources a:hover{color:var(--accent);border-color:var(--accent)}
+  .fd-source-links{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:10px;text-transform:uppercase;letter-spacing:0.1em}
+  .fd-source-links a{border-bottom:none;color:var(--ink-3)}
+
+  /* Scanner : zoom, photo de secours, diagnostic */
+  .fd-zoom{display:flex;align-items:center;gap:12px;margin-top:12px}
+  .fd-zoom label{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3)}
+  .fd-zoom input[type=range]{flex:1;accent-color:var(--accent)}
+  .fd-scan-diag{color:var(--ink-3);opacity:.65;font-size:10px;white-space:nowrap}
+  .fd-scan-alt{display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}
+  .fd-photo{font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-2);border:1px solid var(--line-2);border-radius:999px;padding:8px 16px;cursor:pointer;transition:color .3s var(--ease),border-color .3s var(--ease)}
+  .fd-photo:hover{color:var(--accent);border-color:var(--accent)}
+  .fd-photo.busy{opacity:.6}
+  .fd-photo input{display:none}
+  .fd-scan-alt-note{font-size:12px;color:var(--ink-3)}
 
   /* Quantité */
   .fd-qty{display:flex;align-items:center;gap:12px;margin:6px 0 12px;flex-wrap:wrap}
@@ -891,7 +927,7 @@
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Bouffe, et le dernier script monte React une fois les deux en place. -->
 <script type="text/babel" src="app.jsx?v=34"></script>
-<script type="text/babel" src="app.food.jsx?v=1"></script>
+<script type="text/babel" src="app.food.jsx?v=2"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>

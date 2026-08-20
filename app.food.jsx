@@ -173,44 +173,170 @@ function foodLabel(f){
    ------------------------------------------------------------
    Gratuit, sans clé, CORS ouvert, et de loin la meilleure
    couverture des produits vendus en France. En échange :
-   qualité inégale, et beaucoup de fiches sans valeurs
+   qualité inégale, beaucoup de fiches sans valeurs
    nutritionnelles — d'où le chemin « compléter à la main »
-   partout où un produit revient vide.
+   partout où un produit revient vide — et des quotas serrés
+   côté recherche, d'où le cache et le limiteur plus bas.
    ============================================================ */
-const OFF_BASE = 'https://world.openfoodfacts.org';
+const OFF_BASE   = 'https://world.openfoodfacts.org';
+const OFF_FR     = 'https://fr.openfoodfacts.org';
+const OFF_SEARCH = 'https://search.openfoodfacts.org';   // « search-a-licious », le moteur actuel
 const OFF_FIELDS = [
   'code','product_name','product_name_fr','generic_name_fr','brands','quantity',
   'serving_size','serving_quantity','image_small_url','image_front_small_url','nutriments',
 ].join(',');
 
-async function offJson(url, timeoutMs = 12000){
+// Liens publics, pour pouvoir toujours aller vérifier la source à la main.
+const offProductUrl = (code) => code ? `${OFF_FR}/produit/${encodeURIComponent(String(code))}` : null;
+const offSearchUrl  = (q) => `${OFF_FR}/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process`;
+
+async function offJson(url, { timeoutMs = 12000, signal } = {}){
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const relay = () => ctrl.abort();
+  if (signal){
+    if (signal.aborted) ctrl.abort();
+    signal.addEventListener('abort', relay);
+  }
   try {
     const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'application/json' } });
-    if (!r.ok) throw new Error(`Open Food Facts a répondu ${r.status}`);
+    // 429/503 = quota ou surcharge côté OFF : le dire tel quel plutôt que « erreur réseau ».
+    if (r.status === 429) throw new Error('Trop de requêtes d’un coup — Open Food Facts nous met en pause une minute.');
+    if (!r.ok) throw new Error(`Open Food Facts a répondu ${r.status}.`);
     return await r.json();
+  } catch(e){
+    // Safari dit « Load failed », Chrome « Failed to fetch » : ni l'un ni l'autre
+    // n'aide, alors qu'ici la cause est presque toujours la même.
+    if (e && e.name === 'AbortError') throw e;
+    if (e instanceof TypeError) throw new Error('Open Food Facts injoignable (réseau, blocage ou quota).');
+    throw e;
   } finally {
     clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', relay);
   }
 }
 
 // null = code inconnu de la base (≠ erreur réseau, qui remonte en exception).
 async function offFetchProduct(barcode){
-  const j = await offJson(`${OFF_BASE}/api/v2/product/${encodeURIComponent(barcode)}.json?fields=${OFF_FIELDS}`);
-  const p = j && j.product;
-  if (!p || j.status === 0 || j.status === 'failure') return null;
-  return offToFood(p, barcode);
+  const path = `/api/v2/product/${encodeURIComponent(barcode)}.json?fields=${OFF_FIELDS}`;
+  let last;
+  for (const base of [OFF_BASE, OFF_FR]){          // le miroir fr sert de repli
+    try {
+      const j = await offJson(base + path);
+      const p = j && j.product;
+      if (!p || j.status === 0 || j.status === 'failure') return null;
+      return offToFood(p, barcode);
+    } catch(e){
+      if (e.name === 'AbortError') throw e;
+      last = e;
+    }
+  }
+  throw last || new Error('Recherche impossible.');
 }
 
-// La recherche plein texte est limitée côté OFF (~10 requêtes/min), d'où un
-// bouton plutôt qu'une recherche à la frappe.
-async function offSearchFoods(query){
-  const url = `${OFF_BASE}/cgi/search.pl?search_terms=${encodeURIComponent(query)}`
-            + `&search_simple=1&action=process&json=1&page_size=24&fields=${OFF_FIELDS}`;
-  const j = await offJson(url, 15000);
+/* ---- Recherche plein texte ------------------------------------------------
+   OFF impose un quota serré sur la recherche (de l'ordre de 10 requêtes par
+   minute et par IP) et répond 429 au-delà — c'est ce qui, côté Safari,
+   s'affiche en « Load failed ». Trois garde-fous, dans cet ordre :
+     · un cache par requête, pour que revenir en arrière ne coûte rien ;
+     · un seau à jetons, qui espace les appels sous le quota ;
+     · deux moteurs, le nouveau puis l'ancien, avant de rendre les armes.   */
+
+const searchCache = new Map();                  // requête normalisée → résultats
+const SEARCH_BUCKET = { tokens: 6, max: 6, refillMs: 6500, last: Date.now() };
+function takeSearchToken(){
+  const now = Date.now();
+  const gained = Math.floor((now - SEARCH_BUCKET.last) / SEARCH_BUCKET.refillMs);
+  if (gained > 0){
+    SEARCH_BUCKET.tokens = Math.min(SEARCH_BUCKET.max, SEARCH_BUCKET.tokens + gained);
+    SEARCH_BUCKET.last = now;
+  }
+  if (SEARCH_BUCKET.tokens < 1) return false;
+  SEARCH_BUCKET.tokens -= 1;
+  return true;
+}
+// Combien de temps avant le prochain jeton — pour l'annoncer plutôt que d'échouer.
+function searchCooldownMs(){
+  return Math.max(0, SEARCH_BUCKET.refillMs - (Date.now() - SEARCH_BUCKET.last));
+}
+
+const SEARCH_FIELDS = 'code,product_name,generic_name,brands,quantity,serving_size,serving_quantity,nutriments,image_url';
+
+// L'index de recherche est multilingue : un champ y est soit une chaîne,
+// soit un objet { fr: …, en: …, main: … }.
+function pickLang(v){
+  if (typeof v === 'string') return v;
+  if (v && typeof v === 'object'){
+    for (const k of ['fr','main','en']) if (typeof v[k] === 'string' && v[k]) return v[k];
+    for (const k in v) if (typeof v[k] === 'string' && v[k]) return v[k];
+  }
+  return '';
+}
+
+// search-a-licious → la même forme de fiche que l'API produit.
+function searchHitToFood(h){
+  return offToFood({
+    code: h.code,
+    product_name_fr: pickLang(h.product_name),
+    product_name: pickLang(h.product_name),
+    generic_name_fr: pickLang(h.generic_name),
+    brands: Array.isArray(h.brands) ? h.brands.join(', ') : (h.brands || ''),
+    quantity: pickLang(h.quantity),
+    serving_size: pickLang(h.serving_size),
+    serving_quantity: h.serving_quantity,
+    image_front_small_url: h.image_url || '',
+    nutriments: h.nutriments || {},
+  }, h.code);
+}
+
+async function searchViaSearchalicious(q, signal, withFields){
+  const url = `${OFF_SEARCH}/search?q=${encodeURIComponent(q)}&langs=fr,en&page_size=25`
+            + (withFields ? `&fields=${encodeURIComponent(SEARCH_FIELDS)}` : '');
+  const j = await offJson(url, { timeoutMs: 12000, signal });
+  const hits = (j && j.hits) || [];
+  return hits.map(searchHitToFood).filter(f => f && f.name);
+}
+
+async function searchViaCgi(base, q, signal){
+  const url = `${base}/cgi/search.pl?search_terms=${encodeURIComponent(q)}`
+            + `&search_simple=1&action=process&json=1&page_size=25&fields=${OFF_FIELDS}`;
+  const j = await offJson(url, { timeoutMs: 15000, signal });
   const list = (j && j.products) || [];
   return list.map(p => offToFood(p, p.code)).filter(f => f && f.name);
+}
+
+// Les moteurs sont essayés dans l'ordre ; on s'arrête au premier qui répond,
+// même les mains vides — sinon un mot rare consommerait tout le quota.
+const SEARCH_ENGINES = [
+  { label:'moteur OFF',        run:(q,s) => searchViaSearchalicious(q, s, true) },
+  { label:'moteur OFF (brut)', run:(q,s) => searchViaSearchalicious(q, s, false) },
+  { label:'ancien moteur',     run:(q,s) => searchViaCgi(OFF_BASE, q, s) },
+  { label:'ancien moteur fr',  run:(q,s) => searchViaCgi(OFF_FR, q, s) },
+];
+
+// Renvoie { list, via, cached }. Lève une erreur seulement si *tous* les
+// moteurs ont échoué — le message dit alors lequel a dit quoi.
+async function offSearchFoods(query, { signal, force = false } = {}){
+  const q = query.trim();
+  const key = q.toLowerCase();
+  if (!force && searchCache.has(key)) return { ...searchCache.get(key), cached:true };
+  if (!takeSearchToken()){
+    const s = Math.ceil(searchCooldownMs() / 1000);
+    throw new Error(`Pause de ${s} s — Open Food Facts limite le nombre de recherches par minute.`);
+  }
+  const errors = [];
+  for (const engine of SEARCH_ENGINES){
+    try {
+      const list = await engine.run(q, signal);
+      const out = { list, via: engine.label };
+      searchCache.set(key, out);
+      return out;
+    } catch(e){
+      if (e.name === 'AbortError') throw e;
+      errors.push(`${engine.label} — ${e.message}`);
+    }
+  }
+  throw new Error(errors.join(' · '));
 }
 
 const offNum = (v) => {
@@ -282,29 +408,145 @@ const foodIsUsable = (f) => !!f && typeof f.nutriments?.kcal === 'number';
 /* ============================================================
    Le décodeur de codes-barres
    ------------------------------------------------------------
-   Deux chemins, parce qu'aucun n'est universel :
-     · BarcodeDetector — natif, instantané, mais absent de Safari
-       (donc de tout iPhone) au moment où ceci est écrit ;
-     · ZXing — décodeur JS chargé à la demande depuis un CDN,
-       lent à charger (~200 ko) mais qui marche partout.
-   Et si la caméra est refusée ou indisponible : la saisie
-   manuelle du code, qui est toujours proposée.
+   Ouvrir la caméra est facile ; décoder ne l'est pas. Ce qui
+   fait la différence sur un téléphone, dans l'ordre :
+     · ne donner au décodeur que la bande centrale du cadre —
+       un EAN qui occupe 20 % de l'image passe rarement, le même
+       recadré passe presque toujours ;
+     · retenter la même image pivotée d'un quart de tour, parce
+       qu'un code tenu à la verticale est invisible pour un
+       décodeur 1D qui ne balaie que des lignes horizontales ;
+     · et garder deux moteurs : BarcodeDetector, natif et
+       instantané mais absent de Safari (donc de tout iPhone),
+       et ZXing, chargé à la demande depuis un CDN.
+   Restent deux issues de secours quand la vidéo ne suffit pas :
+   la photo — l'appareil photo natif fait une image nette là où
+   le flux vidéo reste flou — et la saisie du code à la main.
    ============================================================ */
-const ZXING_SRC = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
+const ZXING_SRCS = [
+  'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js',
+  'https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js',
+];
 let zxingLoader = null;
 function loadZXing(){
   if (window.ZXing) return Promise.resolve(window.ZXing);
   if (zxingLoader) return zxingLoader;
-  zxingLoader = new Promise((resolve, reject) => {
+  const one = (src) => new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = ZXING_SRC;
+    s.src = src;
     s.async = true;
-    s.onload = () => window.ZXing ? resolve(window.ZXing) : reject(new Error('Décodeur indisponible.'));
-    s.onerror = () => { zxingLoader = null; reject(new Error('Le décodeur n’a pas pu se charger (réseau ou bloqueur).')); };
+    s.onload = () => window.ZXing ? resolve(window.ZXing) : reject(new Error('vide'));
+    s.onerror = () => reject(new Error('réseau'));
     document.head.appendChild(s);
+  });
+  zxingLoader = ZXING_SRCS.reduce(
+    (chain, src) => chain.catch(() => one(src)),
+    Promise.reject(new Error('init'))
+  ).catch(e => {
+    zxingLoader = null;
+    throw new Error('Le décodeur n’a pas pu se charger (réseau ou bloqueur).');
   });
   return zxingLoader;
 }
+
+// Un décodeur = un nom + une fonction qui rend un code (ou null) pour un canvas.
+async function makeNativeDecoder(){
+  if (!('BarcodeDetector' in window)) return null;
+  const wanted = ['ean_13','ean_8','upc_a','upc_e','code_128'];
+  let formats = wanted;
+  try {
+    const supported = await window.BarcodeDetector.getSupportedFormats();
+    const keep = wanted.filter(f => supported.includes(f));
+    if (!keep.length) return null;                 // caméra sans format produit
+    formats = keep;
+  } catch {}
+  let det;
+  try { det = new window.BarcodeDetector({ formats }); }
+  catch { try { det = new window.BarcodeDetector(); } catch { return null; } }
+  return {
+    name: 'natif',
+    decode: async (canvas) => {
+      const found = await det.detect(canvas);
+      return found && found.length ? found[0].rawValue : null;
+    },
+  };
+}
+
+async function makeZXingDecoder(){
+  const ZX = await loadZXing();
+  const formats = [
+    ZX.BarcodeFormat.EAN_13, ZX.BarcodeFormat.EAN_8,
+    ZX.BarcodeFormat.UPC_A, ZX.BarcodeFormat.UPC_E, ZX.BarcodeFormat.CODE_128,
+  ];
+  // Deux jeux d'options, parce que l'écart de coût est énorme : une image sans
+  // code se rejette en ~10 ms, ou en ~240 ms si on demande à ZXing d'insister.
+  // Balayer beaucoup d'images vite bat largement en insister sur chacune —
+  // la main bouge, la mise au point cherche, et une seule image nette suffit.
+  const hintsFast = new Map([[ZX.DecodeHintType.POSSIBLE_FORMATS, formats]]);
+  const hintsHard = new Map(hintsFast);
+  hintsHard.set(ZX.DecodeHintType.TRY_HARDER, true);
+  const reader = new ZX.MultiFormatReader();
+  reader.setHints(hintsFast);
+  return {
+    name: 'zxing',
+    decode: async (canvas, hard) => {
+      // La rotation intégrée à ZXing modifie la source sur place sans corriger
+      // ses dimensions : on lui donne des images déjà orientées (rotateCanvas).
+      const src = new ZX.HTMLCanvasElementLuminanceSource(canvas);
+      try {
+        const res = reader.decode(new ZX.BinaryBitmap(new ZX.HybridBinarizer(src)), hard ? hintsHard : hintsFast);
+        return res ? res.getText() : null;
+      } catch {                 // NotFoundException : rien sur cette image
+        return null;
+      } finally { reader.reset(); }
+    },
+  };
+}
+
+// Le quart de tour, fait à la main : un code tenu à la verticale est invisible
+// pour un décodeur 1D, qui ne balaie que des lignes horizontales.
+function rotateCanvas(src, dst){
+  dst.width = src.height;
+  dst.height = src.width;
+  const ctx = dst.getContext('2d', { willReadFrequently: true });
+  ctx.save();
+  ctx.translate(dst.width / 2, dst.height / 2);
+  ctx.rotate(Math.PI / 2);
+  ctx.drawImage(src, -src.width / 2, -src.height / 2);
+  ctx.restore();
+  return dst;
+}
+
+// Recopie une région de la source dans le canvas de travail. `tight` = la bande
+// centrale (là où l'utilisateur vise), sinon l'image entière.
+function drawRegion(source, canvas, tight, srcW, srcH, maxW = 900){
+  const vw = srcW, vh = srcH;
+  if (!vw || !vh) return false;
+  const cw = Math.round(vw * (tight ? 0.92 : 1));
+  const ch = Math.round(vh * (tight ? 0.46 : 1));
+  const sx = Math.round((vw - cw) / 2), sy = Math.round((vh - ch) / 2);
+  // Plafonner la largeur de travail : au-delà, le décodage coûte cher sans rien
+  // gagner — un EAN reste lisible bien en dessous de la résolution du capteur.
+  const scale = Math.min(1, maxW / cw);
+  canvas.width = Math.max(2, Math.round(cw * scale));
+  canvas.height = Math.max(2, Math.round(ch * scale));
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(source, sx, sy, cw, ch, 0, 0, canvas.width, canvas.height);
+  return true;
+}
+
+// Le tour de rôle des tentatives. Trois passes rapides — le cas courant, le
+// code tenu à la verticale, le code hors du réticule — puis une passe lente
+// qui insiste, pour l'image un peu floue ou un peu de travers.
+const PASSES = [
+  { tight:true,  rotate:false, hard:false },
+  { tight:true,  rotate:true,  hard:false },
+  { tight:false, rotate:false, hard:false },
+  { tight:true,  rotate:false, hard:true  },
+];
+
+const cleanCode = (raw) => String(raw || '').replace(/\D/g, '');
+const codeLooksValid = (c) => c.length === 8 || c.length === 12 || c.length === 13 || c.length === 14;
 
 function cameraErrorMessage(e){
   const n = e && e.name;
@@ -317,43 +559,50 @@ function cameraErrorMessage(e){
 
 function FoodScanner({ onCode }){
   const videoRef = useRef(null);
+  const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const stopRef = useRef(null);
   const doneRef = useRef(false);
   const [status, setStatus] = useState('init'); // init | live | error
   const [err, setErr] = useState('');
   const [engine, setEngine] = useState('');
+  const [attempts, setAttempts] = useState(0);
   const [canTorch, setCanTorch] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
+  const [zoom, setZoom] = useState(null);       // { min, max, step, value } si l'appareil le permet
   const [manual, setManual] = useState('');
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoMsg, setPhotoMsg] = useState('');
 
   // onCode change à chaque rendu du parent ; le passer en dépendance
   // relancerait la caméra en boucle.
   const onCodeRef = useRef(onCode);
   useEffect(() => { onCodeRef.current = onCode; }, [onCode]);
 
+  const hit = useCallback((raw) => {
+    if (doneRef.current) return false;
+    const code = cleanCode(raw);
+    if (!codeLooksValid(code)) return false;
+    doneRef.current = true;
+    try { navigator.vibrate && navigator.vibrate(60); } catch {}
+    onCodeRef.current(code);
+    return true;
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-
-    const hit = (raw) => {
-      if (doneRef.current) return;
-      const code = String(raw || '').replace(/\D/g, '');
-      if (code.length < 8) return;           // un EAN fait 8 ou 13 chiffres
-      doneRef.current = true;
-      try { navigator.vibrate && navigator.vibrate(60); } catch {}
-      onCodeRef.current(code);
-    };
+    let timer = 0;
 
     (async () => {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
         setStatus('error');
-        setErr('Ce navigateur ne donne pas accès à la caméra. Tape le code à la main.');
+        setErr('Ce navigateur ne donne pas accès à la caméra. Tape le code à la main, ou passe par une photo.');
         return;
       }
       let stream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal:'environment' }, width:{ ideal:1280 }, height:{ ideal:720 } },
+          video: { facingMode: { ideal:'environment' }, width:{ ideal:1920 }, height:{ ideal:1080 } },
           audio: false,
         });
       } catch(e){
@@ -372,55 +621,86 @@ function FoodScanner({ onCode }){
       setStatus('live');
 
       const track = stream.getVideoTracks()[0];
-      try { setCanTorch(!!(track.getCapabilities && track.getCapabilities().torch)); } catch {}
+      let caps = {};
+      try { caps = (track.getCapabilities && track.getCapabilities()) || {}; } catch {}
+      setCanTorch(!!caps.torch);
+      if (caps.zoom && caps.zoom.max > caps.zoom.min){
+        let value = caps.zoom.min;
+        try { value = track.getSettings().zoom ?? caps.zoom.min; } catch {}
+        setZoom({ min:caps.zoom.min, max:caps.zoom.max, step:caps.zoom.step || 0.1, value });
+      }
+      // Mise au point continue quand l'appareil l'expose — un code net se lit, un code flou non.
+      try { await track.applyConstraints({ advanced:[{ focusMode:'continuous' }] }); } catch {}
 
-      if ('BarcodeDetector' in window){
-        setEngine('natif');
-        let stopped = false, timer = 0;
-        let detector;
-        try {
-          detector = new window.BarcodeDetector({ formats:['ean_13','ean_8','upc_a','upc_e','code_128'] });
-        } catch {
-          detector = new window.BarcodeDetector();
-        }
-        const tick = async () => {
-          if (stopped || doneRef.current) return;
-          try {
-            const found = await detector.detect(video);
-            if (found && found.length) hit(found[0].rawValue);
-          } catch {}
-          if (!stopped && !doneRef.current) timer = setTimeout(tick, 200);
-        };
-        tick();
-        stopRef.current = () => { stopped = true; clearTimeout(timer); };
-      } else {
-        try {
-          const ZX = await loadZXing();
-          if (cancelled) return;
-          setEngine('zxing');
-          const hints = new Map();
-          hints.set(ZX.DecodeHintType.POSSIBLE_FORMATS, [
-            ZX.BarcodeFormat.EAN_13, ZX.BarcodeFormat.EAN_8,
-            ZX.BarcodeFormat.UPC_A, ZX.BarcodeFormat.UPC_E, ZX.BarcodeFormat.CODE_128,
-          ]);
-          hints.set(ZX.DecodeHintType.TRY_HARDER, true);
-          const reader = new ZX.BrowserMultiFormatReader(hints, 250);
-          reader.decodeFromStream(stream, video, (result) => { if (result) hit(result.getText()); });
-          stopRef.current = () => { try { reader.reset(); } catch {} };
-        } catch(e){
+      const decoders = [];
+      const native = await makeNativeDecoder();
+      if (native) decoders.push(native);
+      if (!decoders.length){
+        try { decoders.push(await makeZXingDecoder()); }
+        catch(e){
           if (!cancelled){ setStatus('error'); setErr(e.message || 'Décodeur indisponible.'); }
+          return;
         }
       }
+      if (cancelled) return;
+      setEngine(decoders.map(d => d.name).join(' + '));
+
+      const canvas = canvasRef.current || document.createElement('canvas');
+      canvasRef.current = canvas;
+      const rot = document.createElement('canvas');
+      let n = 0;
+      let secondTried = false;
+
+      const tryAll = async (c, hard) => {
+        for (const d of decoders){
+          try {
+            const code = await d.decode(c, hard);
+            if (code) return code;
+          } catch {}
+        }
+        return null;
+      };
+
+      const tick = async () => {
+        if (cancelled || doneRef.current) return;
+        const v = videoRef.current;
+        if (v && v.videoWidth){
+          // Le cas courant — code horizontal dans le réticule — passe seul et
+          // souvent ; le quart de tour et l'image entière ne coûtent leur temps
+          // qu'un tour sur trois chacun.
+          const pass = PASSES[n % PASSES.length];
+          if (drawRegion(v, canvas, pass.tight, v.videoWidth, v.videoHeight)){
+            let code = await tryAll(canvas, pass.hard);
+            if (!code && pass.rotate) code = await tryAll(rotateCanvas(canvas, rot), pass.hard);
+            if (code && hit(code)) return;
+          }
+          n += 1;
+          if (n % 5 === 0) setAttempts(n);
+          // Le natif a eu sa chance : on lui adjoint ZXing plutôt que de s'entêter.
+          if (!secondTried && n > 45 && decoders.length === 1 && decoders[0].name === 'natif'){
+            secondTried = true;
+            makeZXingDecoder().then(d => {
+              if (cancelled || doneRef.current) return;
+              decoders.push(d);
+              setEngine(decoders.map(x => x.name).join(' + '));
+            }).catch(()=>{});
+          }
+        }
+        if (!cancelled && !doneRef.current) timer = setTimeout(tick, 40);
+      };
+      tick();
+      stopRef.current = () => clearTimeout(timer);
     })();
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
       try { stopRef.current && stopRef.current(); } catch {}
       const s = streamRef.current;
       if (s) s.getTracks().forEach(t => t.stop());
       streamRef.current = null;
     };
-  }, []);
+  }, [hit]);
 
   const toggleTorch = async () => {
     const track = streamRef.current && streamRef.current.getVideoTracks()[0];
@@ -431,8 +711,58 @@ function FoodScanner({ onCode }){
     } catch { setCanTorch(false); }
   };
 
+  const applyZoom = async (value) => {
+    const track = streamRef.current && streamRef.current.getVideoTracks()[0];
+    if (!track) return;
+    setZoom(z => z ? { ...z, value } : z);
+    try { await track.applyConstraints({ advanced:[{ zoom: value }] }); } catch {}
+  };
+
+  // Issue de secours : une photo prise par l'appareil natif est nette et pleine
+  // résolution là où le flux vidéo reste flou. On l'attaque plus fort, en
+  // plusieurs recadrages, puisqu'il n'y a qu'une image à traiter.
+  const decodePhoto = async (file) => {
+    if (!file) return;
+    setPhotoBusy(true); setPhotoMsg('');
+    try {
+      const url = URL.createObjectURL(file);
+      const img = await new Promise((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = () => reject(new Error('Image illisible.'));
+        i.src = url;
+      });
+      const decoders = [];
+      const native = await makeNativeDecoder();
+      if (native) decoders.push(native);
+      try { decoders.push(await makeZXingDecoder()); } catch {}
+      const canvas = document.createElement('canvas');
+      const rot = document.createElement('canvas');
+      let found = null;
+      for (const tight of [false, true]){
+        if (found) break;
+        if (!drawRegion(img, canvas, tight, img.naturalWidth, img.naturalHeight, 1600)) continue;
+        for (const c of [canvas, rotateCanvas(canvas, rot)]){
+          for (const d of decoders){
+            try {
+              const code = await d.decode(c, true);
+              if (code && codeLooksValid(cleanCode(code))){ found = cleanCode(code); break; }
+            } catch {}
+          }
+          if (found) break;
+        }
+      }
+      URL.revokeObjectURL(url);
+      if (found) hit(found);
+      else setPhotoMsg('Aucun code lu sur cette photo. Rapproche-toi un peu, code bien à plat, et réessaie.');
+    } catch(e){
+      setPhotoMsg(e.message || 'Photo illisible.');
+    }
+    setPhotoBusy(false);
+  };
+
   const submitManual = () => {
-    const code = manual.replace(/\D/g, '');
+    const code = cleanCode(manual);
     if (code.length >= 8) onCodeRef.current(code);
   };
 
@@ -449,11 +779,34 @@ function FoodScanner({ onCode }){
           </button>
         )}
       </div>
+
+      {status === 'live' && zoom && (
+        <div className="fd-zoom">
+          <label>Zoom</label>
+          <input
+            type="range" min={zoom.min} max={zoom.max} step={zoom.step} value={zoom.value}
+            onChange={e => applyZoom(Number(e.target.value))}
+          />
+        </div>
+      )}
+
       {status === 'live' && (
         <p className="fd-scan-hint serif">
-          Cadre le code-barres, bien à plat et bien éclairé{engine === 'zxing' ? ' — décodeur logiciel, laisse-lui une seconde' : ''}.
+          Cadre le code dans la bande, à plat, à une quinzaine de centimètres.
+          {engine && <span className="fd-scan-diag mono"> {engine} · {attempts} essais</span>}
         </p>
       )}
+
+      <div className="fd-scan-alt">
+        <label className={`fd-photo ${photoBusy?'busy':''}`}>
+          <input type="file" accept="image/*" capture="environment"
+                 onChange={e => { decodePhoto(e.target.files && e.target.files[0]); e.target.value = ''; }} />
+          {photoBusy ? 'Lecture…' : 'Prendre une photo du code'}
+        </label>
+        <span className="fd-scan-alt-note serif">plus net que la vidéo si ça bloque</span>
+      </div>
+      {photoMsg && <p className="fd-note warn serif">{photoMsg}</p>}
+
       <div className="fd-manual">
         <label>Ou tape le code</label>
         <input
@@ -463,7 +816,7 @@ function FoodScanner({ onCode }){
           onChange={e => setManual(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') submitManual(); }}
         />
-        <button className="primary sm" disabled={manual.replace(/\D/g,'').length < 8} onClick={submitManual}>Chercher</button>
+        <button className="primary sm" disabled={cleanCode(manual).length < 8} onClick={submitManual}>Chercher</button>
       </div>
     </div>
   );
@@ -609,6 +962,8 @@ function FoodPage({ store, sub, onSub }){
         <FoodVuesView store={store} onGoals={()=>setGoalsOpen(true)} />
       )}
 
+      <FoodSources />
+
       {addOpen && (
         <AddFoodModal
           store={store}
@@ -635,6 +990,31 @@ function FoodPage({ store, sub, onSub }){
           onSave={async (g)=>{ await store.saveGoals(g); setGoalsOpen(false); }}
         />
       )}
+    </div>
+  );
+}
+
+/* ---- Les sources ----------------------------------------------------------
+   Aucune valeur affichée dans cette page ne vient de nulle part : soit d'une
+   fiche Open Food Facts, soit d'un aliment saisi à la main. Les liens sont là
+   pour pouvoir aller vérifier la fiche d'origine plutôt que nous croire.     */
+function FoodSources(){
+  return (
+    <div className="fd-sources">
+      <p className="section-label">Sources</p>
+      <p className="serif">
+        Les produits scannés et cherchés viennent d'<a href={OFF_FR} target="_blank" rel="noopener noreferrer">Open
+        Food Facts</a>, base collaborative et ouverte (licence ODbL) — les valeurs y sont saisies par ses
+        contributeurs, donc parfois incomplètes ou fausses. Chaque produit garde son lien « ↗ » vers sa fiche
+        d'origine, et le bouton Modifier permet de corriger les valeurs dans ta bibliothèque sans toucher à la
+        fiche publique.
+      </p>
+      <div className="fd-source-links mono">
+        <a href={OFF_FR} target="_blank" rel="noopener noreferrer">fr.openfoodfacts.org ↗</a>
+        <a href={OFF_SEARCH} target="_blank" rel="noopener noreferrer">moteur de recherche ↗</a>
+        <a href="https://openfoodfacts.github.io/openfoodfacts-server/api/" target="_blank" rel="noopener noreferrer">l'API utilisée ↗</a>
+        <a href="https://world.openfoodfacts.org/data" target="_blank" rel="noopener noreferrer">la base complète ↗</a>
+      </div>
     </div>
   );
 }
@@ -844,7 +1224,11 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [results, setResults] = useState(null);
+  const [via, setVia] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchErr, setSearchErr] = useState('');
   const [query, setQuery] = useState('');
+  const [thumbs, setThumbs] = useState(false);    // vignettes : coupées par défaut, c'est plus vif
   const [libQuery, setLibQuery] = useState('');
   // Le scanner s'arrête au premier code lu. Si ce code ne donne rien, il faut le
   // relancer : changer sa clé le remonte, caméra comprise.
@@ -881,25 +1265,60 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
     setBusy(false);
   }, [store]);
 
-  const runSearch = async () => {
-    const q = query.trim();
-    if (q.length < 2) return;
-    setBusy(true); setMsg(''); setResults(null);
+  // Recherche : une requête en vol à la fois, la plus récente gagne.
+  const seqRef = useRef(0);
+  const abortRef = useRef(null);
+  const runSearch = useCallback(async (raw) => {
+    const q = raw.trim();
+    if (q.length < 3) return;
+    if (/^\d{8,14}$/.test(q)){ handleCode(q); return; }   // un code collé dans la barre
+    const id = ++seqRef.current;
+    try { abortRef.current && abortRef.current.abort(); } catch {}
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setSearching(true); setSearchErr('');
     try {
-      const list = await offSearchFoods(q);
-      setResults(list);
-      if (!list.length) setMsg('Aucun produit trouvé.');
+      const out = await offSearchFoods(q, { signal: ctrl.signal });
+      if (seqRef.current !== id) return;
+      setResults(out.list);
+      setVia(out.cached ? 'déjà chargé' : out.via);
     } catch(e){
-      setMsg(e.name === 'AbortError' ? 'La recherche a expiré. Réessaie.' : (e.message || 'Recherche impossible.'));
+      if (e.name === 'AbortError' || seqRef.current !== id) return;
+      setSearchErr(e.message || 'Recherche impossible.');
+      setResults(null);
+    } finally {
+      if (seqRef.current === id) setSearching(false);
     }
-    setBusy(false);
-  };
+  }, [handleCode]);
+
+  // Aperçu à la frappe : on laisse retomber la saisie une demi-seconde pour ne
+  // pas brûler le quota d'OFF à chaque lettre.
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 3){ setResults(null); setSearchErr(''); setVia(''); return; }
+    if (/^\d{8,14}$/.test(q)) return;                     // un code se cherche au bouton
+    const t = setTimeout(() => runSearch(q), 500);
+    return () => clearTimeout(t);
+  }, [query, runSearch]);
+
+  useEffect(() => () => { try { abortRef.current && abortRef.current.abort(); } catch {} }, []);
 
   const pickFromSearch = async (f) => {
     if (!foodIsUsable(f)){ onNeedsFood(f); return; }
     const saved = await store.saveFood(f);
     setPicked(saved || f);
   };
+
+  // Ce qui est déjà dans la bibliothèque remonte en premier : c'est instantané,
+  // c'est déjà validé, et c'est presque toujours ce qu'on cherche.
+  const localMatches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length < 2) return [];
+    return store.foods
+      .filter(f => foodLabel(f).toLowerCase().includes(q))
+      .sort((a,b) => (b.lastUsedAt || b.createdAt) - (a.lastUsedAt || a.createdAt))
+      .slice(0, 6);
+  }, [store.foods, query]);
 
   const library = useMemo(() => {
     const q = libQuery.trim().toLowerCase();
@@ -927,6 +1346,8 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
     );
   }
 
+  const q = query.trim();
+
   return (
     <div className="scrim" onClick={onClose}>
       <div className="modal fd-modal" onClick={e=>e.stopPropagation()}>
@@ -949,14 +1370,51 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
               <input
                 autoFocus placeholder="skyr, pain de mie, poulet…" value={query}
                 onChange={e=>setQuery(e.target.value)}
-                onKeyDown={e=>{ if(e.key==='Enter') runSearch(); }}
+                onKeyDown={e=>{ if(e.key==='Enter') runSearch(query); }}
               />
-              <button className="primary sm" disabled={busy || query.trim().length < 2} onClick={runSearch}>Chercher</button>
+              <button className="primary sm" disabled={q.length < 3} onClick={()=>runSearch(query)}>Chercher</button>
             </div>
-            {results && (
+
+            <div className="fd-search-meta">
+              <span className="serif">
+                {q.length < 3 ? 'Trois lettres suffisent — les résultats arrivent à la frappe.'
+                  : searching ? 'Recherche…'
+                  : results ? `${results.length} résultat${results.length>1?'s':''}${via ? ` · ${via}` : ''}`
+                  : searchErr ? '' : ''}
+              </span>
+              <button className={`fd-thumb-toggle ${thumbs?'on':''}`} onClick={()=>setThumbs(v=>!v)}>
+                {thumbs ? 'sans images' : 'avec images'}
+              </button>
+            </div>
+
+            {localMatches.length > 0 && (
               <div className="fd-list">
-                {results.map(f => <FoodPickRow key={f.barcode || f.id} food={f} onPick={()=>pickFromSearch(f)} />)}
+                <p className="fd-list-label">Dans tes aliments</p>
+                {localMatches.map(f => (
+                  <FoodPickRow key={'lib_'+f.id} food={f} showImage={thumbs} onPick={()=>setPicked(f)} />
+                ))}
               </div>
+            )}
+
+            {results && results.length > 0 && (
+              <div className="fd-list">
+                {localMatches.length > 0 && <p className="fd-list-label">Open Food Facts</p>}
+                {results.map(f => (
+                  <FoodPickRow key={f.barcode || f.id} food={f} showImage={thumbs} onPick={()=>pickFromSearch(f)} />
+                ))}
+              </div>
+            )}
+
+            {results && !results.length && !searching && (
+              <p className="fd-note serif">Aucun produit trouvé pour « {q} ».</p>
+            )}
+            {searchErr && <p className="fd-note warn serif">{searchErr}</p>}
+
+            {q.length >= 3 && (
+              <p className="fd-note fd-src-line serif">
+                Vérifier par soi-même :{' '}
+                <a href={offSearchUrl(q)} target="_blank" rel="noopener noreferrer">cette recherche sur Open Food Facts ↗</a>
+              </p>
             )}
           </div>
         )}
@@ -968,7 +1426,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
             </div>
             <div className="fd-list">
               {library.length
-                ? library.map(f => <FoodPickRow key={f.id} food={f} onPick={()=>setPicked(f)} />)
+                ? library.map(f => <FoodPickRow key={f.id} food={f} showImage onPick={()=>setPicked(f)} />)
                 : <p className="fd-note serif">Rien encore. Scanne un produit ou crée un aliment dans l'onglet Aliments.</p>}
             </div>
           </div>
@@ -985,23 +1443,39 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
   );
 }
 
-function FoodPickRow({ food, onPick }){
+// Une ligne de résultat : le nom, puis l'aperçu chiffré pour 100 g — de quoi
+// trancher entre deux produits sans en ouvrir aucun. Les vignettes sont
+// optionnelles : sans elles, la liste s'affiche instantanément.
+function FoodPickRow({ food, onPick, showImage = false }){
   const n = food.nutriments || {};
+  const src = food.source === 'off' ? offProductUrl(food.barcode) : null;
   return (
-    <button className="fd-item" onClick={onPick}>
-      {food.imageUrl
-        ? <img src={food.imageUrl} alt="" loading="lazy" />
-        : <span className="fd-item-ph" aria-hidden="true">{(food.name || '?').slice(0,1).toUpperCase()}</span>}
-      <span className="fd-item-txt">
-        <span className="n">{food.name}</span>
-        <span className="m mono">
-          {food.brand ? food.brand + ' · ' : ''}
-          {n.kcal != null ? `${fmtNum(n.kcal,0)} kcal` : 'valeurs manquantes'}
-          {n.protein != null ? ` · ${fmtMacro(n.protein)}g prot` : ''}
-          {' '}/ 100 {food.basis}
+    <div className="fd-item-row">
+      <button className="fd-item" onClick={onPick}>
+        {showImage && (food.imageUrl
+          ? <img src={food.imageUrl} alt="" loading="lazy" />
+          : <span className="fd-item-ph" aria-hidden="true">{(food.name || '?').slice(0,1).toUpperCase()}</span>)}
+        <span className="fd-item-txt">
+          <span className="n">{food.name}</span>
+          {food.brand && <span className="b">{food.brand}</span>}
+          <span className="m mono">
+            {n.kcal != null
+              ? <>
+                  <b>{fmtNum(n.kcal,0)} kcal</b>
+                  {n.protein != null && <> · P {fmtMacro(n.protein)}</>}
+                  {n.carbs != null && <> · G {fmtMacro(n.carbs)}</>}
+                  {n.fat != null && <> · L {fmtMacro(n.fat)}</>}
+                  {' '}/ 100 {food.basis}
+                </>
+              : 'valeurs nutritionnelles manquantes'}
+          </span>
         </span>
-      </span>
-    </button>
+      </button>
+      {src && (
+        <a className="fd-item-src" href={src} target="_blank" rel="noopener noreferrer"
+           title="Voir la fiche sur Open Food Facts" onClick={e=>e.stopPropagation()}>↗</a>
+      )}
+    </div>
   );
 }
 
@@ -1024,7 +1498,13 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, onCl
     <div className="scrim" onClick={onClose}>
       <div className="modal fd-modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420}}>
         <h2>{title}</h2>
-        <div className="modal-sub">{foodLabel(food)}</div>
+        <div className="modal-sub">
+          {foodLabel(food)}
+          {food.source === 'off' && food.barcode && (
+            <>{' · '}<a className="fd-src-link" href={offProductUrl(food.barcode)}
+                       target="_blank" rel="noopener noreferrer">fiche Open Food Facts ↗</a></>
+          )}
+        </div>
 
         <div className="fd-qty">
           <input
@@ -1129,6 +1609,10 @@ function FoodLibraryView({ store, onEdit, onNew, onScan }){
                 </div>
                 <div className="tk-actions">
                   <button className="tk-edit" onClick={()=>onEdit(f)}>Modifier</button>
+                  {f.source === 'off' && f.barcode && (
+                    <a className="tk-edit fd-src-link" href={offProductUrl(f.barcode)}
+                       target="_blank" rel="noopener noreferrer">Source ↗</a>
+                  )}
                 </div>
               </div>
             );
