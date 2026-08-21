@@ -1153,7 +1153,10 @@ function foodForLog(store, log){
   if (known) return known;
   const per100 = scaleNutriments(log.nutriments, log.grams > 0 ? (100 / log.grams) * 100 : 100);
   return { id:log.foodId || 'orphan', name:log.name, brand:log.brand, basis:log.unit === 'ml' ? 'ml' : 'g',
-           servingG:null, nutriments: log.grams > 0 ? per100 : {}, source:'custom' };
+           // Une portion vaut 100 g en interne (voir ManualEntry) : sans ça,
+           // rouvrir une ligne saisie en portions donnerait une quantité nulle.
+           servingG: log.unit === 'portion' ? 100 : null,
+           nutriments: log.grams > 0 ? per100 : {}, source:'custom' };
 }
 
 function FoodLogRow({ log, onEdit, onDelete }){
@@ -1219,7 +1222,8 @@ function MicroPanel({ totals }){
 
 /* ---- Ajouter un aliment (scanner / recherche / bibliothèque) --------------- */
 function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
-  const [source, setSource] = useState('scan');   // scan | recherche | bibliotheque
+  const [source, setSource] = useState('scan');   // scan | recherche | bibliotheque | manuel
+  const [manualSeed, setManualSeed] = useState(null);   // { name?, barcode? } pré-rempli
   const [picked, setPicked] = useState(null);     // aliment choisi → étape quantité
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
@@ -1244,10 +1248,10 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
     try {
       const found = await offFetchProduct(code);
       if (!found){
-        setMsg(`Code ${code} inconnu d'Open Food Facts. Tu peux créer l'aliment à la main.`);
+        setMsg('');
         setPicked(null);
-        setScanNonce(n => n + 1);
         setBusy(false);
+        openManual({ barcode: code });     // le code est gardé : reconnu au prochain scan
         return;
       }
       if (!foodIsUsable(found)){
@@ -1303,6 +1307,28 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
 
   useEffect(() => () => { try { abortRef.current && abortRef.current.abort(); } catch {} }, []);
 
+  const openManual = useCallback((seed) => {
+    setManualSeed(seed || {});
+    setMsg('');
+    setSource('manuel');
+  }, []);
+
+  // Une saisie manuelle fait une ligne de repas, et — si on le demande — un
+  // aliment de plus dans la bibliothèque, pour ne pas la retaper la fois d'après.
+  const submitManualEntry = async ({ name, qty, unit, grams, meal:m, nutriments, per100, basis, keep, barcode }) => {
+    let foodId = null;
+    if (keep){
+      const saved = await store.saveFood({
+        id: uid('f_'), source:'custom', barcode: barcode || null, name, brand:'',
+        basis, servingG:null, imageUrl:'', nutriments: per100,
+        favorite:false, lastUsedAt:Date.now(), createdAt:Date.now(),
+      });
+      if (saved) foodId = saved.id;
+    }
+    await store.addLog({ day, meal:m, foodId, name, brand:'', qty, unit, grams, nutriments });
+    onClose();
+  };
+
   const pickFromSearch = async (f) => {
     if (!foodIsUsable(f)){ onNeedsFood(f); return; }
     const saved = await store.saveFood(f);
@@ -1356,13 +1382,23 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
           {meal ? MEAL_LABEL[meal] : 'Bibliothèque'} · {dayLabel(dayKeyToTs(day)).toLowerCase()}
         </div>
 
-        <div className="seg" style={{marginBottom:14}}>
+        <div className="seg wrap" style={{marginBottom:14}}>
           <button className={source==='scan'?'on':''} onClick={()=>setSource('scan')}>Scanner</button>
           <button className={source==='recherche'?'on':''} onClick={()=>setSource('recherche')}>Rechercher</button>
           <button className={source==='bibliotheque'?'on':''} onClick={()=>setSource('bibliotheque')}>Mes aliments</button>
+          <button className={source==='manuel'?'on':''} onClick={()=>openManual({ name: query.trim() })}>À la main</button>
         </div>
 
         {source === 'scan' && <FoodScanner key={scanNonce} onCode={handleCode} />}
+
+        {source === 'manuel' && (
+          <ManualEntry
+            seed={manualSeed}
+            initialMeal={meal || defaultMealForNow()}
+            onSubmit={submitManualEntry}
+            onCancel={()=>{ setManualSeed(null); setSource(manualSeed && manualSeed.barcode ? 'scan' : 'recherche'); setScanNonce(n => n + 1); }}
+          />
+        )}
 
         {source === 'recherche' && (
           <div className="fd-search">
@@ -1406,7 +1442,10 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
             )}
 
             {results && !results.length && !searching && (
-              <p className="fd-note serif">Aucun produit trouvé pour « {q} ».</p>
+              <p className="fd-note serif">
+                Aucun produit trouvé pour « {q} ».{' '}
+                <button className="fd-link" onClick={()=>openManual({ name: q })}>Le saisir à la main</button>
+              </p>
             )}
             {searchErr && <p className="fd-note warn serif">{searchErr}</p>}
 
@@ -1435,9 +1474,11 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
         {busy && <p className="fd-note serif">Recherche…</p>}
         {msg && <p className="fd-note warn serif">{msg}</p>}
 
-        <div className="modal-actions">
-          <button className="ghost" onClick={onClose}>Fermer</button>
-        </div>
+        {source !== 'manuel' && (      /* la saisie a ses propres boutons */
+          <div className="modal-actions">
+            <button className="ghost" onClick={onClose}>Fermer</button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1475,6 +1516,162 @@ function FoodPickRow({ food, onPick, showImage = false }){
         <a className="fd-item-src" href={src} target="_blank" rel="noopener noreferrer"
            title="Voir la fiche sur Open Food Facts" onClick={e=>e.stopPropagation()}>↗</a>
       )}
+    </div>
+  );
+}
+
+/* ---- Saisie à la main ------------------------------------------------------
+   Le chemin le plus court entre « j'ai mangé ça » et une ligne dans le journal,
+   quand ni le scan ni la recherche ne servent à rien : un plat maison, un truc
+   au restaurant, une étiquette que la base ne connaît pas.
+
+   Deux façons de donner les chiffres, parce que les deux se présentent :
+   ceux de l'étiquette (pour 100 g) ou ceux du plat entier (pour la quantité).
+   Avec 100 g et « pour 100 g » — les valeurs par défaut — les deux reviennent
+   au même, donc taper quatre nombres et valider suffit.
+
+   Une portion vaut 100 g en interne : ça n'est visible nulle part, et ça suffit
+   à ce que doubler la quantité double les chiffres.                          */
+function ManualEntry({ seed, initialMeal, onSubmit, onCancel }){
+  const [name, setName] = useState(seed?.name || '');
+  const [unit, setUnit] = useState('g');            // g | ml | portion
+  const [qty, setQty] = useState('100');
+  const [per100, setPer100] = useState(true);
+  const [vals, setVals] = useState({});
+  const [meal, setMeal] = useState(initialMeal || defaultMealForNow());
+  // Un code scanné mais inconnu : le garder, c'est ce qui fait qu'au prochain
+  // scan le produit sera reconnu — donc l'enregistrement n'est pas optionnel.
+  const forcedKeep = !!seed?.barcode;
+  const [keep, setKeep] = useState(true);
+
+  const portion = unit === 'portion';
+  const basis = unit === 'ml' ? 'ml' : 'g';
+  const perQty = portion || !per100;                // les chiffres valent pour la quantité saisie
+  const grams = (Number(qty) || 0) * (portion ? 100 : 1);
+  // Une portion n'a pas de poids : impossible d'en tirer une valeur pour 100 g
+  // honnête, donc pas de rangement en bibliothèque.
+  const canKeep = !portion && name.trim().length > 0;
+
+  const entered = useMemo(() => {
+    const out = {};
+    for (const k in vals){
+      const v = parseFloat(String(vals[k]).replace(',', '.'));
+      if (!isNaN(v)) out[k] = v;
+    }
+    return out;
+  }, [vals]);
+
+  const nutriments = perQty ? entered : scaleNutriments(entered, grams);
+  const per100Values = perQty
+    ? (grams > 0 ? scaleNutriments(entered, (100 / grams) * 100) : {})
+    : entered;
+
+  const canSave = grams > 0 && typeof entered.kcal === 'number';
+
+  const submit = () => {
+    if (!canSave) return;
+    onSubmit({
+      name: name.trim() || 'Ajout rapide',
+      qty: Number(qty), unit, grams, meal, nutriments,
+      per100: per100Values,
+      basis,
+      keep: forcedKeep || (keep && canKeep),
+      barcode: seed?.barcode || null,
+    });
+  };
+
+  const numField = (key, label, u) => (
+    <label className="fd-mini-field" key={key}>
+      <span>{label}</span>
+      <input type="number" step="any" min="0" placeholder="—" inputMode="decimal"
+        value={vals[key] ?? ''}
+        onChange={e=>setVals(s => ({ ...s, [key]: e.target.value }))}
+        onKeyDown={e=>{ if (e.key === 'Enter') submit(); }} />
+      <i>{u}</i>
+    </label>
+  );
+
+  return (
+    <div className="fd-manual-entry">
+      {seed?.barcode && (
+        <p className="fd-note serif">
+          Code <span className="mono">{seed.barcode}</span> — inconnu de la base. Renseigné ici, il sera
+          reconnu tout seul au prochain scan.
+        </p>
+      )}
+
+      <div className="field">
+        <label>Nom</label>
+        <input autoFocus value={name} onChange={e=>setName(e.target.value)}
+               placeholder="Poulet rôti, poke bowl, gâteau de mamie…" />
+      </div>
+
+      <div className="field">
+        <label>Quantité</label>
+        <div className="fd-qty-inline">
+          <input type="number" step="any" min="0" inputMode="decimal"
+                 value={qty} onChange={e=>setQty(e.target.value)} />
+          <div className="seg">
+            {['g','ml','portion'].map(u => (
+              <button key={u} className={unit===u?'on':''} onClick={()=>setUnit(u)}>{u}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="field">
+        <label>Valeurs</label>
+        <div className="seg">
+          <button className={!perQty?'on':''} disabled={portion} onClick={()=>setPer100(true)}>
+            pour 100 {basis}
+          </button>
+          <button className={perQty?'on':''} onClick={()=>setPer100(false)}>
+            total mangé
+          </button>
+        </div>
+      </div>
+
+      <div className="fd-mini-grid">
+        {FOOD_MACROS.map(m => numField(m.key, m.short, m.unit))}
+      </div>
+
+      {!perQty && grams > 0 && Math.abs(grams - 100) > 0.01 && (
+        <div className="fd-preview">
+          {FOOD_MACROS.map(m => (
+            <div key={m.key}>
+              <span className="l">{m.short}</span>
+              <span className="v">{m.key==='kcal' ? fmtNum(nutriments.kcal,0) : fmtMacro(nutriments[m.key])}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="field" style={{borderBottom:'none'}}>
+        <label>Repas</label>
+        <div className="seg wrap">
+          {MEALS.map(m => (
+            <button key={m.id} className={meal===m.id?'on':''} onClick={()=>setMeal(m.id)}>{m.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {!forcedKeep && (
+        <label className={`fd-keep ${canKeep?'':'off'}`}>
+          <input type="checkbox" checked={keep && canKeep} disabled={!canKeep}
+                 onChange={e=>setKeep(e.target.checked)} />
+          <span>
+            garder dans mes aliments
+            {portion
+              ? <i> — impossible en portions : le poids pour 100 g est inconnu</i>
+              : !name.trim() ? <i> — donne-lui un nom d'abord</i> : null}
+          </span>
+        </label>
+      )}
+
+      <div className="modal-actions">
+        <button className="ghost" onClick={onCancel}>Annuler</button>
+        <button className="primary" disabled={!canSave} onClick={submit}>Ajouter</button>
+      </div>
     </div>
   );
 }

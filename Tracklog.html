@@ -750,6 +750,20 @@
   .fd-photo input{display:none}
   .fd-scan-alt-note{font-size:12px;color:var(--ink-3)}
 
+  /* Saisie à la main */
+  .fd-manual-entry .field{border-bottom:1px solid var(--line)}
+  .fd-qty-inline{display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap}
+  .fd-qty-inline input{width:84px;font-family:"Geist Mono",monospace;text-align:right}
+  .fd-mini-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0}
+  .fd-mini-field{display:flex;flex-direction:column;gap:5px}
+  .fd-mini-field>span{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3)}
+  .fd-mini-field input{width:100%;font-family:"Geist Mono",monospace;font-size:17px;text-align:center;padding:8px 4px}
+  .fd-mini-field>i{font-size:9px;color:var(--ink-3);text-align:center;font-style:normal;letter-spacing:0.08em}
+  .fd-keep{display:flex;align-items:flex-start;gap:10px;margin:14px 0 2px;font-size:12px;color:var(--ink-2);cursor:pointer}
+  .fd-keep input{accent-color:var(--accent);margin-top:1px}
+  .fd-keep.off{color:var(--ink-3);cursor:default}
+  .fd-keep i{font-style:italic;font-family:"Instrument Serif",serif;color:var(--ink-3)}
+
   /* Quantité */
   .fd-qty{display:flex;align-items:center;gap:12px;margin:6px 0 12px;flex-wrap:wrap}
   .fd-qty input{width:96px;font-size:20px;font-family:"Geist Mono",monospace;text-align:right}
@@ -853,6 +867,7 @@
     .fd-list{max-height:40vh}
     .fd-lib-search{max-width:none;flex:1 1 100%;order:-1}
     .fd-preview{grid-template-columns:repeat(4,1fr);gap:6px}
+    .fd-mini-grid{grid-template-columns:repeat(2,1fr);gap:12px}
     .fd-preview .v{font-size:15px}
     .fd-primary{width:100%;justify-content:center}
   }
@@ -927,7 +942,7 @@
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Bouffe, et le dernier script monte React une fois les deux en place. -->
 <script type="text/babel" src="app.jsx?v=34"></script>
-<script type="text/babel" src="app.food.jsx?v=2"></script>
+<script type="text/babel" src="app.food.jsx?v=3"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>
