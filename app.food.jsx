@@ -411,17 +411,26 @@ const foodIsUsable = (f) => !!f && typeof f.nutriments?.kcal === 'number';
    Open Food Facts référence des produits emballés : très bon
    pour un paquet de biscuits, muet sur un blanc de poulet, une
    pomme de terre ou des framboises — qui n'ont pas d'étiquette.
-   D'où cette table de référence, livrée avec l'app : ~190
-   aliments génériques, crus et cuits, tirés de la table USDA
-   SR28 (domaine public). Elle porte aussi les micronutriments,
-   que les produits emballés n'affichent presque jamais.
+   D'où cette table, livrée avec l'app : la table Ciqual 2025 de
+   l'ANSES, 3 341 aliments français, crus et cuits, avec leurs
+   micronutriments — que les étiquettes n'affichent presque
+   jamais.
 
-   Un fichier statique servi depuis le même domaine : rien à
-   demander au réseau de personne, et ça marche hors ligne une
-   fois chargé.
+   Le fichier est colonnaire (une liste de clés, un tableau de
+   valeurs par aliment) : répéter « protein » 3 341 fois coûtait
+   300 Ko pour rien. Il est servi depuis le même domaine que
+   l'app, donc sans dépendre du réseau de personne, et il tient
+   en cache une fois chargé.
    ============================================================ */
 const REF_URL = 'foods-ref.json';
-const REF_SEARCH_URL = 'https://fdc.nal.usda.gov/food-search?query=';
+const CIQUAL_FOOD_URL = 'https://ciqual.anses.fr/#/aliments/';
+
+const deburr = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+// Ciqual nomme ses aliments au singulier — « Lentille, cuite » — alors qu'on
+// cherche « lentilles ». Les deux côtés perdent donc leur pluriel avant
+// comparaison, sinon la moitié des recherches passent à côté de l'essentiel
+// et ne ramènent que des plats préparés.
+const stem = (s) => deburr(s).replace(/([a-z])[sx](?![a-z])/g, '$1');
 
 let refCache = null, refLoader = null;
 function loadRefFoods(){
@@ -429,54 +438,77 @@ function loadRefFoods(){
   if (refLoader) return refLoader;
   refLoader = fetch(REF_URL)
     .then(r => r.ok ? r.json() : Promise.reject(new Error(`table des aliments : ${r.status}`)))
-    .then(doc => { refCache = (doc.foods || []).map(refToFood); return refCache; })
+    .then(doc => { refCache = expandRefTable(doc); return refCache; })
     .catch(e => { refLoader = null; throw e; });
   return refLoader;
 }
 
-// Une ligne de la table → un aliment, de la même forme que les autres.
-// Le code USDA passe par `barcode` : c'est l'identifiant externe du produit,
-// et l'index (user_id, barcode) évite d'en ranger deux fois le même.
-function refToFood(r){
-  return {
-    id: r.id, source:'ref', barcode: 'usda:' + String(r.id).replace(/^ref_/, ''),
-    name: r.name, brand:'', basis: r.basis === 'ml' ? 'ml' : 'g',
-    servingG: r.servingG || null, imageUrl:'',
-    nutriments: r.nutriments || {}, usda: r.usda, group: r.groupLabel || '',
-    favorite:false, lastUsedAt:null, createdAt: Date.now(),
-  };
+// Le fichier colonnaire → des aliments de la même forme que les autres.
+// `hay` est calculé ici une fois pour toutes : la recherche tape dessus à
+// chaque lettre, sur 3 341 lignes, et ne peut pas se permettre de
+// re-normaliser les accents à chaque fois.
+function expandRefTable(doc){
+  const keys = doc.keys || [];
+  const groups = doc.groups || [];
+  return (doc.foods || []).map(row => {
+    const [code, name, groupIdx, basis, sub, vals] = row;
+    const nutriments = {};
+    for (let i = 0; i < keys.length; i++){
+      if (vals[i] != null) nutriments[keys[i]] = vals[i];
+    }
+    const group = groups[groupIdx] || '';
+    return {
+      id: 'ref_' + code, source:'ref', barcode: 'ciqual:' + code,
+      name, brand:'', basis: basis === 'ml' ? 'ml' : 'g', servingG:null, imageUrl:'',
+      nutriments, ciqual: code, group, sub: sub || '',
+      hay: stem(name + ' ' + (sub || '') + ' ' + group),
+      nameHay: stem(name),
+      nameRaw: deburr(name),
+      favorite:false, lastUsedAt:null, createdAt: Date.now(),
+    };
+  });
 }
 
-const deburr = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-
-// Recherche locale, instantanée, insensible aux accents. Le libellé USDA fait
-// partie de la botte de foin : « chicken » trouve le poulet.
-function searchRefFoods(list, query, limit = 10){
-  const words = deburr(query).split(/\s+/).filter(Boolean);
+// Recherche locale, instantanée, insensible aux accents.
+function searchRefFoods(list, query, limit = 12){
+  const words = stem(query).split(/\s+/).filter(Boolean);
+  // Sans pluriel ni accent, « pâtes » et « pâté » deviennent le même mot. Le
+  // filtre reste large (c'est lui qui trouve « Lentille » depuis « lentilles »),
+  // mais le mot tel qu'il a été tapé rapporte un bonus au classement : les
+  // vraies pâtes repassent devant le pâté breton.
+  const rawWords = deburr(query).split(/\s+/).filter(Boolean);
   if (!words.length || !list) return [];
   const scored = [];
   for (const f of list){
-    const name = deburr(f.name), full = name + ' ' + deburr(f.usda) + ' ' + deburr(f.group);
-    if (!words.every(w => full.includes(w))) continue;
-    // Un mot dans le nom vaut mieux qu'un mot dans le libellé anglais, et un
-    // nom qui commence par la recherche vaut mieux qu'un nom qui la contient.
+    if (!words.every(w => f.hay.includes(w))) continue;
+    // Trois niveaux, du plus au moins parlant : l'aliment *est* ce qu'on cherche
+    // (« Banane, chair sans peau, crue » — le nom, puis une virgule, puis la
+    // préparation), le nom commence par le mot (« Banane plantain »), le mot est
+    // quelque part. À score égal, le nom le plus court gagne : « Framboise,
+    // crue » avant « Framboise, surgelée, non cuite, avec sucre ajouté ».
+    const name = f.nameHay;
     let score = 0;
     for (const w of words){
-      if (name.startsWith(w)) score += 3;
+      if (name === w || name.startsWith(w + ',')) score += 5;
+      else if (name.startsWith(w)) score += 3;
       else if (name.includes(w)) score += 2;
     }
-    scored.push({ f, score: score * 100 - f.name.length });
+    for (const w of rawWords){
+      if (f.nameRaw.includes(w)) score += 2;
+    }
+    scored.push({ f, score: score * 200 - f.name.length });
   }
   return scored.sort((a, b) => b.score - a.score).slice(0, limit).map(x => x.f);
 }
 
 // D'où vient la fiche : produit Open Food Facts, ou aliment de la table.
-function foodSourceUrl(food, refById){
+function foodSourceUrl(food, refByBarcode){
   if (!food) return null;
   if (food.source === 'off' && food.barcode) return offProductUrl(food.barcode);
-  const usda = food.usda || (refById && food.barcode && refById[food.barcode]?.usda);
-  if (usda) return REF_SEARCH_URL + encodeURIComponent(usda);
-  return null;
+  const code = food.ciqual
+    || (String(food.barcode || '').startsWith('ciqual:') ? food.barcode.slice(7) : null)
+    || (refByBarcode && refByBarcode[food.barcode] && refByBarcode[food.barcode].ciqual);
+  return code ? CIQUAL_FOOD_URL + encodeURIComponent(code) : null;
 }
 
 /* ============================================================
@@ -1096,12 +1128,14 @@ function FoodSources(){
       </p>
       <p className="serif">
         Les aliments simples — ceux qui n'ont pas d'étiquette : un blanc de poulet, une pomme de terre,
-        des framboises — viennent d'une table de référence livrée avec l'app, tirée de la base publique
-        de l'USDA (SR28, domaine public). Ce sont des moyennes génériques, pas un produit précis, mais
-        elles portent les micronutriments que les étiquettes n'affichent presque jamais.
+        des framboises — viennent de la <b>table Ciqual 2025</b> de l'ANSES, livrée avec l'app et
+        consultable hors ligne : 3 341 aliments français, crus et cuits, avec leurs micronutriments,
+        sous Licence Ouverte. Ce sont des moyennes de référence, pas un produit précis : le poulet que
+        tu as acheté n'est pas exactement celui-là, mais l'ordre de grandeur est juste, et chaque valeur
+        reste corrigeable.
       </p>
       <div className="fd-source-links mono">
-        <a href="https://fdc.nal.usda.gov/" target="_blank" rel="noopener noreferrer">table usda ↗</a>
+        <a href="https://ciqual.anses.fr/" target="_blank" rel="noopener noreferrer">table ciqual ↗</a>
         <a href={OFF_FR} target="_blank" rel="noopener noreferrer">fr.openfoodfacts.org ↗</a>
         <a href={OFF_SEARCH} target="_blank" rel="noopener noreferrer">moteur de recherche ↗</a>
         <a href="https://openfoodfacts.github.io/openfoodfacts-server/api/" target="_blank" rel="noopener noreferrer">l'API utilisée ↗</a>
@@ -1610,7 +1644,9 @@ function FoodPickRow({ food, onPick, showImage = false }){
           : <span className="fd-item-ph" aria-hidden="true">{(food.name || '?').slice(0,1).toUpperCase()}</span>)}
         <span className="fd-item-txt">
           <span className="n">{food.name}</span>
-          {(food.brand || food.group) && <span className="b">{food.brand || food.group}</span>}
+          {(food.brand || food.sub || food.group) && (
+            <span className="b">{food.brand || food.sub || food.group}</span>
+          )}
           <span className="m mono">
             {n.kcal != null
               ? <>
@@ -1626,7 +1662,7 @@ function FoodPickRow({ food, onPick, showImage = false }){
       </button>
       {src && (
         <a className="fd-item-src" href={src} target="_blank" rel="noopener noreferrer"
-           title={food.source === 'ref' ? `Table USDA — ${food.usda}` : 'Voir la fiche sur Open Food Facts'}
+           title={food.source === 'ref' ? `Table Ciqual — ${food.sub || food.group}` : 'Voir la fiche sur Open Food Facts'}
            onClick={e=>e.stopPropagation()}>↗</a>
       )}
     </div>
@@ -1812,7 +1848,7 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, onCl
           {foodLabel(food)}
           {foodSourceUrl(food) && (
             <>{' · '}<a className="fd-src-link" href={foodSourceUrl(food)} target="_blank" rel="noopener noreferrer">
-              {food.source === 'ref' ? 'table USDA ↗' : 'fiche Open Food Facts ↗'}
+              {food.source === 'ref' ? 'fiche Ciqual ↗' : 'fiche Open Food Facts ↗'}
             </a></>
           )}
         </div>
