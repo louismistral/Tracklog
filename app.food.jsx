@@ -406,6 +406,80 @@ function offToFood(p, fallbackCode){
 const foodIsUsable = (f) => !!f && typeof f.nutriments?.kcal === 'number';
 
 /* ============================================================
+   La table des aliments simples
+   ------------------------------------------------------------
+   Open Food Facts référence des produits emballés : très bon
+   pour un paquet de biscuits, muet sur un blanc de poulet, une
+   pomme de terre ou des framboises — qui n'ont pas d'étiquette.
+   D'où cette table de référence, livrée avec l'app : ~190
+   aliments génériques, crus et cuits, tirés de la table USDA
+   SR28 (domaine public). Elle porte aussi les micronutriments,
+   que les produits emballés n'affichent presque jamais.
+
+   Un fichier statique servi depuis le même domaine : rien à
+   demander au réseau de personne, et ça marche hors ligne une
+   fois chargé.
+   ============================================================ */
+const REF_URL = 'foods-ref.json';
+const REF_SEARCH_URL = 'https://fdc.nal.usda.gov/food-search?query=';
+
+let refCache = null, refLoader = null;
+function loadRefFoods(){
+  if (refCache) return Promise.resolve(refCache);
+  if (refLoader) return refLoader;
+  refLoader = fetch(REF_URL)
+    .then(r => r.ok ? r.json() : Promise.reject(new Error(`table des aliments : ${r.status}`)))
+    .then(doc => { refCache = (doc.foods || []).map(refToFood); return refCache; })
+    .catch(e => { refLoader = null; throw e; });
+  return refLoader;
+}
+
+// Une ligne de la table → un aliment, de la même forme que les autres.
+// Le code USDA passe par `barcode` : c'est l'identifiant externe du produit,
+// et l'index (user_id, barcode) évite d'en ranger deux fois le même.
+function refToFood(r){
+  return {
+    id: r.id, source:'ref', barcode: 'usda:' + String(r.id).replace(/^ref_/, ''),
+    name: r.name, brand:'', basis: r.basis === 'ml' ? 'ml' : 'g',
+    servingG: r.servingG || null, imageUrl:'',
+    nutriments: r.nutriments || {}, usda: r.usda, group: r.groupLabel || '',
+    favorite:false, lastUsedAt:null, createdAt: Date.now(),
+  };
+}
+
+const deburr = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+// Recherche locale, instantanée, insensible aux accents. Le libellé USDA fait
+// partie de la botte de foin : « chicken » trouve le poulet.
+function searchRefFoods(list, query, limit = 10){
+  const words = deburr(query).split(/\s+/).filter(Boolean);
+  if (!words.length || !list) return [];
+  const scored = [];
+  for (const f of list){
+    const name = deburr(f.name), full = name + ' ' + deburr(f.usda) + ' ' + deburr(f.group);
+    if (!words.every(w => full.includes(w))) continue;
+    // Un mot dans le nom vaut mieux qu'un mot dans le libellé anglais, et un
+    // nom qui commence par la recherche vaut mieux qu'un nom qui la contient.
+    let score = 0;
+    for (const w of words){
+      if (name.startsWith(w)) score += 3;
+      else if (name.includes(w)) score += 2;
+    }
+    scored.push({ f, score: score * 100 - f.name.length });
+  }
+  return scored.sort((a, b) => b.score - a.score).slice(0, limit).map(x => x.f);
+}
+
+// D'où vient la fiche : produit Open Food Facts, ou aliment de la table.
+function foodSourceUrl(food, refById){
+  if (!food) return null;
+  if (food.source === 'off' && food.barcode) return offProductUrl(food.barcode);
+  const usda = food.usda || (refById && food.barcode && refById[food.barcode]?.usda);
+  if (usda) return REF_SEARCH_URL + encodeURIComponent(usda);
+  return null;
+}
+
+/* ============================================================
    Le décodeur de codes-barres
    ------------------------------------------------------------
    Ouvrir la caméra est facile ; décoder ne l'est pas. Ce qui
@@ -833,6 +907,16 @@ function useFoodStore(userId){
   const [logs, setLogs] = useState([]);
   const [goals, setGoals] = useState(null);   // null tant que rien n'est réglé
   const [ready, setReady] = useState(false);
+  // La table des aliments simples : un fichier statique, chargé une fois, jamais
+  // bloquant — si elle manque, tout le reste marche pareil.
+  const [refFoods, setRefFoods] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    loadRefFoods().then(list => { if (!cancelled) setRefFoods(list); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  const refByBarcode = useMemo(
+    () => Object.fromEntries((refFoods || []).map(f => [f.barcode, f])), [refFoods]);
 
   useEffect(() => {
     let cancelled = false;
@@ -913,6 +997,7 @@ function useFoodStore(userId){
   const totalsForDay = useCallback((dk) => sumNutriments((logsByDay[dk] || []).map(l => l.nutriments)), [logsByDay]);
 
   return { ready, foods, logs, logsByDay, goals, effectiveGoals: goals || DEFAULT_GOALS, goalsSet: !!goals,
+           refFoods, refByBarcode,
            saveFood, updateFood, removeFood, addLog, updateLog, removeLog, saveGoals, totalsForDay };
 }
 
@@ -1009,7 +1094,14 @@ function FoodSources(){
         d'origine, et le bouton Modifier permet de corriger les valeurs dans ta bibliothèque sans toucher à la
         fiche publique.
       </p>
+      <p className="serif">
+        Les aliments simples — ceux qui n'ont pas d'étiquette : un blanc de poulet, une pomme de terre,
+        des framboises — viennent d'une table de référence livrée avec l'app, tirée de la base publique
+        de l'USDA (SR28, domaine public). Ce sont des moyennes génériques, pas un produit précis, mais
+        elles portent les micronutriments que les étiquettes n'affichent presque jamais.
+      </p>
       <div className="fd-source-links mono">
+        <a href="https://fdc.nal.usda.gov/" target="_blank" rel="noopener noreferrer">table usda ↗</a>
         <a href={OFF_FR} target="_blank" rel="noopener noreferrer">fr.openfoodfacts.org ↗</a>
         <a href={OFF_SEARCH} target="_blank" rel="noopener noreferrer">moteur de recherche ↗</a>
         <a href="https://openfoodfacts.github.io/openfoodfacts-server/api/" target="_blank" rel="noopener noreferrer">l'API utilisée ↗</a>
@@ -1335,6 +1427,17 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
     setPicked(saved || f);
   };
 
+  // Un aliment de la table rejoint la bibliothèque à la première utilisation :
+  // ensuite il sort en tête, instantanément, même hors ligne. L'identifiant est
+  // refait au passage — celui de la table est le même pour tout le monde.
+  const pickFromRef = async (f) => {
+    const saved = await store.saveFood({ ...f, id: uid('f_'), lastUsedAt: Date.now() });
+    setPicked(saved || f);
+  };
+
+  const refMatches = useMemo(
+    () => searchRefFoods(store.refFoods, query.trim(), 10), [store.refFoods, query]);
+
   // Ce qui est déjà dans la bibliothèque remonte en premier : c'est instantané,
   // c'est déjà validé, et c'est presque toujours ce qu'on cherche.
   const localMatches = useMemo(() => {
@@ -1432,16 +1535,25 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
               </div>
             )}
 
+            {refMatches.length > 0 && (
+              <div className="fd-list">
+                <p className="fd-list-label">Aliments simples</p>
+                {refMatches.map(f => (
+                  <FoodPickRow key={f.id} food={f} showImage={false} onPick={()=>pickFromRef(f)} />
+                ))}
+              </div>
+            )}
+
             {results && results.length > 0 && (
               <div className="fd-list">
-                {localMatches.length > 0 && <p className="fd-list-label">Open Food Facts</p>}
+                {(localMatches.length > 0 || refMatches.length > 0) && <p className="fd-list-label">Produits emballés — Open Food Facts</p>}
                 {results.map(f => (
                   <FoodPickRow key={f.barcode || f.id} food={f} showImage={thumbs} onPick={()=>pickFromSearch(f)} />
                 ))}
               </div>
             )}
 
-            {results && !results.length && !searching && (
+            {results && !results.length && !searching && !refMatches.length && (
               <p className="fd-note serif">
                 Aucun produit trouvé pour « {q} ».{' '}
                 <button className="fd-link" onClick={()=>openManual({ name: q })}>Le saisir à la main</button>
@@ -1489,7 +1601,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
 // optionnelles : sans elles, la liste s'affiche instantanément.
 function FoodPickRow({ food, onPick, showImage = false }){
   const n = food.nutriments || {};
-  const src = food.source === 'off' ? offProductUrl(food.barcode) : null;
+  const src = foodSourceUrl(food);
   return (
     <div className="fd-item-row">
       <button className="fd-item" onClick={onPick}>
@@ -1498,7 +1610,7 @@ function FoodPickRow({ food, onPick, showImage = false }){
           : <span className="fd-item-ph" aria-hidden="true">{(food.name || '?').slice(0,1).toUpperCase()}</span>)}
         <span className="fd-item-txt">
           <span className="n">{food.name}</span>
-          {food.brand && <span className="b">{food.brand}</span>}
+          {(food.brand || food.group) && <span className="b">{food.brand || food.group}</span>}
           <span className="m mono">
             {n.kcal != null
               ? <>
@@ -1514,7 +1626,8 @@ function FoodPickRow({ food, onPick, showImage = false }){
       </button>
       {src && (
         <a className="fd-item-src" href={src} target="_blank" rel="noopener noreferrer"
-           title="Voir la fiche sur Open Food Facts" onClick={e=>e.stopPropagation()}>↗</a>
+           title={food.source === 'ref' ? `Table USDA — ${food.usda}` : 'Voir la fiche sur Open Food Facts'}
+           onClick={e=>e.stopPropagation()}>↗</a>
       )}
     </div>
   );
@@ -1697,9 +1810,10 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, onCl
         <h2>{title}</h2>
         <div className="modal-sub">
           {foodLabel(food)}
-          {food.source === 'off' && food.barcode && (
-            <>{' · '}<a className="fd-src-link" href={offProductUrl(food.barcode)}
-                       target="_blank" rel="noopener noreferrer">fiche Open Food Facts ↗</a></>
+          {foodSourceUrl(food) && (
+            <>{' · '}<a className="fd-src-link" href={foodSourceUrl(food)} target="_blank" rel="noopener noreferrer">
+              {food.source === 'ref' ? 'table USDA ↗' : 'fiche Open Food Facts ↗'}
+            </a></>
           )}
         </div>
 
@@ -1755,6 +1869,8 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, onCl
 }
 
 /* ---- Aliments (la bibliothèque) ------------------------------------------- */
+const SOURCE_LABEL = { off:'scanné', ref:'référence', custom:'perso' };
+
 function FoodLibraryView({ store, onEdit, onNew, onScan }){
   const [q, setQ] = useState('');
   const list = useMemo(() => {
@@ -1781,7 +1897,8 @@ function FoodLibraryView({ store, onEdit, onNew, onScan }){
       {!list.length ? (
         <div className="empty">
           <span className="em-serif">Aucun aliment.</span>
-          Scannez une étiquette : le produit est enregistré ici, et reste disponible même hors ligne.
+          Scannez une étiquette, ou cherchez un aliment simple — poulet, riz, framboise : tout ce que
+          vous utilisez atterrit ici, et y reste disponible même hors ligne.
         </div>
       ) : (
         <div className="trackers-grid">
@@ -1793,8 +1910,8 @@ function FoodLibraryView({ store, onEdit, onNew, onScan }){
                   <div className="tk-name">{f.name}</div>
                   <div className="tk-meta">
                     {f.brand && <span className="tk-chip">{f.brand}</span>}
-                    <span className="tk-type">{f.source === 'off' ? 'scanné' : 'perso'}</span>
-                    {f.barcode && <span className="tk-count mono">{f.barcode}</span>}
+                    <span className="tk-type">{SOURCE_LABEL[f.source] || 'perso'}</span>
+                    {f.source === 'off' && f.barcode && <span className="tk-count mono">{f.barcode}</span>}
                   </div>
                   <div className="fd-food-nums mono">
                     {n.kcal != null ? `${fmtNum(n.kcal,0)} kcal` : 'sans valeurs'}
@@ -1806,8 +1923,8 @@ function FoodLibraryView({ store, onEdit, onNew, onScan }){
                 </div>
                 <div className="tk-actions">
                   <button className="tk-edit" onClick={()=>onEdit(f)}>Modifier</button>
-                  {f.source === 'off' && f.barcode && (
-                    <a className="tk-edit fd-src-link" href={offProductUrl(f.barcode)}
+                  {foodSourceUrl(f, store.refByBarcode) && (
+                    <a className="tk-edit fd-src-link" href={foodSourceUrl(f, store.refByBarcode)}
                        target="_blank" rel="noopener noreferrer">Source ↗</a>
                   )}
                 </div>
