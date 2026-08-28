@@ -549,6 +549,14 @@ function App({ session }){
   const [editTracker, setEditTracker] = useState(null);
   const [editEntry, setEditEntry] = useState(null);
   const [pwOpen, setPwOpen] = useState(false);
+  // Jumping to a day from a chart's floating tooltip: bump the token on every
+  // request so HistoryView re-syncs even when the target day hasn't changed.
+  const [historyJump, setHistoryJump] = useState(null); // { ts, token }
+  const openDayInHistory = (ts) => {
+    setHistoryJump(j => ({ ts, token: (j?.token || 0) + 1 }));
+    setLogSub('historique');
+    setTab('log');
+  };
 
   useEffect(() => {
     (async () => {
@@ -800,6 +808,7 @@ function App({ session }){
           onSaveChrono={saveChronoAsEntry}
           onUpdateChrono={updateChrono}
           foodSummary={filterActive ? null : <FoodDaySummary store={food} onOpen={()=>setTab('bouffe')} />}
+          historyJump={historyJump}
         />
       ) : tab === 'bouffe' ? (
         <FoodPage store={food} sub={foodSub} onSub={setFoodSub} />
@@ -822,6 +831,7 @@ function App({ session }){
           filterIds={filterIds}
           onReorder={manualSort ? reorderTrackers : null}
           onEdit={(t)=>setEditTracker(t)}
+          onOpenDay={openDayInHistory}
         />
       ) : (
         <SettingsView
@@ -1687,7 +1697,7 @@ function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
    ============================================================ */
 function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder,
                   chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono, onUpdateChrono, onResetAllChronos, chronoExclusive, onSetChronoExclusive,
-                  foodSummary }){
+                  foodSummary, historyJump }){
   const hint = logSub === 'jour' ? "les entrées d’aujourd’hui"
              : logSub === 'historique' ? "ouvrez n’importe quel jour pour l’éditer"
              : "chronométrez vos sessions, puis enregistrez-les";
@@ -1730,6 +1740,7 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
           onDeleteEntry={onDeleteEntry}
           onEditEntry={onEditEntry}
           onReorder={onReorder}
+          jumpTo={historyJump}
         />
       )}
     </div>
@@ -1739,9 +1750,17 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
 /* ============================================================
    History — a month calendar to open any day and edit its entries
    ============================================================ */
-function HistoryView({ trackers, masters = [], trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder }){
+function HistoryView({ trackers, masters = [], trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder, jumpTo }){
   const [monthTs, setMonthTs] = useState(() => startOfMonth(Date.now()));
   const [selectedDay, setSelectedDay] = useState(() => startOfDay(Date.now()));
+
+  // A chart's floating tooltip can ask to jump straight to one day here —
+  // re-sync on every request (the token), even to a day already selected.
+  useEffect(() => {
+    if (!jumpTo) return;
+    setSelectedDay(startOfDay(jumpTo.ts));
+    setMonthTs(startOfMonth(jumpTo.ts));
+  }, [jumpTo]);
 
   // Respect the tracker filter rail: narrow everything to the selected set.
   const filterSet = useMemo(() => filterIds ? new Set(filterIds) : null, [filterIds]);
@@ -1985,7 +2004,7 @@ function TrackersView({ trackers, entries, filterIds, onAdd, onEdit, onArchive, 
 /* ============================================================
    Vues view (charts / heatmap / grid)
    ============================================================ */
-function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit }){
+function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit, onOpenDay }){
   const [mode, setMode] = useState('chart'); // chart | calendar | summary
   const [rangeMode, setRangeMode] = useState('30'); // '7'|'30'|'90'|'365'|'ytd'|'all'|'custom'
   const [customStart, setCustomStart] = useState('');
@@ -2085,7 +2104,7 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
             const dragProps = { containerRef: cardsDrag.setNodeRef(t.id), dragging: cardsDrag.dragId===t.id, onDragStart: cardsDrag.startDrag(t.id) };
             return isMaster(t)
               ? <MasterTrackerCard key={t.id} master={t} trackerById={trackerById} entries={entries} rangeDays={range} {...dragProps} />
-              : <ChartCard key={t.id} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} {...dragProps} />;
+              : <ChartCard key={t.id} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} onOpenDay={onOpenDay} {...dragProps} />;
           })}
 
           {effectiveLayout === 'grid' && (
@@ -2096,7 +2115,7 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
                 const dragProps = { containerRef: cardsDrag.setNodeRef(t.id), dragging: cardsDrag.dragId===t.id, onDragStart: cardsDrag.startDrag(t.id) };
                 return isMaster(t)
                   ? <MasterTrackerCard key={t.id} compact master={t} trackerById={trackerById} entries={entries} rangeDays={range} {...dragProps} />
-                  : <ChartCard key={t.id} compact tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} {...dragProps} />;
+                  : <ChartCard key={t.id} compact tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} onOpenDay={onOpenDay} {...dragProps} />;
               })}
             </div>
           )}
@@ -2130,7 +2149,7 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
 /* ============================================================
    Chart card — line chart with axes
    ============================================================ */
-function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef, dragging, onDragStart, onEdit }){
+function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef, dragging, onDragStart, onEdit, onOpenDay }){
   const now = Date.now();
   const start = now - rangeDays*86400000;
   const isCumulative = !!tracker.cumulative && (tracker.type === 'number' || tracker.type === 'duration');
@@ -2260,6 +2279,28 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
 
   const yTicks = domain.ticks;
 
+  // Scrub the chart with a mouse or a finger: `active` is the hovered/touched
+  // day index, kept until the pointer leaves (mouse) or the close button is
+  // tapped (touch — there's no "leave" to rely on there).
+  const svgRef = useRef(null);
+  const [active, setActive] = useState(null);
+  const pointToIndex = (clientX) => {
+    const el = svgRef.current;
+    if (!el || !points.length) return null;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width) return null;
+    const relX = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const xVB = relX * W;
+    const idx = Math.round(((xVB - PAD_L) / innerW) * (points.length - 1));
+    return Math.min(points.length - 1, Math.max(0, idx));
+  };
+  const handleMouseMove = (e) => { const i = pointToIndex(e.clientX); if (i != null) setActive(i); };
+  const handleTouch = (e) => {
+    const t = e.touches[0]; if (!t) return;
+    const i = pointToIndex(t.clientX); if (i != null) setActive(i);
+  };
+  const activePoint = active != null ? points[active] : null;
+
   return (
     <div ref={containerRef} className={`chart-card ${compact?'compact':''} ${dragging?'dragging':''}`}>
       <div className="chart-head">
@@ -2296,7 +2337,13 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
         </div>
       </div>
       {hasData ? (
-        <svg className="chart-svg" style={{height: H + 'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+        <div className="chart-svg-wrap" style={{position:'relative', touchAction:'pan-y'}}>
+        <svg ref={svgRef} className="chart-svg" style={{height: H + 'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+          onMouseMove={handleMouseMove}
+          onMouseLeave={()=>setActive(null)}
+          onTouchStart={handleTouch}
+          onTouchMove={handleTouch}
+        >
           {/* Y grid */}
           {yTicks.map((v,i)=>(
             <g key={i}>
@@ -2337,9 +2384,57 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
           {xTicks.map((t,i)=>(
             <text key={i} className="chart-axis" x={xAt(t.i)} y={H-6} textAnchor={i===0?'start':i===xTicks.length-1?'end':'middle'}>{t.label}</text>
           ))}
+          {/* Scrub cursor — the day currently hovered/touched */}
+          {active != null && (
+            <g>
+              <line x1={xAt(active)} x2={xAt(active)} y1={PAD_T} y2={PAD_T+innerH} stroke={tracker.color} strokeWidth="1" strokeDasharray="2 3" opacity="0.6" />
+              {activePoint?.value != null && <circle cx={xAt(active)} cy={yAt(activePoint.value)} r="3.5" fill={tracker.color} stroke="var(--bg)" strokeWidth="1.5" />}
+            </g>
+          )}
         </svg>
+        {activePoint && (
+          <ChartTooltip
+            xPct={(xAt(active) / W) * 100}
+            date={dayLabel(activePoint.ts)}
+            value={activePoint.value != null ? fmtValue(tracker, +activePoint.value.toFixed(1)) + (fmtUnit(tracker) ? ' ' + fmtUnit(tracker) : '') : 'aucune donnée'}
+            onEdit={onOpenDay ? ()=>onOpenDay(activePoint.ts) : null}
+            onClose={()=>setActive(null)}
+          />
+        )}
+        </div>
       ) : (
         <div style={{padding:'30px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucune donnée sur la période</div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   ChartTooltip — floating readout for a scrubbed day, with a round
+   "open in history" button and a round close button. Positioned by
+   percentage along the chart's width so it tracks the SVG's own
+   responsive scaling without measuring pixels on every render.
+   ============================================================ */
+function ChartTooltip({ xPct, date, value, onEdit, onClose }){
+  const side = xPct > 60 ? 'right' : xPct < 40 ? 'left' : 'center';
+  return (
+    <div
+      className={`chart-tooltip ${side}`}
+      style={{ left: `${xPct}%` }}
+      onMouseDown={(e)=>e.stopPropagation()}
+      onTouchStart={(e)=>e.stopPropagation()}
+    >
+      <button className="chart-tooltip-close" onClick={onClose} aria-label="Fermer" title="Fermer">
+        <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M1 1L8 8M8 1L1 8"/></svg>
+      </button>
+      <div className="chart-tooltip-date">{date}</div>
+      <div className="chart-tooltip-value">{value}</div>
+      {onEdit && (
+        <button className="chart-tooltip-edit" onClick={onEdit} aria-label="Éditer ce jour dans l'historique" title="Éditer ce jour dans l'historique">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 2l3 3-8 8-3.5.5.5-3.5 8-8z"/>
+          </svg>
+        </button>
       )}
     </div>
   );

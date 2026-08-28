@@ -299,7 +299,30 @@
     transition:color .3s,border-color .3s,background .3s}
   .chart-edit-btn:hover{color:var(--ink-2);border-color:var(--ink-2);background:var(--accent-soft)}
   .chart-svg{width:100%;height:160px;display:block}
+  .chart-svg-wrap{width:100%}
   .chart-axis{font-family:"Geist Mono",monospace;font-size:10px;fill:var(--ink-3)}
+
+  /* Floating tooltip that pops up while scrubbing a chart with mouse or touch */
+  .chart-tooltip{position:absolute;top:8px;transform:translateX(-50%);z-index:5;
+    background:var(--bg-3);border:1px solid var(--line-2);border-radius:var(--radius);
+    padding:9px 30px 9px 12px;min-width:120px;box-shadow:0 8px 24px rgba(0,0,0,.35);
+    pointer-events:auto;animation:tooltip-in .15s var(--ease)}
+  .chart-tooltip.left{transform:translateX(0);animation:none}
+  .chart-tooltip.right{transform:translateX(-100%);animation:none}
+  @keyframes tooltip-in{from{opacity:0;transform:translateX(-50%) translateY(-3px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+  .chart-tooltip-date{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin-bottom:3px}
+  .chart-tooltip-value{font-family:"Geist Mono",monospace;font-size:14px;font-feature-settings:"tnum";color:var(--ink)}
+  .chart-tooltip-close,.chart-tooltip-edit{position:absolute;cursor:pointer;width:20px;height:20px;padding:0;border-radius:50%;
+    display:inline-flex;align-items:center;justify-content:center;color:var(--ink-3);border:1px solid var(--line-2);background:var(--bg-2);
+    transition:color .2s,border-color .2s,background .2s}
+  .chart-tooltip-close{top:-8px;right:-8px}
+  .chart-tooltip-edit{bottom:-8px;right:-8px;color:var(--accent)}
+  .chart-tooltip-close:hover{color:var(--ink);border-color:var(--ink-2)}
+  .chart-tooltip-edit:hover{background:var(--accent-soft);border-color:var(--accent)}
+  @media (max-width:640px){
+    .chart-tooltip{padding:10px 32px 10px 14px;min-width:130px}
+    .chart-tooltip-close,.chart-tooltip-edit{width:24px;height:24px}
+  }
   .chart-grid{stroke:var(--line);stroke-dasharray:2 4}
 
   /* Calendar heatmap */
