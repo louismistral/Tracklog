@@ -21,6 +21,15 @@ const { useState, useEffect, useMemo, useRef, useCallback, useContext } = React;
        courbe qui ne peut que monter. Nombre/durée uniquement, désactivé par
        défaut.
 
+     curveStyle: 'line' (polyligne, défaut) | 'smooth' (courbe lissée) — la
+       forme du tracé, purement visuelle : les points restent les mêmes.
+     chartGrain: 'day' (défaut) | 'week' | 'month' — un point du graphe couvre
+       un jour, une semaine (lundi→dimanche) ou un mois. Les jours d'une même
+       période sont ramenés à leur MOYENNE, pour que l'échelle reste
+       comparable d'une granularité à l'autre (exception : un tracker
+       cumulatif prend la valeur de fin de période, son total courant).
+       Les deux réglages sont indépendants et s'appliquent aussi aux masters.
+
      type: 'number' | 'scale' | 'boolean' | 'duration' | 'text' | 'choice' | 'master'
      choices: string[] — options prédéfinies (type 'choice' uniquement)
      multiple: true = plusieurs choix possibles par entrée ; false = un seul.
@@ -67,6 +76,18 @@ const AGGREGATES = [
   { id:'max', label:'Maximum' },
 ];
 
+// How a chart draws its line, and how wide one plotted point is. Two
+// independent per-tracker display settings — neither changes the stored data.
+const CURVE_STYLES = [
+  { id:'line',   label:'Polyligne' },
+  { id:'smooth', label:'Lissée' },
+];
+const GRAINS = [
+  { id:'day',   label:'Jour' },
+  { id:'week',  label:'Semaine' },
+  { id:'month', label:'Mois' },
+];
+
 /* ============================================================
    Supabase — cloud persistence + auth
    ============================================================ */
@@ -75,10 +96,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function trackerFromRow(r){
-  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, jokerEnabled:!!r.joker_enabled, cumulative:!!r.cumulative, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
+  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, jokerEnabled:!!r.joker_enabled, cumulative:!!r.cumulative, curveStyle:r.curve_style === 'smooth' ? 'smooth' : 'line', chartGrain:GRAINS.some(g => g.id === r.chart_grain) ? r.chart_grain : 'day', order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
 }
 function trackerToRow(t, userId){
-  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, joker_enabled:!!t.jokerEnabled, cumulative:!!t.cumulative, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
+  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, joker_enabled:!!t.jokerEnabled, cumulative:!!t.cumulative, curve_style:t.curveStyle === 'smooth' ? 'smooth' : 'line', chart_grain:GRAINS.some(g => g.id === t.chartGrain) ? t.chartGrain : 'day', order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
 }
 function entryFromRow(r){
   return { id:r.id, trackerId:r.tracker_id, value:r.value, note:r.note || '', ts:r.ts };
@@ -112,6 +133,9 @@ function niceStep(raw, type){
   return mult * base;
 }
 // Widen [min,max] outward to whole steps and hand back the ticks in between.
+// The bounds are never the raw extremes: they're the nearest clean multiple of
+// the step, outward — so the axis reads 12.6 → 13.4 by 0.2, not 12.6 → 13.4.
+// `step` comes back too: it's what decides how many decimals a label needs.
 function niceDomain(min, max, tickCount, type){
   if (!isFinite(min) || !isFinite(max)){ min = 0; max = 1; }
   if (min === max){ const d = Math.abs(min) * 0.1 || 1; min -= d; max += d; }
@@ -120,7 +144,96 @@ function niceDomain(min, max, tickCount, type){
   const hi = Math.ceil(max / step) * step;
   const ticks = [];
   for (let v = lo; v <= hi + step * 1e-9; v += step) ticks.push(+v.toFixed(10));
-  return { min: lo, max: hi, ticks };
+  return { min: lo, max: hi, ticks, step };
+}
+
+// How many decimals a tick label needs so two neighbouring ticks never print
+// the same text. Reading it off the step is what stops an axis stepping by 0.5
+// from showing "13" twice for 12.5 and 13.0.
+function decimalsForStep(step){
+  if (!isFinite(step) || step <= 0) return 0;
+  const s = String(+Number(step).toPrecision(12));
+  if (s.includes('e')) return 0;                 // very large steps: no decimals
+  const dot = s.indexOf('.');
+  return dot === -1 ? 0 : Math.min(4, s.length - dot - 1);
+}
+
+/* ---- Line shape -----------------------------------------------------------
+   Two ways to join the same points, chosen per tracker (`curveStyle`). The
+   points themselves never move — only the ink between them. */
+function linePath(pts){
+  return pts.map((p,i) => `${i===0?'M':'L'}${p[0]},${p[1]}`).join(' ');
+}
+// Catmull-Rom through every point, emitted as cubic béziers: the curve passes
+// exactly through each reading rather than merely near it, so a smoothed chart
+// still tells the truth about what was logged.
+function smoothPath(pts){
+  if (pts.length < 3) return linePath(pts);
+  let d = `M${pts[0][0]},${pts[0][1]}`;
+  for (let i = 0; i < pts.length - 1; i++){
+    const p0 = pts[i-1] || pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i+1];
+    const p3 = pts[i+2] || p2;
+    d += ` C${p1[0] + (p2[0]-p0[0])/6},${p1[1] + (p2[1]-p0[1])/6}`
+       + ` ${p2[0] - (p3[0]-p1[0])/6},${p2[1] - (p3[1]-p1[1])/6}`
+       + ` ${p2[0]},${p2[1]}`;
+  }
+  return d;
+}
+const curvePath = (pts, style) => style === 'smooth' ? smoothPath(pts) : linePath(pts);
+
+/* ---- Plot grain -----------------------------------------------------------
+   Roll a daily series up into weeks (Monday-first) or months. Each bucket is
+   the MEAN of the days that carried a value — the unit stays "a typical day",
+   so switching grain doesn't move the Y axis by a factor of seven. Days with
+   nothing logged contribute nothing (they don't drag the mean toward zero);
+   a bucket where nothing at all was logged stays a hole, drawn dashed.
+   A cumulative series is the exception: its value is a running total, so the
+   bucket takes the last reading it holds — the total as of period end. */
+function startOfWeek(ts){
+  const d = new Date(ts); d.setHours(0,0,0,0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));   // back to Monday
+  return d.getTime();
+}
+function bucketStart(ts, grain){
+  if (grain === 'week')  return startOfWeek(ts);
+  if (grain === 'month') return startOfMonth(ts);
+  return startOfDay(ts);
+}
+function rollupPoints(points, grain, { cumulative = false } = {}){
+  if (grain !== 'week' && grain !== 'month') return points;
+  const buckets = new Map();
+  for (const p of points){
+    const key = bucketStart(p.ts, grain);
+    if (!buckets.has(key)) buckets.set(key, { ts: key, vals: [], last: null, hasEntry: false });
+    const b = buckets.get(key);
+    if (p.value != null){ b.vals.push(p.value); b.last = p.value; }
+    if (p.hasEntry) b.hasEntry = true;
+  }
+  return [...buckets.values()]
+    .sort((a,b) => a.ts - b.ts)
+    .map(b => ({
+      ts: b.ts,
+      value: !b.vals.length ? null
+           : cumulative ? b.last
+           : b.vals.reduce((x,y)=>x+y,0) / b.vals.length,
+      hasEntry: b.hasEntry,
+    }));
+}
+// "sem. du 12 mai" / "mai 2025" — a point that spans a period must not read
+// like a single date, or the axis quietly lies about what it shows.
+function grainLabel(ts, grain){
+  const d = new Date(ts);
+  if (grain === 'month') return d.toLocaleDateString('fr-FR', { month:'long', year:'numeric' });
+  if (grain === 'week')  return `sem. du ${d.toLocaleDateString('fr-FR', { day:'numeric', month:'long' })}`;
+  return dayLabel(ts);
+}
+function grainTick(ts, grain){
+  if (!ts) return '';
+  // Spelled-out year: "juin 26" reads as the 26th of June in French.
+  if (grain === 'month') return new Date(ts).toLocaleDateString('fr-FR', { month:'short', year:'numeric' });
+  return shortDate(ts);
 }
 
 // Straight dashed hops across the days with no data, so a broken series still
@@ -2157,7 +2270,10 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
   // Aggregate per-day: average for number/scale/duration, sum/count for boolean.
   // Cumulative trackers instead run a total across the tracker's whole history,
   // so the range only decides how many days are drawn, not what's summed.
-  const points = useMemo(() => {
+  const grain = GRAINS.some(g => g.id === tracker.chartGrain) ? tracker.chartGrain : 'day';
+  const curveStyle = tracker.curveStyle === 'smooth' ? 'smooth' : 'line';
+
+  const dailyPoints = useMemo(() => {
     const jokerKeys = jokerDayKeys(entries);
     if (isCumulative){
       const valid = entries
@@ -2209,6 +2325,12 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
     return arr;
   }, [entries, tracker, rangeDays, start, now, isCumulative]);
 
+  // One plotted point per day, week or month — the tracker's own setting.
+  const points = useMemo(
+    () => rollupPoints(dailyPoints, grain, { cumulative: isCumulative }),
+    [dailyPoints, grain, isCumulative]
+  );
+
   const numericValues = points.map(p=>p.value).filter(v=>v!=null);
   const hasData = numericValues.length > 0;
 
@@ -2237,15 +2359,19 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
         const ticks = tracker.type === 'scale'
           ? [0, Math.round(max/2), max]
           : [0, 1];
-        return { min: 0, max, ticks };
+        return { min: 0, max, ticks, step: 1 };
       })()
+    // Aiming for ~6 gradations is what turns a 4.67-wide range into whole
+    // units, an 863-wide one into steps of 200, and a 1.3-wide one into
+    // halves — fewer ticks and the step jumps to the next coarser rung.
     : niceDomain(
         Math.min(...numericValues, Infinity),
         Math.max(...numericValues, -Infinity),
-        compact ? 3 : 4,
+        compact ? 5 : 6,
         tracker.type
       );
   const yMin = domain.min, yMax = domain.max;
+  const yDecimals = decimalsForStep(domain.step);
 
   const xAt = (i) => PAD_L + (i / Math.max(1, points.length - 1)) * innerW;
   const yAt = (v) => PAD_T + innerH - ((v - yMin)/(yMax - yMin)) * innerH;
@@ -2262,19 +2388,20 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
   });
   if (cur.length) segments.push(cur);
 
-  // Format y-axis
+  // Format y-axis. Decimals come from the step, never from the value's own
+  // size: rounding 12.5 and 13.0 to "13" and "13" made the axis unreadable.
   const fmtY = (v) => {
     if (tracker.type === 'duration') return fmtDuration(v);
     if (tracker.type === 'scale')    return Math.round(v).toString();
     if (tracker.type === 'boolean')  return v >= 0.5 ? 'oui' : 'non';
-    return Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(1);
+    return v.toFixed(yDecimals);
   };
 
   // X-axis ticks (start, middle, end)
   const xTicks = [
-    { i: 0, label: shortDate(points[0]?.ts) },
-    { i: Math.floor(points.length/2), label: shortDate(points[Math.floor(points.length/2)]?.ts) },
-    { i: points.length-1, label: shortDate(points[points.length-1]?.ts) },
+    { i: 0, label: grainTick(points[0]?.ts, grain) },
+    { i: Math.floor(points.length/2), label: grainTick(points[Math.floor(points.length/2)]?.ts, grain) },
+    { i: points.length-1, label: grainTick(points[points.length-1]?.ts, grain) },
   ].filter(t => points[t.i]);
 
   const yTicks = domain.ticks;
@@ -2354,7 +2481,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
           {/* Area fill */}
           {segments.map((seg, si) => {
             if (seg.length < 2) return null;
-            const d = seg.map((p,i)=>`${i===0?'M':'L'}${p[0]},${p[1]}`).join(' ');
+            const d = curvePath(seg, curveStyle);
             const area = d + ` L${seg[seg.length-1][0]},${PAD_T+innerH} L${seg[0][0]},${PAD_T+innerH} Z`;
             return (
               <g key={si}>
@@ -2395,9 +2522,11 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
         {activePoint && (
           <ChartTooltip
             xPct={(xAt(active) / W) * 100}
-            date={dayLabel(activePoint.ts)}
+            date={grainLabel(activePoint.ts, grain)}
             value={activePoint.value != null ? fmtValue(tracker, +activePoint.value.toFixed(1)) + (fmtUnit(tracker) ? ' ' + fmtUnit(tracker) : '') : 'aucune donnée'}
-            onEdit={onOpenDay ? ()=>onOpenDay(activePoint.ts) : null}
+            /* A week or month point covers many days, so "open this day" has no
+               single answer — the button only appears at day grain. */
+            onEdit={onOpenDay && grain === 'day' ? ()=>onOpenDay(activePoint.ts) : null}
             onClose={()=>setActive(null)}
           />
         )}
@@ -2854,12 +2983,17 @@ function MasterStrip({ master, trackerById, entries, dayTs, containerRef, draggi
    ============================================================ */
 function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = false, containerRef, dragging, onDragStart }){
   const members = masterMembers(master, trackerById);
+  const grain = GRAINS.some(g => g.id === master.chartGrain) ? master.chartGrain : 'day';
+  const curveStyle = master.curveStyle === 'smooth' ? 'smooth' : 'line';
 
   // Per-member normalized+filled series, then the master's own active window.
-  const avgSeries = useMemo(
+  // The index is already 0–1, so its axis stays 0–100 whatever the grain —
+  // only how many days one point covers changes.
+  const dailySeries = useMemo(
     () => computeMasterSeries(master, members, entries, rangeDays),
     [master, members, entries, rangeDays]
   );
+  const avgSeries = useMemo(() => rollupPoints(dailySeries, grain), [dailySeries, grain]);
 
   const numericValues = avgSeries.map(p=>p.value).filter(v=>v!=null);
   const hasData = numericValues.length > 0;
@@ -2884,9 +3018,9 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = 
   if (cur.length) segments.push(cur);
 
   const xTicks = avgSeries.length ? [
-    { i: 0, label: shortDate(avgSeries[0].ts) },
-    { i: Math.floor(avgSeries.length/2), label: shortDate(avgSeries[Math.floor(avgSeries.length/2)].ts) },
-    { i: avgSeries.length-1, label: shortDate(avgSeries[avgSeries.length-1].ts) },
+    { i: 0, label: grainTick(avgSeries[0].ts, grain) },
+    { i: Math.floor(avgSeries.length/2), label: grainTick(avgSeries[Math.floor(avgSeries.length/2)].ts, grain) },
+    { i: avgSeries.length-1, label: grainTick(avgSeries[avgSeries.length-1].ts, grain) },
   ] : [];
 
   return (
@@ -2930,7 +3064,7 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = 
             if (seg.length < 2) return seg.length === 1
               ? <circle key={si} cx={seg[0][0]} cy={seg[0][1]} r="2.5" fill={master.color} />
               : null;
-            const d = seg.map((p,i)=>`${i===0?'M':'L'}${p[0]},${p[1]}`).join(' ');
+            const d = curvePath(seg, curveStyle);
             const area = d + ` L${seg[seg.length-1][0]},${PAD_T+innerH} L${seg[0][0]},${PAD_T+innerH} Z`;
             return (
               <g key={si}>
@@ -3314,6 +3448,9 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
   const [windowEnabled, setWindowEnabled] = useState(tracker ? tracker.windowEnabled !== false : true);
   const [jokerEnabled, setJokerEnabled] = useState(!!tracker?.jokerEnabled);
   const [cumulative, setCumulative] = useState(!!tracker?.cumulative);
+  const [curveStyle, setCurveStyle] = useState(tracker?.curveStyle === 'smooth' ? 'smooth' : 'line');
+  const [chartGrain, setChartGrain] = useState(
+    GRAINS.some(g => g.id === tracker?.chartGrain) ? tracker.chartGrain : 'day');
   const [startDate, setStartDate] = useState(tracker?.startDate || dayKey(tracker?.createdAt || Date.now()));
   const [endDate, setEndDate] = useState(tracker?.endDate || '');
   const [color, setColor] = useState(tracker?.color || COLORS[1]);
@@ -3340,6 +3477,9 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
     t.windowEnabled = windowEnabled;
     t.startDate = windowEnabled ? (startDate || null) : null;
     t.endDate = windowEnabled ? (endDate || null) : null;
+    // Display only — a master gets these just like a data tracker.
+    t.curveStyle = curveStyle;
+    t.chartGrain = chartGrain;
     if (isMasterKind){
       t.type = 'master';
       t.members = members;
@@ -3553,21 +3693,55 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           )}
         </div>
 
-        {!isMasterKind && (type === 'number' || type === 'duration') && (
-          <>
-            <p className="modal-section">Vues</p>
-            <div className="field">
-              <label className="period-toggle" style={{width:'auto'}}>
-                <input type="checkbox" checked={cumulative} onChange={e=>setCumulative(e.target.checked)}
-                  style={{flex:'none',width:16,height:16,margin:0,accentColor:'var(--accent)',cursor:'pointer'}} />
-                <span>Graphe cumulatif</span>
-                <InfoBubble>
-                  Le graphe affiche la somme de toutes les entrées depuis le début plutôt que la valeur du jour —
-                  une courbe qui ne peut que monter, au lieu de suivre l’entrée du jour.
-                </InfoBubble>
-              </label>
+        {/* ============ VUES ============ */}
+        <p className="modal-section">Vues</p>
+
+        <div className="field">
+          <label>Courbe</label>
+          <div className="ctl-with-info">
+            <div className="seg">
+              {CURVE_STYLES.map(c => (
+                <button key={c.id} className={curveStyle===c.id?'on':''} onClick={()=>setCurveStyle(c.id)}>{c.label}</button>
+              ))}
             </div>
-          </>
+            <InfoBubble>
+              <span className="k">Polyligne</span> : les points reliés par des segments droits.<br/>
+              <span className="k">Lissée</span> : une courbe arrondie qui passe quand même exactement par
+              chaque point — c’est le tracé qui change, jamais les valeurs.
+            </InfoBubble>
+          </div>
+        </div>
+
+        <div className="field">
+          <label>Un point =</label>
+          <div className="ctl-with-info">
+            <div className="seg">
+              {GRAINS.map(g => (
+                <button key={g.id} className={chartGrain===g.id?'on':''} onClick={()=>setChartGrain(g.id)}>{g.label}</button>
+              ))}
+            </div>
+            <InfoBubble>
+              Regroupe les jours sur le graphe. <span className="k">Semaine</span> et <span className="k">Mois</span>
+              affichent la <span className="k">moyenne</span> des jours renseignés de la période — les jours vides ne
+              comptent pas pour zéro. L’échelle reste donc lisible dans la même unité quelle que soit la
+              granularité. Réglage indépendant de la forme de courbe.
+            </InfoBubble>
+          </div>
+        </div>
+
+        {!isMasterKind && (type === 'number' || type === 'duration') && (
+          <div className="field">
+            <label className="period-toggle" style={{width:'auto'}}>
+              <input type="checkbox" checked={cumulative} onChange={e=>setCumulative(e.target.checked)}
+                style={{flex:'none',width:16,height:16,margin:0,accentColor:'var(--accent)',cursor:'pointer'}} />
+              <span>Graphe cumulatif</span>
+              <InfoBubble>
+                Le graphe affiche la somme de toutes les entrées depuis le début plutôt que la valeur du jour —
+                une courbe qui ne peut que monter, au lieu de suivre l’entrée du jour.
+                Groupé par semaine ou par mois, chaque point porte le total atteint en fin de période.
+              </InfoBubble>
+            </label>
+          </div>
         )}
 
         <div className="field" style={{borderBottom:'none'}}>

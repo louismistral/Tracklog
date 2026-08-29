@@ -41,6 +41,8 @@ Pas de bundler, pas de `package.json`, pas de tests automatisés. Les CDN
 | **Joker** | Un marqueur posé sur une journée entière (`value: '__joker__'`) qui **exclut** ce jour de tous les calculs — pas un zéro, une journée hors calcul (repos, écart planifié…). Option par tracker (`jokerEnabled`), sans effet sur un tracker quotidien. |
 | **Fenêtre d'activité** (`windowEnabled`, `startDate`/`endDate`) | Bornes de dates hors desquelles un tracker n'influence ni les graphes ni les moyennes. `startDate` par défaut = date de création ; `endDate` posé automatiquement à l'archivage. |
 | **Graphe cumulatif** (`cumulative`) | Option d'affichage (nombre/durée uniquement) : le graphe trace la somme cumulée depuis le début plutôt que la valeur du jour — courbe qui ne peut que monter. |
+| **Forme de courbe** (`curveStyle`) | `line` (polyligne, défaut) ou `smooth` (courbe lissée, Catmull-Rom passant exactement par chaque point). Purement visuel. |
+| **Granularité** (`chartGrain`) | `day` (défaut) · `week` (lundi→dimanche) · `month` — ce qu'un point du graphe couvre. Les jours d'une même période sont ramenés à leur **moyenne** (un tracker cumulatif prend la valeur de fin de période). Réglage indépendant de la forme de courbe. |
 | **Archiver** | Masque un tracker du "Jour" et le range à part (liste des archives), sans supprimer ses entrées. Réversible (désarchiver). |
 | **Chrono** | Un chronomètre autonome (état local, `localStorage`, pas synchronisé compte), qu'on peut lier à un tracker `duration` : « Enregistrer » convertit le temps écoulé en entrée. |
 | **Mode Solo/Multi** (chronos) | Solo = démarrer un chrono met les autres en pause automatiquement ; Multi = ils tournent en parallèle. |
@@ -80,6 +82,8 @@ Modales transverses : `TrackerModal` (créer/éditer un tracker ou master),
 - **Case joker** — exclure une journée entière des calculs sans la compter comme un échec.
 - **Masters (indices composites)** — moyenne normalisée 0–100 de plusieurs trackers, avec bande de lecture (Master Strip) et carte graphe dédiée.
 - **Graphes par tracker** avec axes auto-arrondis (`niceDomain`/`niceStep`), pontage en pointillés des trous de données, mode cumulatif optionnel.
+- **Échelle verticale intelligente** — les bornes sont l'arrondi propre le plus proche des valeurs extrêmes (jamais les extrêmes bruts, jamais un zéro forcé), le pas est constant et choisi pour viser ~6 graduations, et le nombre de décimales des étiquettes se déduit du pas — deux graduations ne peuvent plus afficher le même nombre. Recalculé à chaque changement de période.
+- **Forme de courbe et granularité par tracker** — polyligne ou courbe lissée, et un point = un jour / une semaine / un mois, réglables indépendamment dans la section « Vues » des paramètres du tracker (masters compris).
 - **Tooltip flottant sur les graphes** — survol souris / toucher tactile affiche la valeur du jour pointé, avec un bouton rond pour ouvrir ce jour dans l'Historique (édition directe) et un bouton rond pour fermer.
 - **Vue Master overlay** et **Tendance générale** — comparer plusieurs trackers normalisés sur le même graphe, ou leur moyenne lissée sur 7 jours.
 - **Heatmap calendrier** par tracker (`CalendarCard`) et **grille de KPI** (`GridSummary`, avec variation vs période précédente).
@@ -101,6 +105,7 @@ Modales transverses : `TrackerModal` (créer/éditer un tracker ou master),
 
 - **Aucun build.** JSX transformé en direct dans le navigateur par `@babel/standalone`. Toute modif de `.jsx` est visible après rechargement — pas d'étape de compilation à lancer.
 - **Persistance : Supabase** (Postgres + auth). Tables : `trackers`, `entries`, `foods`, `food_logs`, `nutrition_goals`. Clé anonyme publique dans `app.jsx` (protégée par Row Level Security côté Supabase, pas un secret à cacher).
+- **Ajouter un réglage de tracker = une migration SQL.** `trackerToRow` envoie des colonnes nommées : toute nouvelle propriété persistée demande un `alter table trackers add column …` lancé à la main dans l'éditeur SQL Supabase **avant** de déployer, sinon tout enregistrement de tracker échoue. Les colonnes doivent accepter `null` pour que les trackers existants continuent de fonctionner (le mapper applique la valeur par défaut à la lecture).
 - **État local (`localStorage`, non synchronisé)** : chronos (`tracklog.chronos.<userId>`), préférence Solo/Multi, activation des bulles d'aide, thème.
 - **`app.food.jsx` dépend du scope global posé par `app.jsx`** (React, `supabase`, `dayKey`, `uid`, `startOfDay`…) — les deux fichiers sont deux `<script>` distincts mais partagent un seul espace de noms global, chargés dans cet ordre puis montés ensemble (`mountTracklog()`).
 - **Drag & drop maison** (`useDragReorder`) — pointer events, pas de librairie ; un ordre global par tracker, chaque vue réordonne un sous-ensemble reconstitué dans l'ordre complet.
