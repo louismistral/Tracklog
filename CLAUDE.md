@@ -15,8 +15,8 @@ pas de source de vérité parallèle.
 | Fichier | Rôle |
 |---|---|
 | `Tracklog.html` | Page unique. CSS complet inline (thème « Aristide »), balises `<script>` qui chargent React/Supabase/Babel depuis un CDN puis `app.jsx` et `app.food.jsx` en JSX brut (transformé dans le navigateur par Babel standalone — pas de build). |
-| `app.jsx` | Cœur : modèle de données trackers/entries, auth, tous les écrans sauf Bouffe. ~3780 lignes. |
-| `app.food.jsx` | Page Bouffe : bibliothèque d'aliments, scanner de code-barres, journal de repas, objectifs. Second `<script type="text/babel">`, chargé après `app.jsx` — partage son scope global (React, `supabase`, `dayKey`, `uid`…). ~2330 lignes. |
+| `app.jsx` | Cœur : modèle de données trackers/entries, auth, tous les écrans sauf Bouffe. ~4200 lignes. |
+| `app.food.jsx` | Page Bouffe : bibliothèque d'aliments, scanner de code-barres, journal de repas, objectifs. Second `<script type="text/babel">`, chargé après `app.jsx` — partage son scope global (React, `supabase`, `dayKey`, `uid`…). ~3000 lignes. |
 | `index.html` | Redirige vers `Tracklog.html`. |
 | `foods-ref.json` | Table Ciqual 2025 (ANSES) compactée en colonnes — 3341 aliments crus/cuits avec micronutriments, servie en statique pour la recherche hors-ligne d'aliments sans étiquette. |
 | `manifest.json`, `icon-*.png`, `apple-touch-icon.png` | PWA — installable sur téléphone. |
