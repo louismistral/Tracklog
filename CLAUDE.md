@@ -21,6 +21,7 @@ pas de source de vérité parallèle.
 | `foods-ref.json` | Table Ciqual 2025 (ANSES) compactée en colonnes — 3341 aliments crus/cuits avec micronutriments, servie en statique pour la recherche hors-ligne d'aliments sans étiquette. |
 | `manifest.json`, `icon-*.png`, `apple-touch-icon.png` | PWA — installable sur téléphone. |
 | `tools/ciqual/` | Source Excel d'origine de la table Ciqual (génère `foods-ref.json`). |
+| `supabase/functions/analyse-repas/` | **Le seul morceau de serveur.** Edge Function Deno qui appelle Claude pour décomposer un repas décrit en texte. Existe pour que la clé API Anthropic reste côté serveur — contrairement à la clé anon Supabase, elle n'a aucune protection propre. |
 
 Pas de bundler, pas de `package.json`, pas de tests automatisés. Les CDN
 (unpkg React/Babel, jsdelivr) sont épinglés par version + intégrité SRI dans
@@ -53,6 +54,10 @@ Pas de bundler, pas de `package.json`, pas de tests automatisés. Les CDN
 | **Repas** | Une des 4 catégories fixes du jour : `matin` (petit-déjeuner) · `midi` · `soir` · `collation`. |
 | **Macro** | Les 4 compteurs "de tête" de la page Bouffe : kcal, protéines, glucides, lipides — seuls à avoir un objectif et un graphe. |
 | **Objectifs** (`nutrition_goals`) | Cibles quotidiennes kcal/protéines/glucides/lipides ; valeurs par défaut tant que rien n'est réglé. |
+| **Favori** (`food.favorite`) | Un aliment mis de côté, retrouvable via l'onglet « Mes favoris ». |
+| **Ingrédient** (item) | La monnaie commune entre l'analyse IA et les repas : `{ id, name, grams, per100, foodId?, note? }`. Les valeurs sont **pour 100 g**, le poids est à part — corriger un poids recalcule les macros sans rien redemander. |
+| **Repas enregistré** (`meals`) | Un **preset** : une liste d'ingrédients qu'on ajoute d'un coup, plus une recette facultative (`steps`, une simple liste d'étapes). Ne pas confondre avec le **Repas** au sens catégorie du jour ci-dessus. |
+| **Analyse IA** | Décrire un repas en texte, récupérer sa décomposition en ingrédients pesés. Passe par l'Edge Function `analyse-repas`, jamais par le navigateur directement. |
 
 ## Écrans
 
@@ -64,7 +69,7 @@ Navigation par onglets en haut (`tab`), certains avec sous-onglets (`Sub`).
 | | Historique | `HistoryView` → `MonthCalendar` + `DayGrid` | Calendrier mensuel (points = jours avec entrées) ; cliquer un jour ouvre son éditeur en dessous (identique au "Jour" mais sur une date passée). Reçoit aussi les sauts directs depuis le tooltip d'un graphe (`jumpTo`). |
 | | Chrono | `ChronoView` → `ChronoCard` | Chronomètres, liés ou non à un tracker durée. Fenêtre flottante (Picture-in-Picture navigateur) pour garder les chronos visibles pendant qu'on fait autre chose. |
 | **Bouffe** | Jour | `FoodDayView` | Repas du jour par catégorie, barres de progression vers les objectifs, panneau détail/micronutriments dépliable, navigation jour précédent/suivant. |
-| | Aliments | `FoodLibraryView` | Bibliothèque des aliments enregistrés (scannés + perso), recherche, lien vers la fiche source. |
+| | Aliments | `FoodLibraryView` | Trois vues sur ce qui est à soi : Mes aliments · Mes favoris · Mes repas. Recherche, étoile favori, lien vers la fiche source, création/édition de repas. |
 | | Vues | `FoodVuesView` → `NutritionBars` | Graphe en barres d'une macro sur N jours vs objectif, + répartition calorique P/G/L. |
 | **Trackers** | — | `TrackersView` | Gérer les trackers : liste (actifs + archivés), type, fréquence, agrégat, membres si master. Créer/modifier/archiver/supprimer. |
 | **Vues** | Graphes / Calendrier / Grille | `VuesView` → `ChartCard`/`MasterChart`/`TrendChart`/`CalendarCard`/`GridSummary` | Visualisation multi-tracker sur une période choisie (7/30/90/365j, YTD, tout, personnalisé) : courbes individuelles, overlay Master normalisé, tendance moyenne lissée, heatmap calendrier, grille de KPI. |
@@ -72,9 +77,17 @@ Navigation par onglets en haut (`tab`), certains avec sous-onglets (`Sub`).
 | *(hors onglets)* | — | `SignIn` | Connexion / création de compte / lien magique / mot de passe oublié. |
 
 Modales transverses : `TrackerModal` (créer/éditer un tracker ou master),
-`EntryModal` (éditer une entrée existante), `ChronoModal`, `AddFoodModal`
-(scanner / rechercher / bibliothèque / saisie manuelle), `FoodEditModal`,
-`GoalsModal`, `PasswordModal`.
+`EntryModal` (éditer une entrée existante), `ChronoModal`, `AddFoodModal`,
+`FoodEditModal`, `MealEditModal`, `GoalsModal`, `PasswordModal`.
+
+`AddFoodModal` a **deux rangées d'onglets**, parce que ce sont deux gestes
+différents — trouver un aliment quelque part, ou reprendre quelque chose qui est
+déjà à soi :
+
+| Rangée | Onglets | Composant |
+|---|---|---|
+| Trouver | Scanner · Rechercher · À la main · IA | `FoodScanner` · recherche OFF/Ciqual · `ManualEntry` · `AiAnalyseTab` |
+| À moi | Mes aliments · Mes favoris · Mes repas | liste filtrée · idem filtrée sur `favorite` · `MealsTab` |
 
 ## Fonctionnalités
 
@@ -97,6 +110,10 @@ Modales transverses : `TrackerModal` (créer/éditer un tracker ou master),
 - **Recherche Open Food Facts** — plusieurs moteurs en cascade, cache et limiteur de débit (quota OFF).
 - **Table Ciqual embarquée** — recherche instantanée hors-ligne des aliments sans étiquette (légumes, viandes brutes…), avec micronutriments.
 - **Snapshot nutritionnel** — chaque ligne de repas figée à sa valeur du moment ; corriger un aliment plus tard ne modifie pas l'historique.
+- **Interrupteur caméra** — le scanner ne demande aucun flux tant qu'il est éteint ; le choix est retenu par appareil, si bien qu'une fois allumé il démarre seul, autorisation déjà accordée.
+- **Favoris** — une étoile range un aliment dans « Mes favoris », pour retrouver en un geste ce qu'on mange tous les jours.
+- **Repas enregistrés (presets)** — un ensemble d'ingrédients ajouté d'un coup, une ligne de journal par ingrédient (chacune reste corrigeable seule), avec une recette facultative en liste d'étapes.
+- **Analyse IA d'un repas** — décrire un plat en texte, Claude le décompose en ingrédients pesés avec leurs valeurs pour 100 g, sa marge d'erreur et sa cause. Le résultat est entièrement éditable avant d'être versé au journal, et peut être enregistré comme repas.
 - **Objectifs nutritionnels** journaliers avec barres de progression et alerte dépassement.
 - **Détail réglementaire + micronutriments** avec % des repères journaliers (AJR) quand disponibles.
 - **PWA installable**, thème système, auth email/mot de passe + lien magique + réinitialisation.
@@ -104,7 +121,7 @@ Modales transverses : `TrackerModal` (créer/éditer un tracker ou master),
 ## Architecture technique
 
 - **Aucun build.** JSX transformé en direct dans le navigateur par `@babel/standalone`. Toute modif de `.jsx` est visible après rechargement — pas d'étape de compilation à lancer.
-- **Persistance : Supabase** (Postgres + auth). Tables : `trackers`, `entries`, `foods`, `food_logs`, `nutrition_goals`. Clé anonyme publique dans `app.jsx` (protégée par Row Level Security côté Supabase, pas un secret à cacher).
+- **Persistance : Supabase** (Postgres + auth). Tables : `trackers`, `entries`, `foods`, `food_logs`, `nutrition_goals`, `meals`. Clé anonyme publique dans `app.jsx` (protégée par Row Level Security côté Supabase, pas un secret à cacher).
 - **Ajouter un réglage de tracker = une migration SQL.** `trackerToRow` envoie des colonnes nommées : toute nouvelle propriété persistée demande un `alter table trackers add column …` lancé à la main dans l'éditeur SQL Supabase **avant** de déployer, sinon tout enregistrement de tracker échoue. Les colonnes doivent accepter `null` pour que les trackers existants continuent de fonctionner (le mapper applique la valeur par défaut à la lecture).
 - **État local (`localStorage`, non synchronisé)** : chronos (`tracklog.chronos.<userId>`), préférence Solo/Multi, activation des bulles d'aide, thème.
 - **`app.food.jsx` dépend du scope global posé par `app.jsx`** (React, `supabase`, `dayKey`, `uid`, `startOfDay`…) — les deux fichiers sont deux `<script>` distincts mais partagent un seul espace de noms global, chargés dans cet ordre puis montés ensemble (`mountTracklog()`).
@@ -118,6 +135,9 @@ Modales transverses : `TrackerModal` (créer/éditer un tracker ou master),
 - **Master ne forward-fill jamais.** `computeMasterSeries` laisse les trous en trous (dessinés en pointillés) plutôt que de reporter la dernière valeur connue — un master ne doit jamais paraître à jour alors que ses membres ne le sont plus.
 - **Une entrée "quotidienne" remplace, ne s'additionne pas** (`addEntry` dans `App`, logique `tracker.daily`).
 - **`app.food.jsx` n'a pas de `const { useState... } = React` à lui** — il compte sur celui déclaré en tête de `app.jsx`. Ne jamais réordonner le chargement des deux scripts dans `Tracklog.html`.
+- **La clé API Anthropic ne doit jamais atteindre le navigateur.** Elle vit en secret d'Edge Function (`supabase secrets set ANTHROPIC_API_KEY=…`). L'analogie avec la clé anon Supabase est trompeuse : celle-ci est inoffensive parce que Row Level Security la borne, la clé Anthropic n'a aucune protection équivalente et se dépense.
+- **Un ingrédient porte ses valeurs pour 100 g, jamais ses valeurs absolues.** C'est ce qui permet de changer un poids sans rappeler le modèle ni la base. `itemNutriments()` fait la mise à l'échelle au moment de l'affichage et de l'écriture du journal.
+- **Un repas ajouté produit une ligne de journal par ingrédient**, pas une ligne agrégée — chacune reste corrigeable et supprimable seule, et garde son snapshot comme n'importe quel ajout.
 - **OFF (Open Food Facts) a un quota de recherche serré** (~10 req/min) — `takeSearchToken`/cache dans `app.food.jsx` ; ne pas retirer le limiteur sans comprendre pourquoi il existe (429 sinon).
 - **Cache-busting manuel** — après une modif de `app.jsx` ou `app.food.jsx`, penser à incrémenter le `?v=` correspondant dans `Tracklog.html`, sinon des utilisateurs peuvent rester sur une version en cache.
 - **Pas de tests automatisés, pas de build.** Toute validation passe par relecture + test manuel dans un navigateur (le fichier compile-t-il via Babel, l'app charge-t-elle sans erreur console).

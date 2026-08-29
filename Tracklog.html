@@ -718,8 +718,70 @@
   .fd-reticle span:nth-child(4){bottom:0;right:0;border-left:none;border-top:none}
   .fd-scan-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-size:12px;line-height:1.6;color:#efe9dd;background:rgba(0,0,0,.72)}
   .fd-scan-overlay.err{color:#ffb4a0}
-  .fd-torch{position:absolute;right:10px;bottom:10px;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#fff;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.4);border-radius:999px;padding:6px 12px}
+  .fd-torch{position:absolute;left:10px;bottom:10px;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#fff;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.4);border-radius:999px;padding:6px 12px}
   .fd-torch.on{background:var(--accent);border-color:var(--accent)}
+  /* Interrupteur caméra — en bas à droite du cadre, visible allumé comme éteint */
+  /* Éteinte, la balise vidéo vide resterait un rectangle noir devant le fond */
+  .fd-scan-view.off{background:var(--bg-3)}
+  .fd-scan-view.off video{display:none}
+  .fd-cam-toggle{position:absolute;right:10px;bottom:10px;display:inline-flex;align-items:center;gap:6px;
+    font-size:10px;text-transform:uppercase;letter-spacing:0.1em;cursor:pointer;
+    color:#fff;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.45);border-radius:999px;padding:6px 12px;
+    transition:background .3s var(--ease),border-color .3s var(--ease)}
+  .fd-cam-toggle.on{background:var(--accent);border-color:var(--accent)}
+  .fd-scan-view.off .fd-cam-toggle{color:var(--ink);background:var(--bg-2);border-color:var(--line-2)}
+  .fd-scan-view.off .fd-cam-toggle:hover{border-color:var(--accent);color:var(--accent)}
+
+  /* Deux rangées d'onglets dans la modale d'ajout : trouver / ce qui est à soi */
+  .fd-tabs{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+
+  /* Étoile favori */
+  .fd-fav{display:flex;align-items:center;padding:0 8px;color:var(--ink-3);flex-shrink:0;cursor:pointer;
+    background:none;border:none;transition:color .3s var(--ease)}
+  .fd-fav:hover{color:var(--ink-2)}
+  .fd-fav.on{color:var(--accent)}
+  .fd-fav-btn.on{color:var(--accent);border-color:var(--accent)}
+
+  /* Éditeur d'ingrédients — partagé par l'analyse IA et les repas enregistrés */
+  .fd-ing-editor{margin:10px 0}
+  .fd-ing{border-bottom:1px solid var(--line);padding:9px 0}
+  .fd-ing.open{background:var(--bg-3);border-radius:var(--radius);padding:9px 10px;margin:0 -10px}
+  .fd-ing-main{display:flex;align-items:center;gap:8px}
+  .fd-ing-name{flex:1;min-width:0;font-size:13px;padding:5px 0;border:none;border-bottom:1px solid transparent;background:none}
+  .fd-ing-name:focus{border-bottom-color:var(--line-2);outline:none}
+  .fd-ing-qty{display:inline-flex;align-items:baseline;gap:2px;flex-shrink:0}
+  .fd-ing-qty input{width:58px;text-align:right;font-family:"Geist Mono",monospace;font-size:13px;padding:5px 4px}
+  .fd-ing-qty>i{font-size:10px;color:var(--ink-3);font-style:normal}
+  .fd-ing-kcal{flex-shrink:0;font-size:13px;color:var(--ink);min-width:62px;text-align:right}
+  .fd-ing-kcal>i{font-size:9px;color:var(--ink-3);font-style:normal;margin-left:2px}
+  .fd-ing-btn{flex-shrink:0;width:24px;height:24px;border-radius:50%;border:1px solid var(--line-2);
+    color:var(--ink-3);font-size:11px;line-height:1;cursor:pointer;transition:color .3s,border-color .3s}
+  .fd-ing-btn:hover{color:var(--ink);border-color:var(--ink-2)}
+  .fd-ing-btn.del:hover{color:var(--warn);border-color:var(--warn)}
+  .fd-ing-macros{display:flex;gap:14px;align-items:baseline;font-size:11px;color:var(--ink-3);margin-top:3px}
+  .fd-ing-macros>span>i{font-size:9px;margin-left:2px;font-style:normal;opacity:.7}
+  .fd-ing-note{font-style:italic;font-size:11px;color:var(--ink-3);margin-left:auto;text-align:right;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%}
+  .fd-ing-edit{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+  .fd-ing-picker{margin-top:12px}
+  .fd-ing-total{display:flex;gap:16px;align-items:baseline;margin-top:12px;padding-top:10px;
+    border-top:1px solid var(--line-2);font-size:13px}
+  .fd-ing-total-l{flex:1;font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3)}
+  .fd-ing-total>span>i{font-size:9px;color:var(--ink-3);font-style:normal;margin-left:2px}
+
+  /* Analyse IA */
+  .fd-ai-input textarea{width:100%;resize:vertical;min-height:70px}
+  .fd-ai-actions{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;margin-top:8px}
+  .fd-ai-hint{font-size:12px;color:var(--ink-3);flex:1}
+  .fd-ai-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:16px 0 4px}
+  .fd-ai-plat{font-size:18px}
+  .fd-ai-marge{font-size:11px;color:var(--ink-3);text-align:right}
+
+  /* Recette d'un repas — une simple liste d'étapes numérotées */
+  .fd-steps{display:flex;flex-direction:column;gap:8px}
+  .fd-step{display:flex;align-items:center;gap:8px}
+  .fd-step-n{flex-shrink:0;width:20px;font-size:11px;color:var(--ink-3);text-align:right}
+  .fd-step input{flex:1}
   .fd-scan-hint{font-size:12px;color:var(--ink-3);margin:10px 0 0;line-height:1.6}
   .fd-manual{display:flex;align-items:center;gap:10px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line);flex-wrap:wrap}
   .fd-manual label{font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.12em}
@@ -965,7 +1027,7 @@
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Bouffe, et le dernier script monte React une fois les deux en place. -->
 <script type="text/babel" src="app.jsx?v=35"></script>
-<script type="text/babel" src="app.food.jsx?v=5"></script>
+<script type="text/babel" src="app.food.jsx?v=6"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>
