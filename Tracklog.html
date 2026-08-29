@@ -3,12 +3,17 @@
 <head>
 <meta charset="utf-8" />
 <script>
-  // Set before the stylesheet is parsed, so the light/dark choice never flashes
-  // the wrong theme on load. A device preference, not account data — read here
+  // Set before the stylesheet is parsed, so the chosen style never flashes the
+  // wrong colours on load. A device preference, not account data — read here
   // without waiting on Supabase auth to resolve.
+  // STYLE_IDS doubles the list held in app.jsx (STYLES) on purpose: this runs
+  // before any script loads, so it cannot read it. Adding a style means adding
+  // its id here too — and a stored value outside the list falls back to dark
+  // rather than leaving the page with no tokens at all.
+  var STYLE_IDS = ['dark', 'light'];
   try{
     var t = localStorage.getItem('tracklog.theme');
-    if (t === 'light') document.documentElement.dataset.theme = 'light';
+    if (STYLE_IDS.indexOf(t) !== -1) document.documentElement.dataset.theme = t;
   } catch(e){}
 </script>
 <title>Tracklog</title>
@@ -143,6 +148,36 @@
   .settings-section-title{font-family:"Instrument Serif",serif;font-style:italic;font-size:19px;margin:0 0 6px}
   .settings-value{font-size:13px;color:var(--ink-2)}
   .settings-hint{font-size:12px;color:var(--ink-3);line-height:1.6;margin:12px 0 0}
+  .settings-hint .k{color:var(--ink-2)}
+  .settings-inline-hint{font-size:11px;color:var(--ink-3);line-height:1.5}
+
+  /* Sélecteur de style — chaque choix montre les couleurs qu'il applique,
+     puisque c'est très exactement ce qu'on choisit. */
+  .style-picker{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;width:100%}
+  .style-choice{display:flex;flex-direction:column;align-items:flex-start;gap:6px;cursor:pointer;
+    padding:12px 13px;border:1px solid var(--line);border-radius:var(--radius);background:none;text-align:left;
+    transition:border-color .4s var(--ease),background .4s var(--ease)}
+  .style-choice:hover{border-color:var(--line-2)}
+  .style-choice.on{border-color:var(--accent);background:var(--accent-soft)}
+  .style-swatch{display:flex;gap:3px}
+  .style-swatch i{width:16px;height:16px;border-radius:2px;border:1px solid rgba(128,128,128,.25)}
+  .style-swatch[data-style="dark"] i:nth-child(1){background:#100f0d}
+  .style-swatch[data-style="dark"] i:nth-child(2){background:#efe9dd}
+  .style-swatch[data-style="dark"] i:nth-child(3){background:#e2542f}
+  .style-swatch[data-style="light"] i:nth-child(1){background:#f6f2e9}
+  .style-swatch[data-style="light"] i:nth-child(2){background:#211d17}
+  .style-swatch[data-style="light"] i:nth-child(3){background:#e2542f}
+  .style-name{font-size:13px;color:var(--ink)}
+  .style-hint{font-size:11px;color:var(--ink-3);line-height:1.45}
+
+  /* Retours */
+  .feedback-foot{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:4px}
+  .feedback-foot .settings-inline-hint{flex:1}
+
+  /* Training — l'onglet réservé */
+  .training-empty{max-width:520px;margin:0 auto;text-transform:none;letter-spacing:0;line-height:1.7;font-size:14px}
+  .training-empty .k{color:var(--ink-2)}
+  .training-note{display:block;margin-top:18px;font-size:12px;color:var(--ink-3)}
 
   /* Tracker rail */
   .rail-wrap{border-bottom:1px solid var(--line);margin-bottom:34px}
@@ -1026,8 +1061,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Bouffe, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=35"></script>
-<script type="text/babel" src="app.food.jsx?v=6"></script>
+<script type="text/babel" src="app.jsx?v=36"></script>
+<script type="text/babel" src="app.food.jsx?v=7"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>

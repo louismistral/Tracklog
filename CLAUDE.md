@@ -58,6 +58,9 @@ Pas de bundler, pas de `package.json`, pas de tests automatisés. Les CDN
 | **Ingrédient** (item) | La monnaie commune entre l'analyse IA et les repas : `{ id, name, grams, per100, foodId?, note? }`. Les valeurs sont **pour 100 g**, le poids est à part — corriger un poids recalcule les macros sans rien redemander. |
 | **Repas enregistré** (`meals`) | Un **preset** : une liste d'ingrédients qu'on ajoute d'un coup, plus une recette facultative (`steps`, une simple liste d'étapes). Ne pas confondre avec le **Repas** au sens catégorie du jour ci-dessus. |
 | **Analyse IA** | Décrire un repas en texte, récupérer sa décomposition en ingrédients pesés. Passe par l'Edge Function `analyse-repas`, jamais par le navigateur directement. |
+| **Style** (`STYLES`, `data-theme`) | Un jeu de variables CSS sous `:root[data-theme="<id>"]`. En ajouter un = un bloc de tokens dans `Tracklog.html`, une entrée dans `STYLES` (app.jsx) et son id dans `STYLE_IDS` (script en tête de page). Préférence **par appareil**. |
+| **Préférences de compte** (`user_settings`) | Un blob `jsonb` par compte. Y vit `prefs.tabs` — quels onglets sont affichés. Ce qui décrit la *forme* de l'app suit le compte ; ce qui dépend de l'écran (style, bulles d'aide) reste en `localStorage`. |
+| **Retour** (`feedback`) | Un message envoyé depuis les paramètres : `kind` (bug · feature · avis · autre), le texte, et un `context` capté automatiquement (style, taille d'écran, navigateur). |
 
 ## Écrans
 
@@ -73,7 +76,8 @@ Navigation par onglets en haut (`tab`), certains avec sous-onglets (`Sub`).
 | | Vues | `FoodVuesView` → `NutritionBars` | Graphe en barres d'une macro sur N jours vs objectif, + répartition calorique P/G/L. |
 | **Trackers** | — | `TrackersView` | Gérer les trackers : liste (actifs + archivés), type, fréquence, agrégat, membres si master. Créer/modifier/archiver/supprimer. |
 | **Vues** | Graphes / Calendrier / Grille | `VuesView` → `ChartCard`/`MasterChart`/`TrendChart`/`CalendarCard`/`GridSummary` | Visualisation multi-tracker sur une période choisie (7/30/90/365j, YTD, tout, personnalisé) : courbes individuelles, overlay Master normalisé, tendance moyenne lissée, heatmap calendrier, grille de KPI. |
-| **Paramètres** | — | `SettingsView` | Compte (email, mot de passe, déconnexion), thème clair/sombre, activer/désactiver les bulles d'aide. |
+| **Training** | — | `TrainingView` | Réservé — le suivi d'entraînement viendra ici. Masquable tant qu'il est vide. |
+| **Paramètres** | — | `SettingsView` | Compte · Style (sélecteur à N styles) · Onglets (afficher/masquer) · Affichage (bulles d'aide) · Un retour ? (`FeedbackCard`). |
 | *(hors onglets)* | — | `SignIn` | Connexion / création de compte / lien magique / mot de passe oublié. |
 
 Modales transverses : `TrackerModal` (créer/éditer un tracker ou master),
@@ -105,7 +109,9 @@ déjà à soi :
 - **Réordonnancement par glisser-déposer** — trackers, cartes du jour, master strips ; un ordre global unique, chaque liste n'affiche/réordonne qu'un sous-ensemble sans perturber le reste (`mergeSubOrder`).
 - **Filtre + tri** (rail) — afficher un sous-ensemble de trackers sur Log/Trackers/Vues, trié Manuel/A→Z/Récents/Type.
 - **Bulles d'aide "i"** — explications contextuelles activables/désactivables globalement.
-- **Thème clair/sombre**, préférence locale par appareil.
+- **Styles** — sélecteur à N styles (Sombre et Clair aujourd'hui), chaque choix montrant les couleurs qu'il applique. Préférence par appareil, appliquée avant le premier rendu pour ne jamais faire clignoter les mauvaises couleurs.
+- **Onglets activables** — masquer Bouffe, Trackers, Vues, Training ou l'analyse IA depuis les paramètres. Rien n'est supprimé : l'onglet disparaît de la barre, les données restent. Log et les paramètres ne se masquent pas — l'un est la raison d'être de l'app, l'autre la seule porte pour rallumer le reste. Réglage synchronisé sur le compte.
+- **Retours intégrés** — bug, idée, avis ou autre, écrits depuis les paramètres et enregistrés en base, avec le contexte technique (style, taille d'écran, navigateur) capté automatiquement.
 - **Bouffe : scanner de code-barres** — caméra (BarcodeDetector natif ou ZXing en repli), plusieurs passes de recadrage/rotation, secours photo native et saisie manuelle du code.
 - **Recherche Open Food Facts** — plusieurs moteurs en cascade, cache et limiteur de débit (quota OFF).
 - **Table Ciqual embarquée** — recherche instantanée hors-ligne des aliments sans étiquette (légumes, viandes brutes…), avec micronutriments.
@@ -121,9 +127,9 @@ déjà à soi :
 ## Architecture technique
 
 - **Aucun build.** JSX transformé en direct dans le navigateur par `@babel/standalone`. Toute modif de `.jsx` est visible après rechargement — pas d'étape de compilation à lancer.
-- **Persistance : Supabase** (Postgres + auth). Tables : `trackers`, `entries`, `foods`, `food_logs`, `nutrition_goals`, `meals`. Clé anonyme publique dans `app.jsx` (protégée par Row Level Security côté Supabase, pas un secret à cacher).
+- **Persistance : Supabase** (Postgres + auth). Tables : `trackers`, `entries`, `foods`, `food_logs`, `nutrition_goals`, `meals`, `user_settings`, `feedback`. Clé anonyme publique dans `app.jsx` (protégée par Row Level Security côté Supabase, pas un secret à cacher).
 - **Ajouter un réglage de tracker = une migration SQL.** `trackerToRow` envoie des colonnes nommées : toute nouvelle propriété persistée demande un `alter table trackers add column …` lancé à la main dans l'éditeur SQL Supabase **avant** de déployer, sinon tout enregistrement de tracker échoue. Les colonnes doivent accepter `null` pour que les trackers existants continuent de fonctionner (le mapper applique la valeur par défaut à la lecture).
-- **État local (`localStorage`, non synchronisé)** : chronos (`tracklog.chronos.<userId>`), préférence Solo/Multi, activation des bulles d'aide, thème.
+- **État local (`localStorage`, non synchronisé)** : chronos (`tracklog.chronos.<userId>`), préférence Solo/Multi, activation des bulles d'aide, style (`tracklog.theme`), interrupteur caméra (`tracklog.cameraOn`). La règle : ce qui dépend de l'écran ou de l'appareil reste local, ce qui décrit la forme de l'app va dans `user_settings`.
 - **`app.food.jsx` dépend du scope global posé par `app.jsx`** (React, `supabase`, `dayKey`, `uid`, `startOfDay`…) — les deux fichiers sont deux `<script>` distincts mais partagent un seul espace de noms global, chargés dans cet ordre puis montés ensemble (`mountTracklog()`).
 - **Drag & drop maison** (`useDragReorder`) — pointer events, pas de librairie ; un ordre global par tracker, chaque vue réordonne un sous-ensemble reconstitué dans l'ordre complet.
 - **Cache-busting manuel** — les `<script src="app.jsx?v=N">` portent un numéro de version à incrémenter à la main dans `Tracklog.html` pour forcer le rechargement (pas de hash de build automatique).
@@ -135,6 +141,8 @@ déjà à soi :
 - **Master ne forward-fill jamais.** `computeMasterSeries` laisse les trous en trous (dessinés en pointillés) plutôt que de reporter la dernière valeur connue — un master ne doit jamais paraître à jour alors que ses membres ne le sont plus.
 - **Une entrée "quotidienne" remplace, ne s'additionne pas** (`addEntry` dans `App`, logique `tracker.daily`).
 - **`app.food.jsx` n'a pas de `const { useState... } = React` à lui** — il compte sur celui déclaré en tête de `app.jsx`. Ne jamais réordonner le chargement des deux scripts dans `Tracklog.html`.
+- **Ajouter un style se fait à trois endroits, pas un.** Le bloc de tokens CSS, l'entrée dans `STYLES` (app.jsx), et l'id dans `STYLE_IDS` du script en tête de `Tracklog.html`. Ce dernier tourne avant tout chargement de script, il ne peut donc pas lire `STYLES` — la duplication est délibérée, et c'est elle qui évite le flash de mauvaises couleurs au chargement.
+- **Une table manquante ne doit jamais bloquer l'app.** `user_settings` et `meals` sont lues en tolérant l'erreur : migration pas encore passée = valeurs par défaut, pas d'écran blanc. Garder ce réflexe pour toute nouvelle table.
 - **La clé API Anthropic ne doit jamais atteindre le navigateur.** Elle vit en secret d'Edge Function (`supabase secrets set ANTHROPIC_API_KEY=…`). L'analogie avec la clé anon Supabase est trompeuse : celle-ci est inoffensive parce que Row Level Security la borne, la clé Anthropic n'a aucune protection équivalente et se dépense.
 - **Un ingrédient porte ses valeurs pour 100 g, jamais ses valeurs absolues.** C'est ce qui permet de changer un poids sans rappeler le modèle ni la base. `itemNutriments()` fait la mise à l'échelle au moment de l'affichage et de l'écriture du journal.
 - **Un repas ajouté produit une ligne de journal par ingrédient**, pas une ligne agrégée — chacune reste corrigeable et supprimable seule, et garde son snapshot comme n'importe quel ajout.

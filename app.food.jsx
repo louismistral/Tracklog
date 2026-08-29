@@ -1195,7 +1195,7 @@ async function analyseRepas(description, { signal } = {}){
 /* ============================================================
    Page Bouffe
    ============================================================ */
-function FoodPage({ store, sub, onSub }){
+function FoodPage({ store, sub, onSub, aiEnabled = true }){
   const [addOpen, setAddOpen] = useState(null);      // { meal, day } | null
   const [editFood, setEditFood] = useState(null);    // aliment en cours d'édition
   const [newFood, setNewFood] = useState(null);      // brouillon d'aliment (création)
@@ -1246,6 +1246,7 @@ function FoodPage({ store, sub, onSub }){
       {addOpen && (
         <AddFoodModal
           store={store}
+          aiEnabled={aiEnabled}
           day={addOpen.day}
           meal={addOpen.meal}
           onClose={()=>setAddOpen(null)}
@@ -1892,7 +1893,7 @@ function MealEditModal({ meal, store, onClose, onSave, onDelete }){
 }
 
 /* ---- Ajouter un aliment (scanner / recherche / bibliothèque) --------------- */
-function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
+function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true }){
   // scan | recherche | manuel | ia | bibliotheque | favoris | repas
   const [source, setSource] = useState('scan');
   const [manualSeed, setManualSeed] = useState(null);   // { name?, barcode? } pré-rempli
@@ -2074,7 +2075,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
             <button className={source==='scan'?'on':''} onClick={()=>setSource('scan')}>Scanner</button>
             <button className={source==='recherche'?'on':''} onClick={()=>setSource('recherche')}>Rechercher</button>
             <button className={source==='manuel'?'on':''} onClick={()=>openManual({ name: query.trim() })}>À la main</button>
-            <button className={source==='ia'?'on':''} onClick={()=>setSource('ia')}>IA</button>
+            {aiEnabled && <button className={source==='ia'?'on':''} onClick={()=>setSource('ia')}>IA</button>}
           </div>
           <div className="seg wrap">
             <button className={source==='bibliotheque'?'on':''} onClick={()=>setSource('bibliotheque')}>Mes aliments</button>
@@ -2085,7 +2086,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood }){
 
         {source === 'scan' && <FoodScanner key={scanNonce} onCode={handleCode} />}
 
-        {source === 'ia' && (
+        {aiEnabled && source === 'ia' && (
           <AiAnalyseTab
             store={store} day={day} initialMeal={meal}
             onDone={onClose}

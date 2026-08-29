@@ -76,6 +76,36 @@ const AGGREGATES = [
   { id:'max', label:'Maximum' },
 ];
 
+/* ---- Styles ---------------------------------------------------------------
+   Un style = un jeu de variables CSS sous :root[data-theme="<id>"] dans
+   Tracklog.html, plus une ligne ici. Rien d'autre à toucher : l'interface des
+   paramètres se construit à partir de cette liste, et le petit script en tête
+   de page valide la valeur stockée contre les mêmes identifiants.
+   Pour en ajouter un : un bloc de tokens dans le <style>, une entrée ici, et
+   son identifiant dans STYLE_IDS de Tracklog.html. */
+const STYLES = [
+  { id:'dark',  label:'Sombre', hint:'Aristide — canvas presque noir, encre crème', themeColor:'#100f0d' },
+  { id:'light', label:'Clair',  hint:'Aristide — canvas crème, mêmes os éditoriaux', themeColor:'#f6f2e9' },
+];
+const DEFAULT_STYLE = 'dark';
+const isStyle = (id) => STYLES.some(s => s.id === id);
+
+/* ---- Onglets --------------------------------------------------------------
+   Log et Paramètres ne se désactivent pas : l'un est la raison d'être de
+   l'app, l'autre est la seule porte pour rallumer le reste. Le reste se coupe,
+   y compris l'analyse IA — qui n'est pas un onglet du haut mais une section de
+   la page Bouffe, et se cache donc à part. */
+const TOGGLEABLE_TABS = [
+  { id:'bouffe',   label:'Bouffe',   hint:'suivi nutritionnel, scanner, aliments et repas' },
+  { id:'trackers', label:'Trackers', hint:'gérer les trackers ; le rail permet d’en créer sans cet onglet' },
+  { id:'vues',     label:'Vues',     hint:'graphes, calendrier, grille de KPI' },
+  { id:'training', label:'Training', hint:'à venir' },
+];
+const TOGGLEABLE_FEATURES = [
+  { id:'ia', label:'Analyse IA', hint:'l’onglet IA de la page Bouffe, qui décompose un repas décrit en texte' },
+];
+const DEFAULT_TABS = { bouffe:true, trackers:true, vues:true, training:true, ia:true };
+
 // How a chart draws its line, and how wide one plotted point is. Two
 // independent per-tracker display settings — neither changes the stored data.
 const CURVE_STYLES = [
@@ -587,6 +617,55 @@ function DragHandle({ onPointerDown, dragging }){
 
 
 /* ============================================================
+   Préférences de compte — user_settings
+   ------------------------------------------------------------
+   Un seul blob jsonb par compte. Le thème et les bulles d'aide
+   restent en localStorage : ce sont des choix d'appareil (un
+   téléphone dehors, un écran de bureau). Ce qui décrit la forme
+   de l'app — quels onglets existent — suit le compte, sinon
+   masquer Bouffe sur le PC laisserait le téléphone incohérent.
+
+   Écriture optimiste : l'état local part devant, la base suit.
+   Un réglage d'affichage qui attend le réseau donne une app
+   qui colle, et l'échec n'y coûte qu'un rechargement.
+   ============================================================ */
+function useAccountPrefs(userId){
+  const [prefs, setPrefs] = useState(null);   // null = pas encore chargé
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.from('user_settings').select('*').maybeSingle();
+      if (cancelled) return;
+      // Table absente (migration pas encore passée) : on tourne sur les valeurs
+      // par défaut plutôt que de bloquer toute l'app sur un réglage d'affichage.
+      setPrefs((!error && data && data.prefs) ? data.prefs : {});
+    })();
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  const savePrefs = useCallback(async (patch) => {
+    setPrefs(prev => {
+      const next = { ...(prev || {}), ...patch };
+      supabase.from('user_settings')
+        .upsert({ user_id: userId, prefs: next, updated_at: Date.now() })
+        .then(({ error }) => { if (error) console.warn('user_settings', error.message); });
+      return next;
+    });
+  }, [userId]);
+
+  const tabs = { ...DEFAULT_TABS, ...((prefs && prefs.tabs) || {}) };
+  const setTab = (id, on) => savePrefs({ tabs: { ...tabs, [id]: on } });
+  return { ready: prefs !== null, prefs: prefs || {}, savePrefs, tabs, setTab };
+}
+
+const FEEDBACK_KINDS = [
+  { id:'bug',     label:'Bug' },
+  { id:'feature', label:'Idée' },
+  { id:'avis',    label:'Avis' },
+  { id:'autre',   label:'Autre' },
+];
+
+/* ============================================================
    App
    ============================================================ */
 
@@ -595,7 +674,8 @@ function App({ session }){
   const [trackers, setTrackers] = useState([]);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('log');        // log | bouffe | trackers | vues
+  const [tab, setTab] = useState('log');        // log | bouffe | trackers | vues | training | parametres
+  const accountPrefs = useAccountPrefs(userId);
   const [logSub, setLogSub] = useState('jour'); // jour | historique | chrono — sub-sections of Log
   const [foodSub, setFoodSub] = useState('jour'); // jour | aliments | vues — sub-sections of Bouffe
   // La nutrition a son propre magasin (foods / food_logs / objectifs), chargé ici
@@ -639,14 +719,16 @@ function App({ session }){
   // of truth the CSS reads (:root[data-theme="light"|"dark"]); state here just mirrors
   // it so the settings toggle re-renders.
   const [theme, setTheme] = useState(() => {
-    try { return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'; } catch { return 'dark'; }
+    try { const t = document.documentElement.dataset.theme; return isStyle(t) ? t : DEFAULT_STYLE; }
+    catch { return DEFAULT_STYLE; }
   });
   useEffect(() => {
     try {
       document.documentElement.dataset.theme = theme;
       localStorage.setItem('tracklog.theme', theme);
       const meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute('content', theme === 'light' ? '#f6f2e9' : '#100f0d');
+      const style = STYLES.find(s => s.id === theme);
+      if (meta && style) meta.setAttribute('content', style.themeColor);
     } catch {}
   }, [theme]);
   // Multi-select filter for the rail. `selectedIds` is the remembered set;
@@ -848,6 +930,11 @@ function App({ session }){
   // Not on Bouffe: it filters trackers, and the food page has none.
   const showRail = tab === 'log' || tab === 'trackers' || tab === 'vues';
 
+  // Turning a tab off while standing on it would leave a blank screen, so the
+  // view falls back to Log — which can never be turned off.
+  const visibleTabs = accountPrefs.tabs;
+  const activeTab = (tab !== 'log' && tab !== 'parametres' && visibleTabs[tab] === false) ? 'log' : tab;
+
   return (
     <InfoVisibilityContext.Provider value={infoEnabled}>
     <div className="app">
@@ -859,20 +946,23 @@ function App({ session }){
         </div>
         <div className="topbar-actions">
           <div className="tabs" role="tablist">
-            <button className={tab==='log'?'active':''} onClick={()=>setTab('log')}>Log</button>
-            <button className={tab==='bouffe'?'active':''} onClick={()=>setTab('bouffe')}>Bouffe</button>
-            <button className={tab==='trackers'?'active':''} onClick={()=>setTab('trackers')}>Trackers</button>
-            <button className={tab==='vues'?'active':''} onClick={()=>setTab('vues')}>Vues</button>
+            <button className={activeTab==='log'?'active':''} onClick={()=>setTab('log')}>Log</button>
+            {visibleTabs.bouffe && <button className={activeTab==='bouffe'?'active':''} onClick={()=>setTab('bouffe')}>Bouffe</button>}
+            {visibleTabs.training && <button className={activeTab==='training'?'active':''} onClick={()=>setTab('training')}>Training</button>}
+            {visibleTabs.trackers && <button className={activeTab==='trackers'?'active':''} onClick={()=>setTab('trackers')}>Trackers</button>}
+            {visibleTabs.vues && <button className={activeTab==='vues'?'active':''} onClick={()=>setTab('vues')}>Vues</button>}
           </div>
           <button
-            className={`gear-btn ${tab==='parametres'?'active':''}`}
+            className={`gear-btn ${activeTab==='parametres'?'active':''}`}
             onClick={()=>setTab('parametres')}
             aria-label="Paramètres"
             title="Paramètres"
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-              <circle cx="8" cy="8" r="2.3" />
-              <path d="M8 1.6v1.7M8 12.7v1.7M14.4 8h-1.7M3.3 8H1.6M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2M12.5 12.5l-1.2-1.2M4.7 4.7 3.5 3.5" strokeLinecap="round" />
+            {/* Engrenage à 8 dents, tracé par géométrie : flancs radiaux et
+                racines en arc, pour rester net à 16 px. */}
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round">
+              <path d="M6.83,3.14L7.15,1.66L8.85,1.66L9.17,3.14A5,5 0 0 1 10.61,3.74L11.88,2.91L13.09,4.12L12.26,5.39A5,5 0 0 1 12.86,6.83L14.34,7.15L14.34,8.85L12.86,9.17A5,5 0 0 1 12.26,10.61L13.09,11.88L11.88,13.09L10.61,12.26A5,5 0 0 1 9.17,12.86L8.85,14.34L7.15,14.34L6.83,12.86A5,5 0 0 1 5.39,12.26L4.12,13.09L2.91,11.88L3.74,10.61A5,5 0 0 1 3.14,9.17L1.66,8.85L1.66,7.15L3.14,6.83A5,5 0 0 1 3.74,5.39L2.91,4.12L4.12,2.91L5.39,3.74A5,5 0 0 1 6.83,3.14Z" />
+              <circle cx="8" cy="8" r="2.2" />
             </svg>
           </button>
         </div>
@@ -895,7 +985,7 @@ function App({ session }){
         />
       )}
 
-      {tab === 'log' ? (
+      {activeTab === 'log' ? (
         <LogView
           logSub={logSub}
           onLogSub={setLogSub}
@@ -920,12 +1010,14 @@ function App({ session }){
           onRemoveChrono={removeChrono}
           onSaveChrono={saveChronoAsEntry}
           onUpdateChrono={updateChrono}
-          foodSummary={filterActive ? null : <FoodDaySummary store={food} onOpen={()=>setTab('bouffe')} />}
+          foodSummary={(filterActive || !visibleTabs.bouffe) ? null : <FoodDaySummary store={food} onOpen={()=>setTab('bouffe')} />}
           historyJump={historyJump}
         />
-      ) : tab === 'bouffe' ? (
-        <FoodPage store={food} sub={foodSub} onSub={setFoodSub} />
-      ) : tab === 'trackers' ? (
+      ) : activeTab === 'bouffe' ? (
+        <FoodPage store={food} sub={foodSub} onSub={setFoodSub} aiEnabled={visibleTabs.ia !== false} />
+      ) : activeTab === 'training' ? (
+        <TrainingView />
+      ) : activeTab === 'trackers' ? (
         <TrackersView
           trackers={trackers}
           entries={entries}
@@ -936,7 +1028,7 @@ function App({ session }){
           onUnarchive={unarchiveTracker}
           onReorder={manualSort ? reorderTrackers : null}
         />
-      ) : tab === 'vues' ? (
+      ) : activeTab === 'vues' ? (
         <VuesView
           trackers={activeTrackers}
           trackerById={trackerById}
@@ -948,6 +1040,7 @@ function App({ session }){
         />
       ) : (
         <SettingsView
+          userId={userId}
           email={session.user.email}
           onChangePassword={()=>setPwOpen(true)}
           onSignOut={()=>supabase.auth.signOut()}
@@ -955,6 +1048,9 @@ function App({ session }){
           onSetInfoEnabled={setInfoEnabled}
           theme={theme}
           onSetTheme={setTheme}
+          tabs={visibleTabs}
+          onSetTabVisible={accountPrefs.setTab}
+          prefsReady={accountPrefs.ready}
         />
       )}
 
@@ -1001,7 +1097,8 @@ function App({ session }){
    display preferences (info bubbles), one place instead of two
    loose top-bar buttons.
    ============================================================ */
-function SettingsView({ email, onChangePassword, onSignOut, infoEnabled, onSetInfoEnabled, theme, onSetTheme }){
+function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled, onSetInfoEnabled,
+                       theme, onSetTheme, tabs, onSetTabVisible, prefsReady }){
   return (
     <div className="settings-view">
       <p className="section-label" style={{margin:'0 0 16px'}}>Paramètres</p>
@@ -1023,14 +1120,63 @@ function SettingsView({ email, onChangePassword, onSignOut, infoEnabled, onSetIn
       </div>
 
       <div className="card settings-card">
-        <p className="settings-section-title">Affichage</p>
-        <div className="field">
-          <label>Thème</label>
-          <div className="vue-mode small">
-            <button className={theme==='dark'?'on':''} onClick={()=>onSetTheme('dark')}>Sombre</button>
-            <button className={theme==='light'?'on':''} onClick={()=>onSetTheme('light')}>Clair</button>
+        <p className="settings-section-title">Style</p>
+        <div className="field" style={{borderBottom:'none',flexDirection:'column',alignItems:'stretch',gap:10}}>
+          <div className="style-picker">
+            {STYLES.map(s => (
+              <button key={s.id} className={`style-choice ${theme===s.id?'on':''}`} onClick={()=>onSetTheme(s.id)}>
+                <span className="style-swatch" data-style={s.id} aria-hidden="true">
+                  <i /><i /><i />
+                </span>
+                <span className="style-name">{s.label}</span>
+                <span className="style-hint">{s.hint}</span>
+              </button>
+            ))}
           </div>
         </div>
+        <p className="settings-hint">
+          Le style est propre à cet appareil — un téléphone dehors et un écran de bureau
+          n'appellent pas le même. D'autres viendront s'ajouter à cette liste.
+        </p>
+      </div>
+
+      <div className="card settings-card">
+        <p className="settings-section-title">Onglets</p>
+        {!prefsReady && <p className="settings-hint" style={{marginTop:0}}>Chargement…</p>}
+        {TOGGLEABLE_TABS.map(t => (
+          <div className="field" key={t.id}>
+            <label>{t.label}</label>
+            <div className="ctl-with-info">
+              <div className="vue-mode small">
+                <button className={tabs[t.id] !== false ? 'on' : ''} onClick={()=>onSetTabVisible(t.id, true)}>Affiché</button>
+                <button className={tabs[t.id] === false ? 'on' : ''} onClick={()=>onSetTabVisible(t.id, false)}>Masqué</button>
+              </div>
+              <span className="settings-inline-hint">{t.hint}</span>
+            </div>
+          </div>
+        ))}
+        {TOGGLEABLE_FEATURES.map(f => (
+          <div className="field" key={f.id} style={{borderBottom:'none'}}>
+            <label>{f.label}</label>
+            <div className="ctl-with-info">
+              <div className="vue-mode small">
+                <button className={tabs[f.id] !== false ? 'on' : ''} onClick={()=>onSetTabVisible(f.id, true)}>Affiché</button>
+                <button className={tabs[f.id] === false ? 'on' : ''} onClick={()=>onSetTabVisible(f.id, false)}>Masqué</button>
+              </div>
+              <span className="settings-inline-hint">{f.hint}</span>
+            </div>
+          </div>
+        ))}
+        <p className="settings-hint">
+          Masquer un onglet ne supprime rien : les données restent, l'onglet disparaît de la
+          barre du haut. <span className="k">Log</span> et les paramètres ne se masquent pas —
+          l'un est la raison d'être de l'app, l'autre la seule porte pour rallumer le reste.
+          Ce réglage suit le compte, pas l'appareil.
+        </p>
+      </div>
+
+      <div className="card settings-card">
+        <p className="settings-section-title">Affichage</p>
         <div className="field" style={{borderBottom:'none'}}>
           <label>Bulles d'info</label>
           <div className="vue-mode small">
@@ -1043,6 +1189,110 @@ function SettingsView({ email, onChangePassword, onSignOut, infoEnabled, onSetIn
           Désactivez-les une fois l'app bien en main.
         </p>
       </div>
+
+      <FeedbackCard userId={userId} />
+    </div>
+  );
+}
+
+/* ============================================================
+   Retours — bugs, idées, avis
+   ------------------------------------------------------------
+   Écrire pendant qu'on a le nez dedans plutôt que de se
+   promettre d'y penser plus tard. Le contexte technique (style,
+   taille d'écran, navigateur) part avec le message : c'est
+   exactement ce qu'on ne pense jamais à noter et ce qui manque
+   toujours pour reproduire un bug.
+   ============================================================ */
+function FeedbackCard({ userId }){
+  const [kind, setKind] = useState('bug');
+  const [message, setMessage] = useState('');
+  const [state, setState] = useState('idle');   // idle | sending | sent | error
+  const [err, setErr] = useState('');
+  const canSend = message.trim().length >= 5 && state !== 'sending';
+
+  const send = async () => {
+    if (!canSend) return;
+    setState('sending'); setErr('');
+    const row = {
+      id: uid('fb_'),
+      user_id: userId,
+      kind,
+      message: message.trim(),
+      context: {
+        style: (() => { try { return document.documentElement.dataset.theme || null; } catch { return null; } })(),
+        ecran: (() => { try { return `${window.innerWidth}×${window.innerHeight}`; } catch { return null; } })(),
+        navigateur: (() => { try { return navigator.userAgent; } catch { return null; } })(),
+        envoye_le: new Date().toISOString(),
+      },
+      created_at: Date.now(),
+    };
+    const { error } = await supabase.from('feedback').insert(row);
+    if (error){
+      setState('error');
+      setErr(error.message || "L'envoi a échoué.");
+      return;
+    }
+    setState('sent');
+    setMessage('');
+  };
+
+  return (
+    <div className="card settings-card">
+      <p className="settings-section-title">Un retour ?</p>
+
+      <div className="field">
+        <label>Type</label>
+        <div className="seg wrap">
+          {FEEDBACK_KINDS.map(k => (
+            <button key={k.id} className={kind===k.id?'on':''} onClick={()=>{ setKind(k.id); setState('idle'); }}>
+              {k.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="field" style={{borderBottom:'none',flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
+        <label style={{width:'auto'}}>Message</label>
+        <textarea
+          rows={4}
+          value={message}
+          onChange={e=>{ setMessage(e.target.value); if (state !== 'idle') setState('idle'); }}
+          placeholder={
+            kind === 'bug' ? "Ce que tu faisais, ce que tu attendais, ce qui s'est passé à la place."
+            : kind === 'feature' ? "Ce que tu voudrais pouvoir faire, et pourquoi le contournement actuel ne suffit pas."
+            : kind === 'avis' ? "Ce qui marche bien, ce qui agace."
+            : "Tout ce qui ne rentre pas dans les cases au-dessus."
+          }
+        />
+        <div className="feedback-foot">
+          <span className="settings-inline-hint">
+            {state === 'sent' ? 'Envoyé — merci.'
+             : state === 'error' ? err
+             : 'Le style, la taille d’écran et le navigateur partent avec le message.'}
+          </span>
+          <button className="primary sm" disabled={!canSend} onClick={send}>
+            {state === 'sending' ? 'Envoi…' : state === 'sent' ? 'Envoyer un autre' : 'Envoyer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   Training — la place est prise, le contenu viendra
+   ============================================================ */
+function TrainingView(){
+  return (
+    <div className="empty training-empty">
+      <span className="em-serif">Training.</span>
+      Cet onglet est réservé — le suivi d'entraînement viendra ici. En attendant, une séance
+      se suit très bien avec un tracker <span className="k">durée</span> et un chrono, ou un
+      tracker <span className="k">choix</span> pour le type de séance.
+      <span className="training-note serif">
+        Masquable depuis les paramètres, section Onglets, tant qu'il est vide.
+      </span>
     </div>
   );
 }
