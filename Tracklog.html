@@ -148,6 +148,18 @@
   .settings-section-title{font-family:"Instrument Serif",serif;font-style:italic;font-size:19px;margin:0 0 6px}
   .settings-value{font-size:13px;color:var(--ink-2)}
   .settings-hint{font-size:12px;color:var(--ink-3);line-height:1.6;margin:12px 0 0}
+  /* Archived trackers have no card anywhere else to carry a gear icon — this list,
+     opening the same TrackerModal as everything else, is their only way back. */
+  .archive-list{display:flex;flex-direction:column;gap:2px}
+  .archive-row{display:flex;align-items:center;gap:10px;width:100%;padding:10px 4px;
+    border:none;border-top:1px solid var(--line);background:none;color:var(--ink);
+    text-align:left;cursor:pointer;transition:background .3s var(--ease)}
+  .archive-row:first-child{border-top:none}
+  .archive-row:hover{background:var(--bg-3)}
+  .archive-row .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .archive-name{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .archive-type{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-3);
+    border:1px solid var(--line-2);border-radius:999px;padding:3px 8px;flex-shrink:0}
   .settings-hint .k{color:var(--ink-2)}
   .settings-inline-hint{font-size:11px;color:var(--ink-3);line-height:1.5}
 
@@ -527,53 +539,63 @@
     .master-strip{gap:12px;padding:12px 16px}
     .ms-meter{display:none}
   }
-  .today-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+  /* 260px, not 230: the header row can now hold up to four round buttons plus the
+     primary action — the widest realistic case (a non-daily, jokerable tracker with
+     entries already logged) needs the extra room to keep the tracker's name legible. */
+  .today-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
   .today-card{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:18px;display:flex;flex-direction:column;gap:14px;transition:border-color .5s var(--ease),transform .5s var(--ease),box-shadow .5s var(--ease)}
   .today-card:hover{border-color:var(--line-2);transform:translateY(-2px)}
   .today-card.done{border-color:var(--accent);background:var(--accent-soft)}
   .today-card.flash{box-shadow:0 0 0 1px var(--accent),0 0 30px -6px rgba(226,84,47,.5)}
-  .tc-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-  .tc-name{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;min-width:0;flex:1}
-  .tc-name .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-  .tc-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tc-head{display:flex;align-items:center;justify-content:space-between;gap:6px}
+  /* The name carries the tracker's colour directly, in weight — no separate dot repeating
+     the same information. */
+  .tc-name{font-size:14px;font-weight:600;min-width:0;flex:1;letter-spacing:-0.005em;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tc-badge{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:3px 8px;flex-shrink:0;white-space:nowrap}
   .tc-badge.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
-  /* flex-basis 0 so a compact field (number, duration) stays on the save button's line —
+  /* flex-basis 0 so a compact field (number, duration) stays on its own line at full width —
      flexbox breaks lines on natural size, before any shrinking, so basis auto would wrap.
      min-content keeps it from being squeezed under its own controls. */
   .tc-input{min-height:34px;display:flex;align-items:center;flex:1 1 0;min-width:min-content}
-  /* Controls that lay out in several rows (scale, choices, textarea) claim the full width
-     instead, and let the button drop to its own line underneath. */
+  /* Controls that lay out in several rows (scale, choices, textarea) claim the full width. */
   .tc-input.wide{flex-basis:auto}
-  /* A range input reports a ~159px min-content width; the slider is meant to be
-     squeezable, so it opts out of that floor and keeps the button on its line. */
+  /* A range input reports a ~159px min-content width; the slider is meant to be squeezable. */
   .tc-input.squeeze{min-width:0}
   .tc-input input,.tc-input textarea{font-size:14px}
   .tc-input input{min-width:0}
   .tc-input textarea{resize:none;line-height:1.4;width:100%}
-  /* Input and the save button share a line when they fit; the button drops to its own
-     right-aligned line rather than overlapping the controls in a narrow card. */
-  .tc-input-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;row-gap:10px}
-  .tc-input-row .primary.sm{margin-left:auto}
-  .tc-foot{display:flex;justify-content:flex-end;align-items:center;gap:10px}
-  .tc-clear{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3);padding:8px 4px;margin-right:auto;transition:color .3s}
-  .tc-clear:hover{color:var(--warn)}
-  .today-card .primary.sm{background:var(--accent);color:#fff;padding:8px 13px;border-radius:999px;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.1em;transition:background .3s;flex-shrink:0}
-  .today-card .primary.sm:hover{background:#f0613b}
-  .today-card .primary.sm:disabled{opacity:0.3;cursor:not-allowed}
-  /* Multi tracker: the count badge toggles a compact, editable list of the day's entries.
-     Round shape (no dropdown arrow) is the interactive affordance on its own. */
-  .tc-badge.badge-btn{cursor:pointer;width:24px;height:24px;padding:0;border-radius:50%;
-    display:inline-flex;align-items:center;justify-content:center;font-family:"Geist Mono",monospace;
-    transition:color .3s,border-color .3s,background .3s}
-  .tc-badge.badge-btn:hover{color:var(--ink-2);border-color:var(--ink-2)}
-  .tc-badge.badge-btn.open{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
-  .tc-head-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
-  /* Joker: marks the whole day as excluded from calculations (not a zero). */
-  .tc-badge.joker-btn{opacity:.5}
-  .tc-badge.joker-btn:hover{opacity:.85}
-  .tc-badge.joker-btn.on{opacity:1;color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
-  .tc-joker-note{font-size:11px;color:var(--accent);font-style:italic;line-height:1.4;margin-top:-6px}
+  /* Every button on the header row shares one height — that shared height, not each
+     button's own size, is what makes the row read as one unit. Left to right: joker ·
+     entrées précédentes · effacer · paramètres · noter — the geste principal (noter/ajouter)
+     always lands rightmost; the joker, a rarer and more deliberate choice, always leftmost. */
+  .tc-actions{display:flex;align-items:center;gap:5px;flex-shrink:0}
+  .tc-act{height:26px;min-width:26px;padding:0 4px;border-radius:999px;border:1px solid var(--line-2);
+    background:none;color:var(--ink-3);cursor:pointer;flex-shrink:0;
+    display:inline-flex;align-items:center;justify-content:center;
+    font-family:"Geist Mono",monospace;font-size:11px;font-feature-settings:"tnum";
+    transition:color .3s var(--ease),border-color .3s var(--ease),background .3s var(--ease),opacity .3s var(--ease)}
+  .tc-act:hover{color:var(--ink-2);border-color:var(--ink-2)}
+  .tc-act.icon{width:26px;padding:0}
+  .tc-act.count{padding:0 7px}
+  .tc-act.count.open{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+  .tc-act.danger:hover{color:var(--warn);border-color:var(--warn)}
+  /* Joker: marks the whole day as excluded from calculations (not a zero) — quiet at rest,
+     since it's an option, not an alert; accented once on, same convention as every other
+     "on" toggle in the app. */
+  .tc-act.joker{opacity:.55}
+  .tc-act.joker:hover{opacity:1}
+  .tc-act.joker.on{opacity:1;color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+  .tc-act.primary{background:var(--accent);border-color:var(--accent);color:#fff;padding:0 10px;
+    font-family:"Geist",ui-sans-serif,sans-serif;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em}
+  .tc-act.primary:hover{background:#f0613b;border-color:#f0613b}
+  .tc-act.primary:disabled{opacity:0.3;cursor:not-allowed}
+  /* A jokered day replaces the entry composer with this line instead — the dash is the
+     same glyph the app already uses everywhere for "nothing here", so a joker day reads
+     as a day without a value, not as a zero or a mistake. */
+  .tc-dash-row{display:flex;align-items:baseline;gap:11px;min-height:34px}
+  .tc-dash{font-size:22px;color:var(--ink-3);line-height:1}
+  .tc-dash-msg{font-size:14px;color:var(--ink-3)}
   /* Boxed, labelled, collapsed by default — expands under the input row when the badge is clicked.
      The negative margin cancels the parent's 14px flex gap so a collapsed list leaves no empty space. */
   .tc-log{display:flex;flex-direction:column;overflow:hidden;max-height:0;opacity:0;margin-top:-14px;
@@ -679,6 +701,11 @@
   .day-editor-head{display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap}
   .de-title{font-family:"Instrument Serif",serif;font-style:italic;font-weight:400;font-size:28px;color:var(--ink);text-transform:capitalize;line-height:1;letter-spacing:0}
   .de-sub{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.08em;font-family:"Geist Mono",monospace}
+  /* Week number, next to a day's title — plain metadata, not a status, so it stays
+     neutral rather than borrowing the accent the way a master's tag does. */
+  .week-tag{display:inline-flex;align-items:center;vertical-align:middle;margin-left:10px;
+    font-size:11px;font-style:normal;text-transform:none;letter-spacing:0.02em;
+    color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:2px 9px}
   .de-today{font-size:10px;color:var(--ink-2);border:1px solid var(--line-2);border-radius:999px;padding:7px 13px;background:transparent;margin-left:auto;text-transform:uppercase;letter-spacing:0.12em;transition:all .35s var(--ease)}
   .de-today:hover{background:var(--ink);border-color:var(--ink);color:var(--bg)}
   .day-entries{margin-top:4px}
@@ -1061,7 +1088,7 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Bouffe, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=36"></script>
+<script type="text/babel" src="app.jsx?v=37"></script>
 <script type="text/babel" src="app.food.jsx?v=7"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>

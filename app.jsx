@@ -94,17 +94,17 @@ const isStyle = (id) => STYLES.some(s => s.id === id);
    Log et Paramètres ne se désactivent pas : l'un est la raison d'être de
    l'app, l'autre est la seule porte pour rallumer le reste. Le reste se coupe,
    y compris l'analyse IA — qui n'est pas un onglet du haut mais une section de
-   la page Bouffe, et se cache donc à part. */
+   la page Bouffe, et se cache donc à part. Pas d'entrée « Trackers » : cette
+   page a disparu, remplacée par le bouton du Log et l'engrenage par tracker. */
 const TOGGLEABLE_TABS = [
   { id:'bouffe',   label:'Bouffe',   hint:'suivi nutritionnel, scanner, aliments et repas' },
-  { id:'trackers', label:'Trackers', hint:'gérer les trackers ; le rail permet d’en créer sans cet onglet' },
   { id:'vues',     label:'Vues',     hint:'graphes, calendrier, grille de KPI' },
   { id:'training', label:'Training', hint:'à venir' },
 ];
 const TOGGLEABLE_FEATURES = [
   { id:'ia', label:'Analyse IA', hint:'l’onglet IA de la page Bouffe, qui décompose un repas décrit en texte' },
 ];
-const DEFAULT_TABS = { bouffe:true, trackers:true, vues:true, training:true, ia:true };
+const DEFAULT_TABS = { bouffe:true, vues:true, training:true, ia:true };
 
 // How a chart draws its line, and how wide one plotted point is. Two
 // independent per-tracker display settings — neither changes the stored data.
@@ -369,6 +369,14 @@ function dayLabel(ts){
 function timeLabel(ts){
   const d = new Date(ts);
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+// ISO 8601 week number — Monday-first, week 1 is the one holding the year's first Thursday.
+function isoWeek(ts){
+  const d = new Date(Date.UTC(new Date(ts).getFullYear(), new Date(ts).getMonth(), new Date(ts).getDate()));
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
 }
 function uid(p){ return p + Math.random().toString(36).slice(2,9); }
 function startOfDay(ts){ const d = new Date(ts); d.setHours(0,0,0,0); return d.getTime(); }
@@ -712,6 +720,15 @@ function App({ session }){
   useEffect(() => {
     try { localStorage.setItem(infoKey, infoEnabled ? '1' : '0'); } catch {}
   }, [infoEnabled, infoKey]);
+  // Whether the day's title shows its week number — a device preference, same
+  // family as the "i" bubbles: it changes how the screen reads, not what it means.
+  const weekKey = 'tracklog.showWeek';
+  const [showWeek, setShowWeek] = useState(() => {
+    try { const v = localStorage.getItem(weekKey); return v === null ? true : v === '1'; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(weekKey, showWeek ? '1' : '0'); } catch {}
+  }, [showWeek]);
   // Light/dark is read by a tiny inline script in <head>, before this app even loads,
   // so the page never flashes the wrong theme — that script can't know which account
   // is signing in yet, so this stays one unscoped key rather than per-user like the
@@ -914,6 +931,9 @@ function App({ session }){
   const activeTrackers = sortTrackers(trackers.filter(t => !t.archived));
   const loggableTrackers = activeTrackers.filter(t => !isMaster(t));
   const masterTrackers = activeTrackers.filter(t => isMaster(t));
+  // Archived trackers have no card anywhere to carry a gear icon — this list is
+  // now their only way back, via Paramètres → Archives.
+  const archivedTrackers = trackers.filter(t => t.archived);
 
   // Effective filter: `filterActive` when there is a remembered selection and
   // "Tout" isn't overriding it. `filterIds` is null (= show everything) or the
@@ -926,9 +946,9 @@ function App({ session }){
   };
   const toggleAll = () => setShowAll(prev => !prev);
 
-  // The tracker filter rail is available on every tracker tab (Log, Trackers, Vues).
+  // The tracker filter rail is available on every tracker tab (Log, Vues).
   // Not on Bouffe: it filters trackers, and the food page has none.
-  const showRail = tab === 'log' || tab === 'trackers' || tab === 'vues';
+  const showRail = tab === 'log' || tab === 'vues';
 
   // Turning a tab off while standing on it would leave a blank screen, so the
   // view falls back to Log — which can never be turned off.
@@ -949,7 +969,6 @@ function App({ session }){
             <button className={activeTab==='log'?'active':''} onClick={()=>setTab('log')}>Log</button>
             {visibleTabs.bouffe && <button className={activeTab==='bouffe'?'active':''} onClick={()=>setTab('bouffe')}>Bouffe</button>}
             {visibleTabs.training && <button className={activeTab==='training'?'active':''} onClick={()=>setTab('training')}>Training</button>}
-            {visibleTabs.trackers && <button className={activeTab==='trackers'?'active':''} onClick={()=>setTab('trackers')}>Trackers</button>}
             {visibleTabs.vues && <button className={activeTab==='vues'?'active':''} onClick={()=>setTab('vues')}>Vues</button>}
           </div>
           <button
@@ -1012,22 +1031,14 @@ function App({ session }){
           onUpdateChrono={updateChrono}
           foodSummary={(filterActive || !visibleTabs.bouffe) ? null : <FoodDaySummary store={food} onOpen={()=>setTab('bouffe')} />}
           historyJump={historyJump}
+          onAddTracker={()=>setNewTrackerOpen(true)}
+          onEditTracker={(t)=>setEditTracker(t)}
+          showWeek={showWeek}
         />
       ) : activeTab === 'bouffe' ? (
         <FoodPage store={food} sub={foodSub} onSub={setFoodSub} aiEnabled={visibleTabs.ia !== false} />
       ) : activeTab === 'training' ? (
         <TrainingView />
-      ) : activeTab === 'trackers' ? (
-        <TrackersView
-          trackers={trackers}
-          entries={entries}
-          filterIds={filterIds}
-          onAdd={()=>setNewTrackerOpen(true)}
-          onEdit={(t)=>setEditTracker(t)}
-          onArchive={archiveTracker}
-          onUnarchive={unarchiveTracker}
-          onReorder={manualSort ? reorderTrackers : null}
-        />
       ) : activeTab === 'vues' ? (
         <VuesView
           trackers={activeTrackers}
@@ -1046,11 +1057,15 @@ function App({ session }){
           onSignOut={()=>supabase.auth.signOut()}
           infoEnabled={infoEnabled}
           onSetInfoEnabled={setInfoEnabled}
+          showWeek={showWeek}
+          onSetShowWeek={setShowWeek}
           theme={theme}
           onSetTheme={setTheme}
           tabs={visibleTabs}
           onSetTabVisible={accountPrefs.setTab}
           prefsReady={accountPrefs.ready}
+          archivedTrackers={archivedTrackers}
+          onEditTracker={(t)=>setEditTracker(t)}
         />
       )}
 
@@ -1098,7 +1113,8 @@ function App({ session }){
    loose top-bar buttons.
    ============================================================ */
 function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled, onSetInfoEnabled,
-                       theme, onSetTheme, tabs, onSetTabVisible, prefsReady }){
+                       showWeek, onSetShowWeek, theme, onSetTheme, tabs, onSetTabVisible, prefsReady,
+                       archivedTrackers = [], onEditTracker }){
   return (
     <div className="settings-view">
       <p className="section-label" style={{margin:'0 0 16px'}}>Paramètres</p>
@@ -1177,7 +1193,7 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
 
       <div className="card settings-card">
         <p className="settings-section-title">Affichage</p>
-        <div className="field" style={{borderBottom:'none'}}>
+        <div className="field">
           <label>Bulles d'info</label>
           <div className="vue-mode small">
             <button className={infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(true)}>Activées</button>
@@ -1188,6 +1204,43 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
           Les petits « i » qui expliquent chaque réglage, un peu partout dans l'app.
           Désactivez-les une fois l'app bien en main.
         </p>
+        <div className="field" style={{borderBottom:'none'}}>
+          <label>Numéro de semaine</label>
+          <div className="vue-mode small">
+            <button className={showWeek?'on':''} onClick={()=>onSetShowWeek(true)}>Affiché</button>
+            <button className={!showWeek?'on':''} onClick={()=>onSetShowWeek(false)}>Masqué</button>
+          </div>
+        </div>
+        <p className="settings-hint">
+          À côté de la date du jour, dans le Log et l'Historique.
+        </p>
+      </div>
+
+      <div className="card settings-card">
+        <p className="settings-section-title">Archives</p>
+        {!archivedTrackers.length ? (
+          <p className="settings-hint" style={{marginTop:0}}>
+            Aucun tracker archivé. Archiver un tracker le retire du Log sans supprimer ses
+            entrées — il atterrit ici, prêt à être désarchivé.
+          </p>
+        ) : (
+          <div className="archive-list">
+            {archivedTrackers.map(t => (
+              <button key={t.id} className="archive-row" onClick={()=>onEditTracker(t)}>
+                {isMaster(t)
+                  ? <span className="master-mark" style={{background:t.color}}></span>
+                  : <span className="dot" style={{background:t.color}}></span>}
+                <span className="archive-name">{t.name}</span>
+                <span className="archive-type">{isMaster(t) ? 'master' : (TYPES.find(x=>x.id===t.type)?.label || t.type)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {archivedTrackers.length > 0 && (
+          <p className="settings-hint">
+            Ouvre les réglages du tracker pour le désarchiver ou le supprimer.
+          </p>
+        )}
       </div>
 
       <FeedbackCard userId={userId} />
@@ -1382,7 +1435,7 @@ function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onTog
    Day view — fill / edit every tracker for one given day.
    Used by the "Jour" tab (today) and the Historique calendar (any day).
    ============================================================ */
-function TodayView({ trackers, masters = [], trackerById = {}, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder, foodSummary = null }){
+function TodayView({ trackers, masters = [], trackerById = {}, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder, foodSummary = null, onEditTracker, showWeek }){
   const todayTs = startOfDay(Date.now());
   const dk = dayKey(todayTs);
 
@@ -1411,16 +1464,18 @@ function TodayView({ trackers, masters = [], trackerById = {}, entries, filterId
   return (
     <div>
       {masters.length > 0 && (
-        <MasterStrips masters={masters} trackerById={trackerById} entries={entries} onReorder={onReorder} />
+        <MasterStrips masters={masters} trackerById={trackerById} entries={entries} onReorder={onReorder} onEdit={onEditTracker} />
       )}
       <div className="today-head">
-        <p className="section-label" style={{textTransform:'capitalize',margin:0}}>{todayLabel}</p>
+        <p className="section-label" style={{textTransform:'capitalize',margin:0}}>
+          {todayLabel}{showWeek && <span className="week-tag mono">sem. {isoWeek(todayTs)}</span>}
+        </p>
         {dailyTrackers.length > 0 && (
           <span className="today-progress">{dailyDone}/{dailyTrackers.length} quotidien{dailyTrackers.length>1?'s':''}</span>
         )}
       </div>
       {trackers.length > 0
-        ? <DayGrid trackers={trackers} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} dayTs={todayTs} isToday={true} onReorder={onReorder} />
+        ? <DayGrid trackers={trackers} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} dayTs={todayTs} isToday={true} onReorder={onReorder} onEditTracker={onEditTracker} />
         : <div className="empty" style={{padding:'30px 0'}}><span className="em-serif">Aucun tracker à remplir.</span> Vos masters se calculent tout seuls.</div>}
       {/* Troisième catégorie du jour : les compteurs de la page Bouffe. Ils ne se
           remplissent pas ici — ils se lisent, et mènent à la page qui les nourrit. */}
@@ -1433,7 +1488,7 @@ function TodayView({ trackers, masters = [], trackerById = {}, entries, filterId
 // Trackers are split into two groups so daily ("une entrée/jour") and
 // multi-entry trackers don't get mixed in the same visual set. Each group
 // is its own reorderable subset (see mergeSubOrder).
-function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, onReorder }){
+function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, onReorder, onEditTracker }){
   const dk = dayKey(dayTs);
   const byTracker = useMemo(() => {
     const m = {};
@@ -1482,6 +1537,7 @@ function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, da
             dragging={drag.dragId === t.id}
             onDragStart={drag.startDrag(t.id)}
             registerSubmit={registerSubmit}
+            onEditTracker={onEditTracker}
           />
         );
       })}
@@ -1522,7 +1578,7 @@ function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, da
   );
 }
 
-function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, containerRef, dragging, onDragStart, registerSubmit }){
+function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, containerRef, dragging, onDragStart, registerSubmit, onEditTracker }){
   const t = tracker;
   const daily = !!t.daily;
   // The joker entry is a day-level flag, not a logged value — kept out of the
@@ -1733,77 +1789,79 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
     <div ref={containerRef} className={`today-card ${loggedToday?'done':''} ${flash?'flash':''} ${dragging?'dragging':''}`}>
       <div className="tc-head">
         {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
-        <div className="tc-name"><span className="dot" style={{background:t.color}}></span>{t.name}</div>
-        {daily
-          ? (existing
-              ? <span className="tc-badge on">✓ noté</span>
-              : <span className="tc-badge">1×/jour</span>)
-          : (
-              <div className="tc-head-actions">
-                {count > 0 && (
-                  <button
-                    className={`tc-badge badge-btn ${logOpen?'open':''}`}
-                    onClick={()=>setLogOpen(o=>!o)}
-                    aria-expanded={logOpen}
-                    title={logOpen ? 'Masquer les entrées' : 'Voir les entrées'}
-                  >{count}×</button>
-                )}
-                {t.jokerEnabled && (
-                  <button
-                    className={`tc-badge badge-btn joker-btn ${jokerEntry?'on':''}`}
-                    onClick={toggleJoker}
-                    aria-pressed={!!jokerEntry}
-                    title={jokerEntry ? 'Retirer le joker' : 'Marquer ce jour comme joker (exclu des calculs)'}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-                      <path d="M6 1.8L6 10.2M2.36 3.9L9.64 8.1M2.36 8.1L9.64 3.9"/>
-                    </svg>
-                  </button>
-                )}
-              </div>
-            )}
+        <div className="tc-name" style={{color:t.color}}>{t.name}</div>
+        <div className="tc-actions">
+          {/* Left to right: joker · entrées précédentes · effacer · paramètres · noter — the
+              geste principal always lands rightmost, the joker (a rarer, deliberate choice)
+              always leftmost, as far from "Ajouter" as the row allows. */}
+          {!daily && t.jokerEnabled && (
+            <button
+              className={`tc-act icon joker ${jokerEntry?'on':''}`}
+              onClick={toggleJoker}
+              aria-pressed={!!jokerEntry}
+              title={jokerEntry ? 'Retirer le joker' : 'Marquer ce jour comme joker (exclu des calculs)'}
+            >
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round">
+                <circle cx="7" cy="7" r="5.2"/><path d="M3.4 10.6L10.6 3.4"/>
+              </svg>
+            </button>
+          )}
+          {!daily && count > 0 && (
+            <button
+              className={`tc-act count ${logOpen?'open':''}`}
+              onClick={()=>setLogOpen(o=>!o)}
+              aria-expanded={logOpen}
+              title={logOpen ? 'Masquer les entrées' : 'Voir les entrées'}
+            >{count}×</button>
+          )}
+          {daily && existing && (
+            <button className="tc-act icon danger" onClick={()=>onDeleteEntry(existing.id)} title="Effacer l'entrée du jour">
+              <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+                <path d="M2 2L10 10M10 2L2 10"/>
+              </svg>
+            </button>
+          )}
+          {onEditTracker && (
+            <button className="tc-act icon" onClick={()=>onEditTracker(t)} title="Paramètres du tracker">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round">
+                <path d="M6.83,3.14L7.15,1.66L8.85,1.66L9.17,3.14A5,5 0 0 1 10.61,3.74L11.88,2.91L13.09,4.12L12.26,5.39A5,5 0 0 1 12.86,6.83L14.34,7.15L14.34,8.85L12.86,9.17A5,5 0 0 1 12.26,10.61L13.09,11.88L11.88,13.09L10.61,12.26A5,5 0 0 1 9.17,12.86L8.85,14.34L7.15,14.34L6.83,12.86A5,5 0 0 1 5.39,12.26L4.12,13.09L2.91,11.88L3.74,10.61A5,5 0 0 1 3.14,9.17L1.66,8.85L1.66,7.15L3.14,6.83A5,5 0 0 1 3.74,5.39L2.91,4.12L4.12,2.91L5.39,3.74A5,5 0 0 1 6.83,3.14Z"/>
+                <circle cx="8" cy="8" r="2.2"/>
+              </svg>
+            </button>
+          )}
+          <button className="tc-act primary" disabled={!canSave} onClick={submit}>
+            {daily ? (existing ? 'Remplacer' : 'Noter') : 'Ajouter'}
+          </button>
+        </div>
       </div>
 
-      {!daily && jokerEntry && (
-        <div className="tc-joker-note">Jour joker — exclu des calculs</div>
+      {/* A jokered day doesn't invite a new value — it says so instead of composing one. */}
+      {!daily && jokerEntry ? (
+        <div className="tc-dash-row">
+          <span className="tc-dash mono">—</span>
+          <span className="tc-dash-msg serif">ce jour ne compte pas</span>
+        </div>
+      ) : (
+        <div className={inputClass}>{inputControls}</div>
       )}
 
-      {daily ? (
-        <>
-          <div className={inputClass}>{inputControls}</div>
-          <div className="tc-foot">
-            {existing && <button className="tc-clear" onClick={()=>onDeleteEntry(existing.id)}>Effacer</button>}
-            <button className="primary sm" disabled={!canSave} onClick={submit}>
-              {existing ? 'Remplacer' : 'Noter'}
-            </button>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="tc-input-row">
-            <div className={inputClass}>{inputControls}</div>
-            <button className="primary sm" disabled={!canSave} onClick={submit}>Ajouter</button>
-          </div>
-
-          {count > 0 && (
-            <div className={`tc-log ${logOpen?'open':''}`}>
-              <span className="tc-log-label">Entrées précédentes</span>
-              {logEntries.map(e => {
-                const unit = fmtUnit(t);
-                return (
-                  <div className="tc-log-row" key={e.id}>
-                    <span className="t">{timeLabel(e.ts)}</span>
-                    <span className="tc-log-actions">
-                      {onEditEntry && <button onClick={()=>onEditEntry(e)}>modifier</button>}
-                      <button className="del" onClick={()=>onDeleteEntry(e.id)}>suppr.</button>
-                    </span>
-                    <span className="v">{fmtValue(t, e.value)}{unit && <span className="u">{unit}</span>}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </>
+      {!daily && count > 0 && (
+        <div className={`tc-log ${logOpen?'open':''}`}>
+          <span className="tc-log-label">Entrées précédentes</span>
+          {logEntries.map(e => {
+            const unit = fmtUnit(t);
+            return (
+              <div className="tc-log-row" key={e.id}>
+                <span className="t">{timeLabel(e.ts)}</span>
+                <span className="tc-log-actions">
+                  {onEditEntry && <button onClick={()=>onEditEntry(e)}>modifier</button>}
+                  <button className="del" onClick={()=>onDeleteEntry(e.id)}>suppr.</button>
+                </span>
+                <span className="v">{fmtValue(t, e.value)}{unit && <span className="u">{unit}</span>}</span>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
@@ -2060,9 +2118,8 @@ function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
    ============================================================ */
 function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder,
                   chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono, onUpdateChrono, onResetAllChronos, chronoExclusive, onSetChronoExclusive,
-                  foodSummary, historyJump }){
-  const hint = logSub === 'jour' ? "les entrées d’aujourd’hui"
-             : logSub === 'historique' ? "ouvrez n’importe quel jour pour l’éditer"
+                  foodSummary, historyJump, onAddTracker, onEditTracker, showWeek }){
+  const hint = logSub === 'historique' ? "ouvrez n’importe quel jour pour l’éditer"
              : "chronométrez vos sessions, puis enregistrez-les";
   return (
     <div>
@@ -2072,7 +2129,9 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
           <button className={logSub==='historique'?'on':''} onClick={()=>onLogSub('historique')}>Historique</button>
           <button className={logSub==='chrono'?'on':''} onClick={()=>onLogSub('chrono')}>Chrono</button>
         </div>
-        <span className="log-subhint serif">{hint}</span>
+        {logSub === 'jour'
+          ? <button className="pill add" onClick={onAddTracker}>＋ Nouveau tracker</button>
+          : <span className="log-subhint serif">{hint}</span>}
       </div>
       {logSub === 'chrono' ? (
         <ChronoView
@@ -2091,7 +2150,7 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
           onUpdate={onUpdateChrono}
         />
       ) : logSub === 'jour' ? (
-        <TodayView trackers={trackers} masters={masters} trackerById={trackerById} entries={entries} filterIds={filterIds} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} onReorder={onReorder} foodSummary={foodSummary} />
+        <TodayView trackers={trackers} masters={masters} trackerById={trackerById} entries={entries} filterIds={filterIds} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} onReorder={onReorder} foodSummary={foodSummary} onEditTracker={onEditTracker} showWeek={showWeek} />
       ) : (
         <HistoryView
           trackers={trackers}
@@ -2104,6 +2163,8 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
           onEditEntry={onEditEntry}
           onReorder={onReorder}
           jumpTo={historyJump}
+          onEditTracker={onEditTracker}
+          showWeek={showWeek}
         />
       )}
     </div>
@@ -2113,7 +2174,7 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
 /* ============================================================
    History — a month calendar to open any day and edit its entries
    ============================================================ */
-function HistoryView({ trackers, masters = [], trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder, jumpTo }){
+function HistoryView({ trackers, masters = [], trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder, jumpTo, onEditTracker, showWeek }){
   const [monthTs, setMonthTs] = useState(() => startOfMonth(Date.now()));
   const [selectedDay, setSelectedDay] = useState(() => startOfDay(Date.now()));
 
@@ -2157,19 +2218,21 @@ function HistoryView({ trackers, masters = [], trackerById, entries, filterIds, 
 
       <div className="day-editor">
         <div className="day-editor-head">
-          <span className="serif de-title">{dayLabel(selectedDay)}</span>
+          <span className="serif de-title">
+            {dayLabel(selectedDay)}{showWeek && <span className="week-tag mono">sem. {isoWeek(selectedDay)}</span>}
+          </span>
           <span className="de-sub">{dayEntries.length} entrée{dayEntries.length>1?'s':''}{!isToday ? ' · archive' : ''}</span>
           {!isToday && <button className="de-today" onClick={goToday}>→ Aujourd'hui</button>}
         </div>
 
         {viewMasters.length > 0 && (
-          <MasterStrips masters={viewMasters} trackerById={trackerById} entries={entries} dayTs={selectedDay} onReorder={onReorder} />
+          <MasterStrips masters={viewMasters} trackerById={trackerById} entries={entries} dayTs={selectedDay} onReorder={onReorder} onEdit={onEditTracker} />
         )}
 
         {viewTrackers.length === 0 ? (
           <div className="empty"><span className="em-serif">Aucun tracker.</span> Créez-en un pour commencer.</div>
         ) : (
-          <DayGrid trackers={viewTrackers} entries={viewEntries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} dayTs={selectedDay} isToday={isToday} onReorder={onReorder} />
+          <DayGrid trackers={viewTrackers} entries={viewEntries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} dayTs={selectedDay} isToday={isToday} onReorder={onReorder} onEditTracker={onEditTracker} />
         )}
 
         {dayEntries.length > 0 && (
@@ -2264,102 +2327,6 @@ function MonthCalendar({ monthTs, onPrev, onNext, entries, selectedKey, onSelect
           )
         )}
       </div>
-    </div>
-  );
-}
-
-/* ============================================================
-   Trackers view — manage trackers and edit their properties
-   ============================================================ */
-function TrackersView({ trackers, entries, filterIds, onAdd, onEdit, onArchive, onUnarchive, onReorder }){
-  const countByTracker = useMemo(() => {
-    const m = {};
-    for (const e of entries) m[e.trackerId] = (m[e.trackerId] || 0) + 1;
-    return m;
-  }, [entries]);
-
-  const filterSet = filterIds ? new Set(filterIds) : null;
-  const shown = filterSet ? trackers.filter(t => filterSet.has(t.id)) : trackers;
-  const byId = useMemo(() => Object.fromEntries(shown.map(t => [t.id, t])), [shown]);
-  const active = shown.filter(t => !t.archived);
-  const archived = shown.filter(t => t.archived);
-  const activeIds = useMemo(() => active.map(t => t.id), [active]);
-  const archivedIds = useMemo(() => archived.map(t => t.id), [archived]);
-  const activeDrag = useDragReorder(activeIds, onReorder);
-  const archivedDrag = useDragReorder(archivedIds, onReorder);
-
-  const card = (t, drag) => {
-    const typeLabel = isMaster(t) ? 'Master' : (TYPES.find(x => x.id === t.type)?.label || t.type);
-    const chips = [];
-    if (isMaster(t)){
-      chips.push(`${(t.members||[]).length} membre${(t.members||[]).length>1?'s':''}`);
-    } else {
-      if (t.type === 'number' && t.unit) chips.push(t.unit);
-      if (t.type === 'scale') chips.push(`1–${t.scaleMax || 5}`);
-      if (t.type === 'choice'){
-        chips.push(`${(t.choices||[]).length} choix`);
-        chips.push(t.multiple ? 'multiple' : 'unique');
-      }
-      chips.push(t.daily ? 'une entrée/jour' : 'plusieurs/jour');
-      if (!t.daily && (t.type === 'number' || t.type === 'duration')){
-        chips.push(aggregateLabel(t).toLowerCase());
-      }
-    }
-    const count = countByTracker[t.id] || 0;
-    return (
-      <div ref={drag.setNodeRef(t.id)} className={`tk-card ${t.archived?'archived':''} ${drag.dragId===t.id?'dragging':''}`} key={t.id}>
-        <div className="tk-info">
-          <div className="tk-name">
-            <DragHandle onPointerDown={drag.startDrag(t.id)} dragging={drag.dragId===t.id} />
-            {isMaster(t)
-              ? <span className="master-mark" style={{background:t.color}}></span>
-              : <span className="dot" style={{background:t.color}}></span>}
-            {t.name}
-          </div>
-          <div className="tk-meta">
-            <span className="tk-type">{typeLabel}</span>
-            {chips.map((c,i)=><span key={i} className="tk-chip">{c}</span>)}
-          </div>
-          {!isMaster(t) && <div className="tk-count">{count} entrée{count>1?'s':''}</div>}
-          {isMaster(t) && <div className="tk-count">indice calculé</div>}
-        </div>
-        <div className="tk-actions">
-          <button className="tk-edit" onClick={()=>onEdit(t)}>Modifier</button>
-          {t.archived
-            ? <button className="tk-arch" onClick={()=>onUnarchive(t.id)}>Désarchiver</button>
-            : <button className="tk-arch" onClick={()=>onArchive(t.id)}>Archiver</button>}
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div>
-      <div className="trackers-head">
-        <p className="section-label" style={{margin:0}}>Trackers · {active.length}</p>
-        <button className="pill add" onClick={onAdd}>＋ Nouveau tracker</button>
-      </div>
-
-      {trackers.length === 0 ? (
-        <div className="empty">
-          <span className="em-serif">Aucun tracker.</span>
-          Créez-en un pour commencer à suivre quelque chose.
-        </div>
-      ) : (
-        <>
-          <div className="trackers-grid">
-            {activeDrag.order.map(id => byId[id] && card(byId[id], activeDrag))}
-          </div>
-          {archived.length > 0 && (
-            <>
-              <p className="section-label" style={{margin:'32px 0 16px'}}>Archivés · {archived.length}</p>
-              <div className="trackers-grid">
-                {archivedDrag.order.map(id => byId[id] && card(byId[id], archivedDrag))}
-              </div>
-            </>
-          )}
-        </>
-      )}
     </div>
   );
 }
@@ -2466,7 +2433,7 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
             if (!t) return null;
             const dragProps = { containerRef: cardsDrag.setNodeRef(t.id), dragging: cardsDrag.dragId===t.id, onDragStart: cardsDrag.startDrag(t.id) };
             return isMaster(t)
-              ? <MasterTrackerCard key={t.id} master={t} trackerById={trackerById} entries={entries} rangeDays={range} {...dragProps} />
+              ? <MasterTrackerCard key={t.id} master={t} trackerById={trackerById} entries={entries} rangeDays={range} onEdit={onEdit} {...dragProps} />
               : <ChartCard key={t.id} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} onOpenDay={onOpenDay} {...dragProps} />;
           })}
 
@@ -2477,7 +2444,7 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
                 if (!t) return null;
                 const dragProps = { containerRef: cardsDrag.setNodeRef(t.id), dragging: cardsDrag.dragId===t.id, onDragStart: cardsDrag.startDrag(t.id) };
                 return isMaster(t)
-                  ? <MasterTrackerCard key={t.id} compact master={t} trackerById={trackerById} entries={entries} rangeDays={range} {...dragProps} />
+                  ? <MasterTrackerCard key={t.id} compact master={t} trackerById={trackerById} entries={entries} rangeDays={range} onEdit={onEdit} {...dragProps} />
                   : <ChartCard key={t.id} compact tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} onOpenDay={onOpenDay} {...dragProps} />;
               })}
             </div>
@@ -3177,7 +3144,7 @@ function computeMasterSeries(master, members, entries, rangeDays, endTs = Date.n
    Historique day editor (value as of the opened day, via `dayTs`).
    Reorderable among themselves.
    ============================================================ */
-function MasterStrips({ masters, trackerById, entries, dayTs, onReorder }){
+function MasterStrips({ masters, trackerById, entries, dayTs, onReorder, onEdit }){
   const byId = useMemo(() => Object.fromEntries(masters.map(m => [m.id, m])), [masters]);
   const ids = useMemo(() => masters.map(m => m.id), [masters]);
   const drag = useDragReorder(ids, onReorder);
@@ -3187,14 +3154,14 @@ function MasterStrips({ masters, trackerById, entries, dayTs, onReorder }){
         const m = byId[id];
         if (!m) return null;
         return (
-          <MasterStrip key={m.id} master={m} trackerById={trackerById} entries={entries} dayTs={dayTs}
+          <MasterStrip key={m.id} master={m} trackerById={trackerById} entries={entries} dayTs={dayTs} onEdit={onEdit}
             containerRef={drag.setNodeRef(m.id)} dragging={drag.dragId === m.id} onDragStart={drag.startDrag(m.id)} />
         );
       })}
     </div>
   );
 }
-function MasterStrip({ master, trackerById, entries, dayTs, containerRef, dragging, onDragStart }){
+function MasterStrip({ master, trackerById, entries, dayTs, containerRef, dragging, onDragStart, onEdit }){
   const members = masterMembers(master, trackerById);
   // The reading is always *that day's*, never the last one found further back:
   // an index is a statement about a day, so a day with nothing recorded reads "—".
@@ -3223,6 +3190,14 @@ function MasterStrip({ master, trackerById, entries, dayTs, containerRef, draggi
         <div className="ms-fill" style={{width:`${pct||0}%`, background:master.color}}></div>
       </div>
       <div className="ms-val">{pct != null ? pct : '—'}<span className="ms-unit">/100</span></div>
+      {onEdit && (
+        <button className="chart-edit-btn ms-edit" onClick={()=>onEdit(master)} aria-label="Paramètres du master" title="Paramètres du master">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+            <circle cx="8" cy="8" r="2.3" />
+            <path d="M8 1.6v1.7M8 12.7v1.7M14.4 8h-1.7M3.3 8H1.6M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2M12.5 12.5l-1.2-1.2M4.7 4.7 3.5 3.5" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
@@ -3231,7 +3206,7 @@ function MasterStrip({ master, trackerById, entries, dayTs, containerRef, draggi
    Master tracker card — a saved index: average of the normalized
    performance of its chosen member trackers (0–100 per day).
    ============================================================ */
-function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = false, containerRef, dragging, onDragStart }){
+function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = false, containerRef, dragging, onDragStart, onEdit }){
   const members = masterMembers(master, trackerById);
   const grain = GRAINS.some(g => g.id === master.chartGrain) ? master.chartGrain : 'day';
   const curveStyle = master.curveStyle === 'smooth' ? 'smooth' : 'line';
@@ -3281,17 +3256,27 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = 
           <span className="master-mark" style={{background:master.color}}></span>{master.name}
           <span className="master-tag">master</span>
         </div>
-        <div className="stats">
-          {compact ? (
-            <div><span className="v">{latest!=null ? Math.round(latest*100) : '—'}</span></div>
-          ) : (
-            <>
-              <div>actuel <span className="v">{latest!=null ? Math.round(latest*100) : '—'}</span></div>
-              <div>moyenne <span className="v">{overallAvg!=null ? Math.round(overallAvg*100) : '—'}</span></div>
-              <div>évolution <span className="v" style={{marginLeft:6, color: delta!=null ? (delta>0?'oklch(0.55 0.10 150)':delta<0?'oklch(0.55 0.10 30)':'inherit') : 'inherit'}}>
-                {delta!=null ? (delta>0?'↑':delta<0?'↓':'=')+' '+Math.abs(Math.round(delta*100)) : '—'}
-              </span></div>
-            </>
+        <div className="chart-head-right">
+          <div className="stats">
+            {compact ? (
+              <div><span className="v">{latest!=null ? Math.round(latest*100) : '—'}</span></div>
+            ) : (
+              <>
+                <div>actuel <span className="v">{latest!=null ? Math.round(latest*100) : '—'}</span></div>
+                <div>moyenne <span className="v">{overallAvg!=null ? Math.round(overallAvg*100) : '—'}</span></div>
+                <div>évolution <span className="v" style={{marginLeft:6, color: delta!=null ? (delta>0?'oklch(0.55 0.10 150)':delta<0?'oklch(0.55 0.10 30)':'inherit') : 'inherit'}}>
+                  {delta!=null ? (delta>0?'↑':delta<0?'↓':'=')+' '+Math.abs(Math.round(delta*100)) : '—'}
+                </span></div>
+              </>
+            )}
+          </div>
+          {onEdit && (
+            <button className="chart-edit-btn" onClick={()=>onEdit(master)} aria-label="Paramètres du master" title="Paramètres du master">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                <circle cx="8" cy="8" r="2.3" />
+                <path d="M8 1.6v1.7M8 12.7v1.7M14.4 8h-1.7M3.3 8H1.6M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2M12.5 12.5l-1.2-1.2M4.7 4.7 3.5 3.5" strokeLinecap="round" />
+              </svg>
+            </button>
           )}
         </div>
       </div>

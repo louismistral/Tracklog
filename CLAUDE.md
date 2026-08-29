@@ -44,7 +44,7 @@ Pas de bundler, pas de `package.json`, pas de tests automatisés. Les CDN
 | **Graphe cumulatif** (`cumulative`) | Option d'affichage (nombre/durée uniquement) : le graphe trace la somme cumulée depuis le début plutôt que la valeur du jour — courbe qui ne peut que monter. |
 | **Forme de courbe** (`curveStyle`) | `line` (polyligne, défaut) ou `smooth` (courbe lissée, Catmull-Rom passant exactement par chaque point). Purement visuel. |
 | **Granularité** (`chartGrain`) | `day` (défaut) · `week` (lundi→dimanche) · `month` — ce qu'un point du graphe couvre. Les jours d'une même période sont ramenés à leur **moyenne** (un tracker cumulatif prend la valeur de fin de période). Réglage indépendant de la forme de courbe. |
-| **Archiver** | Masque un tracker du "Jour" et le range à part (liste des archives), sans supprimer ses entrées. Réversible (désarchiver). |
+| **Archiver** | Masque un tracker du "Jour" et le range dans Paramètres → Archives, sans supprimer ses entrées. Réversible (désarchiver, depuis le même `TrackerModal`). |
 | **Chrono** | Un chronomètre autonome (état local, `localStorage`, pas synchronisé compte), qu'on peut lier à un tracker `duration` : « Enregistrer » convertit le temps écoulé en entrée. |
 | **Mode Solo/Multi** (chronos) | Solo = démarrer un chrono met les autres en pause automatiquement ; Multi = ils tournent en parallèle. |
 | **Master Strip** | Bande compacte (jauge 0–100) affichant la valeur du jour d'un master, en haut du "Jour" et de l'"Historique". |
@@ -68,17 +68,22 @@ Navigation par onglets en haut (`tab`), certains avec sous-onglets (`Sub`).
 
 | Onglet | Sous-onglet | Composant | Description |
 |---|---|---|---|
-| **Log** | Jour | `TodayView` → `DayGrid`/`DayCard` | Remplir aujourd'hui : une carte éditable par tracker actif, regroupées Quotidiens / Plusieurs par jour. Bouton "Tout ajouter" groupé. Affiche les Master Strips et le résumé Bouffe du jour. |
+| **Log** | Jour | `TodayView` → `DayGrid`/`DayCard` | Remplir aujourd'hui : une carte éditable par tracker actif, regroupées Quotidiens / Plusieurs par jour. Bouton « + Nouveau tracker » en tête. Bouton "Tout ajouter" groupé. Affiche les Master Strips et le résumé Bouffe du jour. |
 | | Historique | `HistoryView` → `MonthCalendar` + `DayGrid` | Calendrier mensuel (points = jours avec entrées) ; cliquer un jour ouvre son éditeur en dessous (identique au "Jour" mais sur une date passée). Reçoit aussi les sauts directs depuis le tooltip d'un graphe (`jumpTo`). |
 | | Chrono | `ChronoView` → `ChronoCard` | Chronomètres, liés ou non à un tracker durée. Fenêtre flottante (Picture-in-Picture navigateur) pour garder les chronos visibles pendant qu'on fait autre chose. |
 | **Bouffe** | Jour | `FoodDayView` | Repas du jour par catégorie, barres de progression vers les objectifs, panneau détail/micronutriments dépliable, navigation jour précédent/suivant. |
 | | Aliments | `FoodLibraryView` | Trois vues sur ce qui est à soi : Mes aliments · Mes favoris · Mes repas. Recherche, étoile favori, lien vers la fiche source, création/édition de repas. |
 | | Vues | `FoodVuesView` → `NutritionBars` | Graphe en barres d'une macro sur N jours vs objectif, + répartition calorique P/G/L. |
-| **Trackers** | — | `TrackersView` | Gérer les trackers : liste (actifs + archivés), type, fréquence, agrégat, membres si master. Créer/modifier/archiver/supprimer. |
 | **Vues** | Graphes / Calendrier / Grille | `VuesView` → `ChartCard`/`MasterChart`/`TrendChart`/`CalendarCard`/`GridSummary` | Visualisation multi-tracker sur une période choisie (7/30/90/365j, YTD, tout, personnalisé) : courbes individuelles, overlay Master normalisé, tendance moyenne lissée, heatmap calendrier, grille de KPI. |
 | **Training** | — | `TrainingView` | Réservé — le suivi d'entraînement viendra ici. Masquable tant qu'il est vide. |
-| **Paramètres** | — | `SettingsView` | Compte · Style (sélecteur à N styles) · Onglets (afficher/masquer) · Affichage (bulles d'aide) · Un retour ? (`FeedbackCard`). |
+| **Paramètres** | — | `SettingsView` | Compte · Style (sélecteur à N styles) · Onglets (afficher/masquer) · Affichage (bulles d'aide, numéro de semaine) · **Archives** (trackers archivés, seul point d'accès pour les désarchiver) · Un retour ? (`FeedbackCard`). |
 | *(hors onglets)* | — | `SignIn` | Connexion / création de compte / lien magique / mot de passe oublié. |
+
+Pas d'onglet « Trackers » séparé : chaque carte du Log et chaque Master Strip
+porte son propre engrenage vers `TrackerModal`, et « + Nouveau tracker » est en
+tête du Log — le rail de filtre garde aussi son propre bouton d'ajout. Un
+tracker archivé n'a plus de carte nulle part pour porter un engrenage ; la
+liste **Archives** des paramètres est donc son seul chemin de retour.
 
 Modales transverses : `TrackerModal` (créer/éditer un tracker ou master),
 `EntryModal` (éditer une entrée existante), `ChronoModal`, `AddFoodModal`,
@@ -95,8 +100,8 @@ déjà à soi :
 
 ## Fonctionnalités
 
-- **Trackers configurables** — 6 types de données + un type calculé (master), fréquence quotidienne ou multi-entrées, agrégat, unité, couleur, fenêtre d'activité, archivage réversible.
-- **Case joker** — exclure une journée entière des calculs sans la compter comme un échec.
+- **Trackers configurables** — 6 types de données + un type calculé (master), fréquence quotidienne ou multi-entrées, agrégat, unité, couleur, fenêtre d'activité, archivage réversible. Chaque carte du Log porte son propre engrenage vers les réglages (`TrackerModal`) — pas d'onglet dédié, voir « Écrans ».
+- **Case joker** — exclure une journée entière des calculs sans la compter comme un échec. Sur la carte, active un bouton rond (icône « annuler ») et remplace la ligne de saisie par un tiret « — · ce jour ne compte pas » plutôt que de laisser un champ vide inviter à noter quelque chose.
 - **Masters (indices composites)** — moyenne normalisée 0–100 de plusieurs trackers, avec bande de lecture (Master Strip) et carte graphe dédiée.
 - **Graphes par tracker** avec axes auto-arrondis (`niceDomain`/`niceStep`), pontage en pointillés des trous de données, mode cumulatif optionnel.
 - **Échelle verticale intelligente** — les bornes sont l'arrondi propre le plus proche des valeurs extrêmes (jamais les extrêmes bruts, jamais un zéro forcé), le pas est constant et choisi pour viser ~6 graduations, et le nombre de décimales des étiquettes se déduit du pas — deux graduations ne peuvent plus afficher le même nombre. Recalculé à chaque changement de période.
@@ -107,10 +112,11 @@ déjà à soi :
 - **Historique éditable** — calendrier mensuel, ouvrir/éditer n'importe quel jour passé.
 - **Chronos** — plusieurs chronomètres, mode Solo/Multi, fenêtre flottante (Document Picture-in-Picture), conversion directe en entrée sur un tracker durée.
 - **Réordonnancement par glisser-déposer** — trackers, cartes du jour, master strips ; un ordre global unique, chaque liste n'affiche/réordonne qu'un sous-ensemble sans perturber le reste (`mergeSubOrder`).
-- **Filtre + tri** (rail) — afficher un sous-ensemble de trackers sur Log/Trackers/Vues, trié Manuel/A→Z/Récents/Type.
+- **Filtre + tri** (rail) — afficher un sous-ensemble de trackers sur Log/Vues, trié Manuel/A→Z/Récents/Type.
 - **Bulles d'aide "i"** — explications contextuelles activables/désactivables globalement.
 - **Styles** — sélecteur à N styles (Sombre et Clair aujourd'hui), chaque choix montrant les couleurs qu'il applique. Préférence par appareil, appliquée avant le premier rendu pour ne jamais faire clignoter les mauvaises couleurs.
-- **Onglets activables** — masquer Bouffe, Trackers, Vues, Training ou l'analyse IA depuis les paramètres. Rien n'est supprimé : l'onglet disparaît de la barre, les données restent. Log et les paramètres ne se masquent pas — l'un est la raison d'être de l'app, l'autre la seule porte pour rallumer le reste. Réglage synchronisé sur le compte.
+- **Onglets activables** — masquer Bouffe, Vues, Training ou l'analyse IA depuis les paramètres. Rien n'est supprimé : l'onglet disparaît de la barre, les données restent. Log et les paramètres ne se masquent pas — l'un est la raison d'être de l'app, l'autre la seule porte pour rallumer le reste. Réglage synchronisé sur le compte.
+- **Numéro de semaine** — affiché à côté de la date du Log et de l'Historique, activable/désactivable dans les paramètres (Affichage). Préférence par appareil.
 - **Retours intégrés** — bug, idée, avis ou autre, écrits depuis les paramètres et enregistrés en base, avec le contexte technique (style, taille d'écran, navigateur) capté automatiquement.
 - **Bouffe : scanner de code-barres** — caméra (BarcodeDetector natif ou ZXing en repli), plusieurs passes de recadrage/rotation, secours photo native et saisie manuelle du code.
 - **Recherche Open Food Facts** — plusieurs moteurs en cascade, cache et limiteur de débit (quota OFF).
