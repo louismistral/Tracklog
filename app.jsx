@@ -94,17 +94,17 @@ const isStyle = (id) => STYLES.some(s => s.id === id);
    Log et Paramètres ne se désactivent pas : l'un est la raison d'être de
    l'app, l'autre est la seule porte pour rallumer le reste. Le reste se coupe,
    y compris l'analyse IA — qui n'est pas un onglet du haut mais une section de
-   la page Bouffe, et se cache donc à part. Pas d'entrée « Trackers » : cette
+   la page Food, et se cache donc à part. Pas d'entrée « Trackers » : cette
    page a disparu, remplacée par le bouton du Log et l'engrenage par tracker. */
 const TOGGLEABLE_TABS = [
-  { id:'bouffe',   label:'Bouffe',   hint:'suivi nutritionnel, scanner, aliments et repas' },
+  { id:'food',     label:'Food',     hint:'suivi nutritionnel, scanner, aliments et repas' },
   { id:'vues',     label:'Vues',     hint:'graphes, calendrier, grille de KPI' },
   { id:'training', label:'Training', hint:'à venir' },
 ];
 const TOGGLEABLE_FEATURES = [
-  { id:'ia', label:'Analyse IA', hint:'l’onglet IA de la page Bouffe, qui décompose un repas décrit en texte' },
+  { id:'ia', label:'Analyse IA', hint:'l’onglet IA de la page Food, qui décompose un repas décrit en texte' },
 ];
-const DEFAULT_TABS = { bouffe:true, vues:true, training:true, ia:true };
+const DEFAULT_TABS = { food:true, vues:true, training:true, ia:true };
 
 // How a chart draws its line, and how wide one plotted point is. Two
 // independent per-tracker display settings — neither changes the stored data.
@@ -420,6 +420,20 @@ function InfoBubble({ children }){
     </span>
   );
 }
+// The one gear in the app. Every "open the settings of this thing" button wears
+// it — day cards, chart cards, calendar cards, grid tiles, master strips, food
+// goals — so the geste is recognisable before the label is read. Defined once:
+// the earlier per-call SVGs had drifted into a spoked circle that read as a sun.
+function GearIcon({ size = 13 }){
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
+         strokeWidth="1.25" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M6.83,3.14L7.15,1.66L8.85,1.66L9.17,3.14A5,5 0 0 1 10.61,3.74L11.88,2.91L13.09,4.12L12.26,5.39A5,5 0 0 1 12.86,6.83L14.34,7.15L14.34,8.85L12.86,9.17A5,5 0 0 1 12.26,10.61L13.09,11.88L11.88,13.09L10.61,12.26A5,5 0 0 1 9.17,12.86L8.85,14.34L7.15,14.34L6.83,12.86A5,5 0 0 1 5.39,12.26L4.12,13.09L2.91,11.88L3.74,10.61A5,5 0 0 1 3.14,9.17L1.66,8.85L1.66,7.15L3.14,6.83A5,5 0 0 1 3.74,5.39L2.91,4.12L4.12,2.91L5.39,3.74A5,5 0 0 1 6.83,3.14Z"/>
+      <circle cx="8" cy="8" r="2.2"/>
+    </svg>
+  );
+}
+
 // A two-state Oui/Non pill with a sliding thumb — same family as the Affiché/Masqué
 // segmented toggle, used everywhere a checkbox used to stand for a yes/no setting.
 function BoolPill({ value, onChange, onLabel = 'Oui', offLabel = 'Non', disabled = false }){
@@ -642,7 +656,7 @@ function DragHandle({ onPointerDown, dragging }){
    restent en localStorage : ce sont des choix d'appareil (un
    téléphone dehors, un écran de bureau). Ce qui décrit la forme
    de l'app — quels onglets existent — suit le compte, sinon
-   masquer Bouffe sur le PC laisserait le téléphone incohérent.
+   masquer Food sur le PC laisserait le téléphone incohérent.
 
    Écriture optimiste : l'état local part devant, la base suit.
    Un réglage d'affichage qui attend le réseau donne une app
@@ -672,7 +686,13 @@ function useAccountPrefs(userId){
     });
   }, [userId]);
 
-  const tabs = { ...DEFAULT_TABS, ...((prefs && prefs.tabs) || {}) };
+  // L'onglet « Bouffe » s'appelle « Food » depuis, mais sa préférence est déjà
+  // enregistrée sous l'ancienne clé sur les comptes existants : on la relit sous
+  // ce nom avant d'appliquer la nouvelle, pour qu'un onglet masqué le reste.
+  const stored = (prefs && prefs.tabs) || {};
+  const legacy = stored.bouffe !== undefined && stored.food === undefined
+    ? { food: stored.bouffe } : null;
+  const tabs = { ...DEFAULT_TABS, ...stored, ...legacy };
   const setTab = (id, on) => savePrefs({ tabs: { ...tabs, [id]: on } });
   return { ready: prefs !== null, prefs: prefs || {}, savePrefs, tabs, setTab };
 }
@@ -693,12 +713,12 @@ function App({ session }){
   const [trackers, setTrackers] = useState([]);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('log');        // log | bouffe | trackers | vues | training | parametres
+  const [tab, setTab] = useState('log');        // log | food | vues | training | parametres
   const accountPrefs = useAccountPrefs(userId);
   const [logSub, setLogSub] = useState('jour'); // jour | historique | chrono — sub-sections of Log
-  const [foodSub, setFoodSub] = useState('jour'); // jour | aliments | vues — sub-sections of Bouffe
+  const [foodSub, setFoodSub] = useState('jour'); // jour | aliments | vues — sub-sections of Food
   // La nutrition a son propre magasin (foods / food_logs / objectifs), chargé ici
-  // une seule fois : la page Bouffe et les compteurs du Jour lisent la même chose.
+  // une seule fois : la page Food et les compteurs du Jour lisent la même chose.
   const food = useFoodStore(userId);
   // Chronos are per-device working state (what's running right now), not history, so they
   // live in localStorage — only the entry a chrono produces is saved to the database.
@@ -958,7 +978,7 @@ function App({ session }){
   const toggleAll = () => setShowAll(prev => !prev);
 
   // The tracker filter rail is available on every tracker tab (Log, Vues).
-  // Not on Bouffe: it filters trackers, and the food page has none.
+  // Not on Food: it filters trackers, and the food page has none.
   const showRail = tab === 'log' || tab === 'vues';
 
   // Turning a tab off while standing on it would leave a blank screen, so the
@@ -978,7 +998,7 @@ function App({ session }){
         <div className="topbar-actions">
           <div className="tabs" role="tablist">
             <button className={activeTab==='log'?'active':''} onClick={()=>setTab('log')}>Log</button>
-            {visibleTabs.bouffe && <button className={activeTab==='bouffe'?'active':''} onClick={()=>setTab('bouffe')}>Bouffe</button>}
+            {visibleTabs.food && <button className={activeTab==='food'?'active':''} onClick={()=>setTab('food')}>Food</button>}
             {visibleTabs.training && <button className={activeTab==='training'?'active':''} onClick={()=>setTab('training')}>Training</button>}
             {visibleTabs.vues && <button className={activeTab==='vues'?'active':''} onClick={()=>setTab('vues')}>Vues</button>}
           </div>
@@ -988,12 +1008,7 @@ function App({ session }){
             aria-label="Paramètres"
             title="Paramètres"
           >
-            {/* Engrenage à 8 dents, tracé par géométrie : flancs radiaux et
-                racines en arc, pour rester net à 16 px. */}
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round">
-              <path d="M6.83,3.14L7.15,1.66L8.85,1.66L9.17,3.14A5,5 0 0 1 10.61,3.74L11.88,2.91L13.09,4.12L12.26,5.39A5,5 0 0 1 12.86,6.83L14.34,7.15L14.34,8.85L12.86,9.17A5,5 0 0 1 12.26,10.61L13.09,11.88L11.88,13.09L10.61,12.26A5,5 0 0 1 9.17,12.86L8.85,14.34L7.15,14.34L6.83,12.86A5,5 0 0 1 5.39,12.26L4.12,13.09L2.91,11.88L3.74,10.61A5,5 0 0 1 3.14,9.17L1.66,8.85L1.66,7.15L3.14,6.83A5,5 0 0 1 3.74,5.39L2.91,4.12L4.12,2.91L5.39,3.74A5,5 0 0 1 6.83,3.14Z" />
-              <circle cx="8" cy="8" r="2.2" />
-            </svg>
+            <GearIcon size={14} />
           </button>
         </div>
       </header>
@@ -1040,13 +1055,13 @@ function App({ session }){
           onRemoveChrono={removeChrono}
           onSaveChrono={saveChronoAsEntry}
           onUpdateChrono={updateChrono}
-          foodSummary={(filterActive || !visibleTabs.bouffe) ? null : <FoodDaySummary store={food} onOpen={()=>setTab('bouffe')} />}
+          foodSummary={(filterActive || !visibleTabs.food) ? null : <FoodDaySummary store={food} onOpen={()=>setTab('food')} />}
           historyJump={historyJump}
           onAddTracker={()=>setNewTrackerOpen(true)}
           onEditTracker={(t)=>setEditTracker(t)}
           showWeek={showWeek}
         />
-      ) : activeTab === 'bouffe' ? (
+      ) : activeTab === 'food' ? (
         <FoodPage store={food} sub={foodSub} onSub={setFoodSub} aiEnabled={visibleTabs.ia !== false} />
       ) : activeTab === 'training' ? (
         <TrainingView />
@@ -1488,7 +1503,7 @@ function TodayView({ trackers, masters = [], trackerById = {}, entries, filterId
       {trackers.length > 0
         ? <DayGrid trackers={trackers} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} dayTs={todayTs} isToday={true} onReorder={onReorder} onEditTracker={onEditTracker} />
         : <div className="empty" style={{padding:'30px 0'}}><span className="em-serif">Aucun tracker à remplir.</span> Vos masters se calculent tout seuls.</div>}
-      {/* Troisième catégorie du jour : les compteurs de la page Bouffe. Ils ne se
+      {/* Troisième catégorie du jour : les compteurs de la page Food. Ils ne se
           remplissent pas ici — ils se lisent, et mènent à la page qui les nourrit. */}
       {foodSummary}
     </div>
@@ -1835,10 +1850,7 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
           )}
           {onEditTracker && (
             <button className="tc-act icon" onClick={()=>onEditTracker(t)} title="Paramètres du tracker">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round">
-                <path d="M6.83,3.14L7.15,1.66L8.85,1.66L9.17,3.14A5,5 0 0 1 10.61,3.74L11.88,2.91L13.09,4.12L12.26,5.39A5,5 0 0 1 12.86,6.83L14.34,7.15L14.34,8.85L12.86,9.17A5,5 0 0 1 12.26,10.61L13.09,11.88L11.88,13.09L10.61,12.26A5,5 0 0 1 9.17,12.86L8.85,14.34L7.15,14.34L6.83,12.86A5,5 0 0 1 5.39,12.26L4.12,13.09L2.91,11.88L3.74,10.61A5,5 0 0 1 3.14,9.17L1.66,8.85L1.66,7.15L3.14,6.83A5,5 0 0 1 3.74,5.39L2.91,4.12L4.12,2.91L5.39,3.74A5,5 0 0 1 6.83,3.14Z"/>
-                <circle cx="8" cy="8" r="2.2"/>
-              </svg>
+              <GearIcon size={14} />
             </button>
           )}
           <button className="tc-act primary" disabled={!canSave} onClick={submit}>
@@ -2265,7 +2277,7 @@ function HistoryView({ trackers, masters = [], trackerById, entries, filterIds, 
                   <div className="entry" key={e.id}>
                     <div className="when">{timeLabel(e.ts)}</div>
                     <div className="what">
-                      <div className="name"><span className="dot" style={{background:t.color}}></span>{t.name}</div>
+                      <div className="name"><span className="dot" style={{background:t.color}}></span><span>{t.name}</span></div>
                       {e.note && <div className="note">{e.note}</div>}
                     </div>
                     <div style={{display:'flex',gap:10,alignItems:'baseline'}}>
@@ -2688,10 +2700,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
           </div>
           {onEdit && (
             <button className="chart-edit-btn" onClick={()=>onEdit(tracker)} aria-label="Paramètres du tracker" title="Paramètres du tracker">
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                <circle cx="8" cy="8" r="2.3" />
-                <path d="M8 1.6v1.7M8 12.7v1.7M14.4 8h-1.7M3.3 8H1.6M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2M12.5 12.5l-1.2-1.2M4.7 4.7 3.5 3.5" strokeLinecap="round" />
-              </svg>
+              <GearIcon />
             </button>
           )}
         </div>
@@ -3240,10 +3249,7 @@ function MasterStrip({ master, trackerById, entries, dayTs, containerRef, draggi
       <div className="ms-val">{pct != null ? pct : '—'}<span className="ms-unit">/100</span></div>
       {onEdit && (
         <button className="chart-edit-btn ms-edit" onClick={()=>onEdit(master)} aria-label="Paramètres du master" title="Paramètres du master">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-            <circle cx="8" cy="8" r="2.3" />
-            <path d="M8 1.6v1.7M8 12.7v1.7M14.4 8h-1.7M3.3 8H1.6M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2M12.5 12.5l-1.2-1.2M4.7 4.7 3.5 3.5" strokeLinecap="round" />
-          </svg>
+          <GearIcon size={12} />
         </button>
       )}
     </div>
@@ -3320,10 +3326,7 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = 
           </div>
           {onEdit && (
             <button className="chart-edit-btn" onClick={()=>onEdit(master)} aria-label="Paramètres du master" title="Paramètres du master">
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                <circle cx="8" cy="8" r="2.3" />
-                <path d="M8 1.6v1.7M8 12.7v1.7M14.4 8h-1.7M3.3 8H1.6M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2M12.5 12.5l-1.2-1.2M4.7 4.7 3.5 3.5" strokeLinecap="round" />
-              </svg>
+              <GearIcon />
             </button>
           )}
         </div>
@@ -3443,10 +3446,7 @@ function CalendarCard({ tracker, entries, rangeDays, onEdit }){
           </div>
           {onEdit && (
             <button className="chart-edit-btn" onClick={()=>onEdit(tracker)} aria-label="Paramètres du tracker" title="Paramètres du tracker">
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                <circle cx="8" cy="8" r="2.3" />
-                <path d="M8 1.6v1.7M8 12.7v1.7M14.4 8h-1.7M3.3 8H1.6M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2M12.5 12.5l-1.2-1.2M4.7 4.7 3.5 3.5" strokeLinecap="round" />
-              </svg>
+              <GearIcon />
             </button>
           )}
         </div>
@@ -3549,10 +3549,7 @@ function GridSummary({ trackers, entries, rangeDays, onEdit }){
             <span style={{color:c.t.color}}>{c.t.name}</span>
             {onEdit && (
               <button className="chart-edit-btn gv-edit" onClick={()=>onEdit(c.t)} aria-label="Paramètres du tracker" title="Paramètres du tracker">
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                  <circle cx="8" cy="8" r="2.3" />
-                  <path d="M8 1.6v1.7M8 12.7v1.7M14.4 8h-1.7M3.3 8H1.6M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2M12.5 12.5l-1.2-1.2M4.7 4.7 3.5 3.5" strokeLinecap="round" />
-                </svg>
+                <GearIcon size={12} />
               </button>
             )}
           </div>
@@ -3857,7 +3854,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
               <div className="member-picker">
                 {memberCandidates.map(t => (
                   <button key={t.id} type="button" className={`member ${members.includes(t.id)?'on':''}`} onClick={()=>toggleMember(t.id)}>
-                    <span className="dot" style={{background:t.color}}></span>{t.name}
+                    <span className="dot" style={{background:t.color}}></span><span>{t.name}</span>
                   </button>
                 ))}
               </div>
@@ -4301,7 +4298,7 @@ function Root(){
 /* ============================================================ */
 
 // Le montage n'a pas lieu ici mais au dernier <script> de Tracklog.html, une fois
-// app.food.jsx exécuté : la page Bouffe y déclare ses composants, et App les
+// app.food.jsx exécuté : la page Food y déclare ses composants, et App les
 // utilise dès le premier rendu.
 function mountTracklog(){
   if (window.__tkBootDone) window.__tkBootDone();

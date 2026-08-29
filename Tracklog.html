@@ -345,10 +345,13 @@
   /* Chart */
   .chart-card{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:24px;margin-bottom:14px;transition:border-color .5s var(--ease),transform .5s var(--ease)}
   .chart-card:hover{border-color:var(--line-2)}
-  .chart-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:20px}
-  .chart-head .name{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .chart-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:20px;gap:12px}
+  .chart-head .name{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;min-width:0}
+  /* A long name is cut with an ellipsis rather than pushing the stats out of the
+     card — see "Un nom long se coupe" below. */
+  .chart-head .name>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .chart-head .name .dot{width:8px;height:8px;border-radius:50%}
-  .chart-head .stats{display:flex;gap:22px;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.06em}
+  .chart-head .stats{display:flex;gap:22px;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.06em;flex-shrink:0}
   .chart-head .stats .v{color:var(--ink);font-family:"Geist Mono",monospace;font-weight:500;font-size:14px;font-feature-settings:"tnum";letter-spacing:0}
   .chart-head-right{display:flex;align-items:center;gap:14px}
   .chart-edit-btn{cursor:pointer;width:24px;height:24px;padding:0;border-radius:50%;flex-shrink:0;
@@ -667,21 +670,38 @@
   body.pip-body .chrono-time{font-size:26px}
   body.pip-body .chrono-btn{padding:7px 11px}
 
-  .log-subnav{display:flex;align-items:center;gap:22px;margin-bottom:26px;flex-wrap:wrap;row-gap:10px}
-  .log-subhint{font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.08em}
-  /* Same row as the Jour/Historique/Chrono pill group — sized to match it exactly,
-     never taller than that one line; the label itself shrinks before anything wraps. */
+  /* One line, always: the sub-tabs and the add button never stack. nowrap is the
+     rule, and what gives when the room runs out is the button's label (see the
+     breakpoints below), then the gap — never a second row. */
+  .log-subnav{display:flex;align-items:center;gap:22px;margin-bottom:26px;flex-wrap:nowrap}
+  .log-subhint{font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.08em;
+    min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Sized to match the Jour/Historique/Chrono pill group exactly, never taller
+     than that one line; the label shrinks in two steps before anything wraps. */
   .subnav-add{white-space:nowrap;flex:0 0 auto;padding:6px 14px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em}
   .subnav-add .add-mid,.subnav-add .add-min{display:none}
-  @media (max-width:560px){ .subnav-add .add-full{display:none} .subnav-add .add-mid{display:inline} }
-  @media (max-width:360px){ .subnav-add .add-mid{display:none} .subnav-add .add-min{display:inline} }
+  @media (max-width:620px){
+    .log-subnav{gap:12px}
+    .subnav-add .add-full{display:none} .subnav-add .add-mid{display:inline}
+  }
+  @media (max-width:440px){
+    .log-subnav{gap:8px}
+    .subnav-add{padding:6px 11px}
+    .subnav-add .add-mid{display:none} .subnav-add .add-min{display:inline}
+  }
+  /* Last resort on the narrowest phones: tighten the sub-tabs themselves rather
+     than let the row overflow the screen. */
+  @media (max-width:390px){
+    .log-subnav .vue-mode button{padding:6px 9px;letter-spacing:0.05em}
+  }
 
   .trackers-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
   .trackers-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
   .tk-card{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:18px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;transition:border-color .5s var(--ease),transform .5s var(--ease)}
   .tk-card:hover{border-color:var(--line-2);transform:translateY(-2px)}
-  .tk-info{min-width:0;display:flex;flex-direction:column;gap:10px}
-  .tk-name{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:500}
+  .tk-info{min-width:0;flex:1;display:flex;flex-direction:column;gap:10px}
+  .tk-name{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:500;min-width:0}
+  .tk-name>span:not(.dot){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tk-name .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
   .tk-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
   .tk-type{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-2);background:transparent;border:1px solid var(--line-2);border-radius:999px;padding:3px 8px}
@@ -696,7 +716,37 @@
   .tk-card.archived:hover{opacity:1}
   /* Master marker (diamond) */
   .master-mark{width:10px;height:10px;flex-shrink:0;transform:rotate(45deg);border-radius:2px}
-  .master-tag{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:2px 7px;margin-left:8px}
+  .master-tag{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:2px 7px;margin-left:8px;flex-shrink:0;white-space:nowrap}
+
+  /* ------------------------------------------------------------------
+     Un nom long se coupe — il n'élargit jamais sa carte.
+     Un tracker peut porter n'importe quel nom, et sans ces règles c'est
+     la carte (ou la pastille, ou la ligne) qui s'étire pour le contenir,
+     jusqu'à dépasser l'écran et faire défiler toute la page en travers.
+     La règle est la même partout : le conteneur du nom accepte de
+     rétrécir (min-width:0, sinon un élément flex refuse de passer sous
+     sa taille de contenu), le nom se coupe en « … », et ce qui
+     l'accompagne — badges, valeurs, boutons — ne rétrécit pas.
+     ------------------------------------------------------------------ */
+  /* La pièce maîtresse : une case de grille vaut par défaut `min-width:auto`,
+     c'est-à-dire « au moins la largeur de mon contenu ». Une carte au nom long
+     imposait donc sa largeur à sa colonne — 692 px dans 354 px d'écran — et
+     `overflow-x:hidden` sur <html> masquait le débordement au lieu de le
+     signaler : la carte était juste coupée, hors d'atteinte. Rendre les cases
+     réductibles est ce qui laisse la troncature ci-dessous entrer en jeu. */
+  .today-grid>*,.trackers-grid>*,.gridview>*,.chart-grid-layout>*{min-width:0}
+  .ms-name{min-width:0}
+  .lg-item{min-width:0}
+  .lg-name{min-width:0;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .entry .name{min-width:0}
+  .entry .name>span:not(.dot){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Pastilles du rail et sélecteur de membres : bornées, jamais plus larges
+     que leur ligne, quel que soit le nom. */
+  .pill{max-width:100%}
+  .pill>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rail .pill{max-width:min(100%,264px)}
+  .member{max-width:min(100%,240px)}
+  .member>span:not(.dot):not(.master-mark){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* Coverage hint: an index built on some of its members, not all of them. */
   .ms-partial{font-size:9px;font-family:"Geist Mono",monospace;color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:2px 7px;margin-left:6px;white-space:nowrap}
   .chart-head .name .master-mark{margin-right:2px}
@@ -730,7 +780,7 @@
   .day-entries{margin-top:4px}
 
   /* ============================================================
-     Bouffe — page nutrition (app.food.jsx). Mêmes jetons de couleur
+     Food — page nutrition (app.food.jsx). Mêmes jetons de couleur
      que le reste, donc le mode clair suit sans une règle de plus.
      ============================================================ */
   .fd-datebar{display:flex;align-items:center;gap:14px;margin-bottom:20px}
@@ -740,9 +790,12 @@
   .fd-datebar .de-today{margin-left:auto}
   .cal-nav:disabled{opacity:.3}
 
-  .fd-totals{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
-  .fd-total{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;display:flex;flex-direction:column;gap:8px;cursor:pointer;transition:border-color .5s var(--ease)}
+  /* Calories sur toute la largeur, les trois macros se partageant la ligne d'après. */
+  .fd-totals{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+  .fd-total{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;display:flex;flex-direction:column;gap:8px;transition:border-color .5s var(--ease)}
   .fd-total:hover{border-color:var(--line-2)}
+  .fd-total.lead{grid-column:1 / -1}
+  .fd-total-head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:24px}
   .fd-total-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:var(--ink-3)}
   .fd-total-v{font-family:"Geist Mono",monospace;font-size:22px;color:var(--ink);line-height:1;display:flex;align-items:baseline;gap:4px}
   .fd-total.lead .fd-total-v{font-size:28px}
@@ -896,7 +949,7 @@
   .fd-src-line a:hover,.fd-src-link:hover{color:var(--accent);border-color:var(--accent)}
   a.tk-edit.fd-src-link{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;display:inline-block}
 
-  /* Le bloc Sources, en bas de la page Bouffe */
+  /* Le bloc Sources, en bas de la page Food */
   .fd-sources{margin:44px 0 8px;padding-top:20px;border-top:1px solid var(--line);max-width:62ch}
   .fd-sources p.serif{font-size:12px;line-height:1.7;color:var(--ink-3);margin:0 0 12px}
   .fd-sources a{color:var(--ink-2);text-decoration:none;border-bottom:1px solid var(--line-2)}
@@ -949,6 +1002,19 @@
   .fd-food-card{flex-direction:column;align-items:stretch}
   .fd-food-nums{font-size:11px;color:var(--ink-2);margin-top:8px}
   .fd-per{color:var(--ink-3)}
+  /* Les actions d'un aliment tiennent sur une ligne (elles passent à la suivante
+     si la carte est vraiment étroite), et la source se réduit à sa flèche. */
+  /* Colonnes plus larges que la grille de trackers : une carte d'aliment porte
+     quatre actions sur une ligne, il lui faut la place de les tenir. */
+  .fd-foods-grid{grid-template-columns:repeat(auto-fill,minmax(330px,1fr))}
+  .fd-food-actions{flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px;margin-top:12px}
+  .fd-food-actions .tk-edit{padding:7px 10px;letter-spacing:0.08em}
+  .tk-edit.danger-edit:hover{background:var(--warn);border-color:var(--warn);color:var(--bg)}
+  .fd-src-btn{cursor:pointer;width:28px;height:28px;padding:0;border-radius:50%;flex-shrink:0;margin-left:auto;
+    display:inline-flex;align-items:center;justify-content:center;color:var(--ink-3);
+    border:1px solid var(--line-2);background:transparent;text-decoration:none;
+    transition:color .3s var(--ease),border-color .3s var(--ease),background .3s var(--ease)}
+  .fd-src-btn:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
 
   /* Répartition des calories */
   .fd-split{display:flex;height:12px;border-radius:2px;overflow:hidden;margin:6px 0 14px;background:var(--bg-3)}
@@ -1021,11 +1087,16 @@
     .modal{padding:22px}
     .typegrid{grid-template-columns:repeat(2,1fr)}
 
-    /* Bouffe : les compteurs passent en 2 colonnes, les lignes de repas
-       gardent leurs actions visibles (pas de survol au doigt). */
-    .fd-totals{grid-template-columns:repeat(2,1fr)}
-    .fd-total-v{font-size:19px}
-    .fd-total.lead .fd-total-v{font-size:22px}
+    /* Food : les trois macros restent sur une ligne (c'est la lecture qu'on
+       vient chercher), en resserrant plutôt qu'en repliant ; les lignes de
+       repas gardent leurs actions visibles (pas de survol au doigt). */
+    .fd-totals{gap:8px}
+    .fd-total{padding:13px 12px;gap:7px}
+    .fd-total-v{font-size:17px}
+    .fd-total.lead{padding:16px 18px}
+    .fd-total.lead .fd-total-v{font-size:24px}
+    .fd-total-label{letter-spacing:0.08em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .fd-total-goal{font-size:9px}
     .fd-row{flex-wrap:wrap;gap:8px 12px}
     .fd-row-main{flex:1 1 100%}
     .fd-row-actions{opacity:1;margin-left:auto}
@@ -1106,9 +1177,9 @@
 
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
-     Bouffe, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=38"></script>
-<script type="text/babel" src="app.food.jsx?v=8"></script>
+     Food, et le dernier script monte React une fois les deux en place. -->
+<script type="text/babel" src="app.jsx?v=39"></script>
+<script type="text/babel" src="app.food.jsx?v=9"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>

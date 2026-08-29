@@ -1,9 +1,9 @@
 /* ============================================================
-   Tracklog — Bouffe
+   Tracklog — Food
    ------------------------------------------------------------
    Une page à part, avec ses propres données. Les trackers
    génériques (Tracker/Entry) ne peuvent pas porter un repas :
-   une ligne de bouffe c'est (jour, repas, aliment, quantité),
+   une ligne de food c'est (jour, repas, aliment, quantité),
    pas une valeur scalaire. D'où trois tables dédiées :
 
      foods            = la bibliothèque d'aliments, valeurs
@@ -1001,7 +1001,7 @@ function FoodScanner({ onCode }){
 /* ============================================================
    Le magasin — foods / food_logs / nutrition_goals
    ------------------------------------------------------------
-   Vit dans App (un seul chargement), pour que la page Bouffe et
+   Vit dans App (un seul chargement), pour que la page Food et
    les compteurs de la page Log lisent la même chose.
    ============================================================ */
 function useFoodStore(userId){
@@ -1193,7 +1193,7 @@ async function analyseRepas(description, { signal } = {}){
 }
 
 /* ============================================================
-   Page Bouffe
+   Page Food
    ============================================================ */
 function FoodPage({ store, sub, onSub, aiEnabled = true }){
   const [addOpen, setAddOpen] = useState(null);      // { meal, day } | null
@@ -1230,6 +1230,7 @@ function FoodPage({ store, sub, onSub, aiEnabled = true }){
         <FoodLibraryView
           store={store}
           onEdit={setEditFood}
+          onDelete={(f)=>{ if (confirm(`Supprimer « ${f.name} » ? Les repas déjà notés gardent leurs valeurs.`)) store.removeFood(f.id); }}
           onNew={()=>setNewFood({ id:uid('f_'), source:'custom', name:'', brand:'', basis:'g',
                                   servingG:null, imageUrl:'', nutriments:{}, barcode:null,
                                   favorite:false, lastUsedAt:null, createdAt:Date.now() })}
@@ -1348,21 +1349,37 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
         {!isToday && <button className="de-today" onClick={()=>onDay(today)}>Aujourd'hui</button>}
       </div>
 
+      {/* Les calories prennent toute la largeur — c'est le chiffre qu'on vient
+          lire — et les trois macros se partagent la ligne suivante. L'engrenage
+          n'est que sur la carte calories : il ouvre les objectifs des quatre,
+          alors le poser sur chacune répéterait la même porte quatre fois. */}
       <div className="fd-totals">
         {FOOD_MACROS.map(m => {
           const v = totals[m.key] || 0;
           const goal = goals[m.key] || 0;
           const pct = goal > 0 ? Math.min(100, (v / goal) * 100) : 0;
           const over = goal > 0 && v > goal;
+          const lead = m.key === 'kcal';
+          const amount = (n) => lead ? `${fmtNum(n, 0)} kcal` : `${fmtMacro(n)}g`;
           return (
-            <div className={`fd-total ${m.key==='kcal'?'lead':''}`} key={m.key} onClick={onGoals} title="Régler les objectifs">
-              <span className="fd-total-label">{m.label}</span>
+            <div className={`fd-total ${lead?'lead':''}`} key={m.key}>
+              <span className="fd-total-head">
+                <span className="fd-total-label">{m.label}</span>
+                {lead && (
+                  <button className="chart-edit-btn" onClick={onGoals}
+                          aria-label="Régler les objectifs" title="Régler les objectifs">
+                    <GearIcon />
+                  </button>
+                )}
+              </span>
               <span className="fd-total-v">
-                {m.key === 'kcal' ? fmtNum(v, 0) : fmtMacro(v)}
+                {lead ? fmtNum(v, 0) : fmtMacro(v)}
                 <span className="u">{m.unit}</span>
               </span>
               <span className="fd-meter"><span className={`fd-fill ${over?'over':''}`} style={{width:`${pct}%`, background:m.color}} /></span>
-              <span className="fd-total-goal mono">{goal > 0 ? `sur ${fmtNum(goal,0)}` : 'sans objectif'}</span>
+              <span className="fd-total-goal mono">
+                {goal > 0 ? `${amount(v)} / ${amount(goal)}` : 'sans objectif'}
+              </span>
             </div>
           );
         })}
@@ -2508,7 +2525,7 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, onCl
 /* ---- Aliments (la bibliothèque) ------------------------------------------- */
 const SOURCE_LABEL = { off:'scanné', ref:'référence', custom:'perso' };
 
-function FoodLibraryView({ store, onEdit, onNew, onScan, onNewMeal, onEditMeal }){
+function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, onEditMeal }){
   const [q, setQ] = useState('');
   // Trois vues sur ce qui est déjà à soi, la même distinction que dans la modale
   // d'ajout : tous les aliments, ceux mis de côté, et les repas.
@@ -2554,7 +2571,7 @@ function FoodLibraryView({ store, onEdit, onNew, onScan, onNewMeal, onEditMeal }
               return (
                 <div className="tk-card fd-food-card" key={m.id}>
                   <div className="tk-info">
-                    <div className="tk-name">{m.name}</div>
+                    <div className="tk-name"><span>{m.name}</span></div>
                     <div className="tk-meta">
                       <span className="tk-chip">{m.items.length} ingrédient{m.items.length>1?'s':''}</span>
                       {m.steps && m.steps.length > 0 && <span className="tk-type">recette · {m.steps.length} étapes</span>}
@@ -2602,13 +2619,13 @@ function FoodLibraryView({ store, onEdit, onNew, onScan, onNewMeal, onEditMeal }
           vous utilisez atterrit ici, et y reste disponible même hors ligne.
         </div>
       ) : (
-        <div className="trackers-grid">
+        <div className="trackers-grid fd-foods-grid">
           {list.map(f => {
             const n = f.nutriments || {};
             return (
               <div className="tk-card fd-food-card" key={f.id}>
                 <div className="tk-info">
-                  <div className="tk-name">{f.name}</div>
+                  <div className="tk-name"><span>{f.name}</span></div>
                   <div className="tk-meta">
                     {f.brand && <span className="tk-chip">{f.brand}</span>}
                     <span className="tk-type">{SOURCE_LABEL[f.source] || 'perso'}</span>
@@ -2622,15 +2639,25 @@ function FoodLibraryView({ store, onEdit, onNew, onScan, onNewMeal, onEditMeal }
                     <span className="fd-per"> / 100 {f.basis}</span>
                   </div>
                 </div>
-                <div className="tk-actions">
+                {/* Une seule ligne d'actions : favori, modifier, supprimer, puis la
+                    source — celle-ci réduite à sa flèche, parce qu'elle sort de
+                    l'app et n'a pas à peser autant que ce qu'on fait dedans. */}
+                <div className="tk-actions fd-food-actions">
                   <button className={`tk-edit fd-fav-btn ${f.favorite?'on':''}`}
                           onClick={()=>store.toggleFavorite(f.id)} aria-pressed={!!f.favorite}>
                     {f.favorite ? '★ Favori' : '☆ Favori'}
                   </button>
                   <button className="tk-edit" onClick={()=>onEdit(f)}>Modifier</button>
+                  <button className="tk-edit danger-edit" onClick={()=>onDelete(f)}>Supprimer</button>
                   {foodSourceUrl(f, store.refByBarcode) && (
-                    <a className="tk-edit fd-src-link" href={foodSourceUrl(f, store.refByBarcode)}
-                       target="_blank" rel="noopener noreferrer">Source ↗</a>
+                    <a className="fd-src-btn" href={foodSourceUrl(f, store.refByBarcode)}
+                       target="_blank" rel="noopener noreferrer"
+                       aria-label="Voir la fiche d'origine" title="Voir la fiche d'origine">
+                      <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor"
+                           strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M4.6 9.4L9.4 4.6"/><path d="M5.4 4.6h4v4"/>
+                      </svg>
+                    </a>
                   )}
                 </div>
               </div>
@@ -2868,9 +2895,7 @@ function FoodVuesView({ store, onGoals }){
               {inRange != null && <div>dans la cible <span className="v">{inRange}</span></div>}
             </div>
             <button className="chart-edit-btn" onClick={onGoals} title="Objectifs" aria-label="Objectifs">
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                <circle cx="8" cy="8" r="2.3" /><circle cx="8" cy="8" r="6" />
-              </svg>
+              <GearIcon />
             </button>
           </div>
         </div>
@@ -2953,7 +2978,7 @@ function NutritionBars({ series, metric, color, goal }){
 /* ============================================================
    Le pont vers la page Log — troisième catégorie du Jour,
    à côté des quotidiens et des « plusieurs par jour ».
-   Lecture seule : on note la bouffe dans la page Bouffe, ici
+   Lecture seule : on note ce qu'on mange dans la page Food, ici
    on ne fait que voir où en est la journée.
    ============================================================ */
 function FoodDaySummary({ store, onOpen }){
@@ -2967,7 +2992,7 @@ function FoodDaySummary({ store, onOpen }){
       <div className="fd-log-head">
         <p className="section-label" style={{margin:0}}>Alimentation</p>
         <button className="fd-link" onClick={onOpen}>
-          {rows.length ? `${rows.length} ligne${rows.length>1?'s':''} — ouvrir` : 'ouvrir la page Bouffe'}
+          {rows.length ? `${rows.length} ligne${rows.length>1?'s':''} — ouvrir` : 'ouvrir la page Food'}
         </button>
       </div>
       <div className="today-grid">
@@ -2980,15 +3005,23 @@ function FoodDaySummary({ store, onOpen }){
             <div className={`today-card fd-card ${rows.length?'done':''}`} key={m.key} onClick={onOpen} role="button" tabIndex={0}
                  onKeyDown={e=>{ if(e.key==='Enter') onOpen(); }}>
               <div className="tc-head">
-                <div className="tc-name"><span className="dot" style={{background:m.color}}></span>{m.label}</div>
-                <span className="tc-badge">bouffe</span>
+                {/* Même convention que les cartes de tracker : le nom porte la
+                    couleur, pas de puce qui répète la même information. */}
+                <div className="tc-name" style={{color:m.color}}>{m.label}</div>
+                <span className="tc-badge">food</span>
               </div>
               <div className="fd-card-v">
                 {m.key === 'kcal' ? fmtNum(v,0) : fmtMacro(v)}
                 <span className="u">{m.unit}</span>
               </div>
               <span className="fd-meter"><span className={`fd-fill ${over?'over':''}`} style={{width:`${pct}%`,background:m.color}} /></span>
-              <div className="fd-card-goal mono">{goal > 0 ? `objectif ${fmtNum(goal,0)}` : 'sans objectif'}</div>
+              <div className="fd-card-goal mono">
+                {goal > 0
+                  ? (m.key === 'kcal'
+                      ? `${fmtNum(v,0)} kcal / ${fmtNum(goal,0)} kcal`
+                      : `${fmtMacro(v)}g / ${fmtMacro(goal)}g`)
+                  : 'sans objectif'}
+              </div>
             </div>
           );
         })}

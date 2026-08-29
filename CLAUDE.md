@@ -15,8 +15,8 @@ pas de source de vérité parallèle.
 | Fichier | Rôle |
 |---|---|
 | `Tracklog.html` | Page unique. CSS complet inline (thème « Aristide »), balises `<script>` qui chargent React/Supabase/Babel depuis un CDN puis `app.jsx` et `app.food.jsx` en JSX brut (transformé dans le navigateur par Babel standalone — pas de build). |
-| `app.jsx` | Cœur : modèle de données trackers/entries, auth, tous les écrans sauf Bouffe. ~4200 lignes. |
-| `app.food.jsx` | Page Bouffe : bibliothèque d'aliments, scanner de code-barres, journal de repas, objectifs. Second `<script type="text/babel">`, chargé après `app.jsx` — partage son scope global (React, `supabase`, `dayKey`, `uid`…). ~3000 lignes. |
+| `app.jsx` | Cœur : modèle de données trackers/entries, auth, tous les écrans sauf Food. ~4200 lignes. |
+| `app.food.jsx` | Page Food : bibliothèque d'aliments, scanner de code-barres, journal de repas, objectifs. Second `<script type="text/babel">`, chargé après `app.jsx` — partage son scope global (React, `supabase`, `dayKey`, `uid`…). ~3000 lignes. |
 | `index.html` | Redirige vers `Tracklog.html`. |
 | `foods-ref.json` | Table Ciqual 2025 (ANSES) compactée en colonnes — 3341 aliments crus/cuits avec micronutriments, servie en statique pour la recherche hors-ligne d'aliments sans étiquette. |
 | `manifest.json`, `icon-*.png`, `apple-touch-icon.png` | PWA — installable sur téléphone. |
@@ -54,14 +54,15 @@ Pas de bundler, pas de `package.json`, pas de tests automatisés. Les CDN
 | **Aliment** | Une fiche nutritionnelle "pour 100 g/ml" : `source: 'off'` (Open Food Facts, scanné) · `'custom'` (saisi à la main) · `'ref'` (table Ciqual, aliments sans étiquette). |
 | **Food log** (ligne de repas) | Une portion mangée à un jour/repas donné. Garde un **snapshot** figé des valeurs nutritionnelles au moment de la saisie — corriger la fiche d'un aliment plus tard ne réécrit pas l'historique déjà loggé. |
 | **Repas** | Une des 4 catégories fixes du jour : `matin` (petit-déjeuner) · `midi` · `soir` · `collation`. |
-| **Macro** | Les 4 compteurs "de tête" de la page Bouffe : kcal, protéines, glucides, lipides — seuls à avoir un objectif et un graphe. |
+| **Macro** | Les 4 compteurs "de tête" de la page Food : kcal, protéines, glucides, lipides — seuls à avoir un objectif et un graphe. |
 | **Objectifs** (`nutrition_goals`) | Cibles quotidiennes kcal/protéines/glucides/lipides ; valeurs par défaut tant que rien n'est réglé. |
 | **Favori** (`food.favorite`) | Un aliment mis de côté, retrouvable via l'onglet « Mes favoris ». |
+| **Engrenage** (`GearIcon`) | L'icône unique de « ouvrir les réglages de cette chose » — cartes du Log, cartes de graphe, calendrier, tuiles de la Grille, master strips, objectifs de Food. Un seul composant : les SVG recopiés à la main avaient dérivé vers un cercle à rayons qui se lisait comme un soleil. |
 | **Ingrédient** (item) | La monnaie commune entre l'analyse IA et les repas : `{ id, name, grams, per100, foodId?, note? }`. Les valeurs sont **pour 100 g**, le poids est à part — corriger un poids recalcule les macros sans rien redemander. |
 | **Repas enregistré** (`meals`) | Un **preset** : une liste d'ingrédients qu'on ajoute d'un coup, plus une recette facultative (`steps`, une simple liste d'étapes). Ne pas confondre avec le **Repas** au sens catégorie du jour ci-dessus. |
 | **Analyse IA** | Décrire un repas en texte, récupérer sa décomposition en ingrédients pesés. Passe par l'Edge Function `analyse-repas`, jamais par le navigateur directement. |
 | **Style** (`STYLES`, `data-theme`) | Un jeu de variables CSS sous `:root[data-theme="<id>"]`. En ajouter un = un bloc de tokens dans `Tracklog.html`, une entrée dans `STYLES` (app.jsx) et son id dans `STYLE_IDS` (script en tête de page). Préférence **par appareil**. |
-| **Préférences de compte** (`user_settings`) | Un blob `jsonb` par compte. Y vit `prefs.tabs` — quels onglets sont affichés. Ce qui décrit la *forme* de l'app suit le compte ; ce qui dépend de l'écran (style, bulles d'aide) reste en `localStorage`. |
+| **Préférences de compte** (`user_settings`) | Un blob `jsonb` par compte. Y vit `prefs.tabs` — quels onglets sont affichés. Ce qui décrit la *forme* de l'app suit le compte ; ce qui dépend de l'écran (style, bulles d'aide) reste en `localStorage`. Renommer un onglet ne renomme pas sa clé déjà enregistrée : l'ancien id `bouffe` est relu au chargement et reporté sur `food` (voir « Renommer un onglet » dans les pièges). |
 | **Retour** (`feedback`) | Un message envoyé depuis les paramètres : `kind` (bug · feature · avis · autre), le texte, et un `context` capté automatiquement (style, taille d'écran, navigateur). |
 
 ## Écrans
@@ -70,10 +71,10 @@ Navigation par onglets en haut (`tab`), certains avec sous-onglets (`Sub`).
 
 | Onglet | Sous-onglet | Composant | Description |
 |---|---|---|---|
-| **Log** | Jour | `TodayView` → `DayGrid`/`DayCard` | Remplir aujourd'hui : une carte éditable par tracker actif, regroupées Quotidiens / Plusieurs par jour. Bouton « + Nouveau tracker » en tête. Bouton "Tout ajouter" groupé. Affiche les Master Strips et le résumé Bouffe du jour. |
+| **Log** | Jour | `TodayView` → `DayGrid`/`DayCard` | Remplir aujourd'hui : une carte éditable par tracker actif, regroupées Quotidiens / Plusieurs par jour. Bouton « + Nouveau tracker » en tête. Bouton "Tout ajouter" groupé. Affiche les Master Strips et le résumé Food du jour. |
 | | Historique | `HistoryView` → `MonthCalendar` + `DayGrid` | Calendrier mensuel (points = jours avec entrées) ; cliquer un jour ouvre son éditeur en dessous (identique au "Jour" mais sur une date passée). Reçoit aussi les sauts directs depuis le tooltip d'un graphe (`jumpTo`). |
 | | Chrono | `ChronoView` → `ChronoCard` | Chronomètres, liés ou non à un tracker durée. Fenêtre flottante (Picture-in-Picture navigateur) pour garder les chronos visibles pendant qu'on fait autre chose. |
-| **Bouffe** | Jour | `FoodDayView` | Repas du jour par catégorie, barres de progression vers les objectifs, panneau détail/micronutriments dépliable, navigation jour précédent/suivant. |
+| **Food** | Jour | `FoodDayView` | Repas du jour par catégorie, barres de progression vers les objectifs, panneau détail/micronutriments dépliable, navigation jour précédent/suivant. |
 | | Aliments | `FoodLibraryView` | Trois vues sur ce qui est à soi : Mes aliments · Mes favoris · Mes repas. Recherche, étoile favori, lien vers la fiche source, création/édition de repas. |
 | | Vues | `FoodVuesView` → `NutritionBars` | Graphe en barres d'une macro sur N jours vs objectif, + répartition calorique P/G/L. |
 | **Vues** | Graphes / Calendrier / Grille | `VuesView` → `ChartCard`/`MasterChart`/`TrendChart`/`CalendarCard`/`GridSummary` | Visualisation multi-tracker sur une période choisie (7/30/90/365j, YTD, tout, personnalisé) : courbes individuelles, overlay Master normalisé, tendance moyenne lissée, heatmap calendrier, grille de KPI. |
@@ -119,15 +120,17 @@ déjà à soi :
 - **Filtre + tri** (rail) — afficher un sous-ensemble de trackers sur Log/Vues, trié Manuel/A→Z/Récents/Type.
 - **Bulles d'aide "i"** — explications contextuelles activables/désactivables globalement.
 - **Styles** — sélecteur à N styles (Sombre et Clair aujourd'hui), chaque choix montrant les couleurs qu'il applique. Préférence par appareil, appliquée avant le premier rendu pour ne jamais faire clignoter les mauvaises couleurs.
-- **Onglets activables** — masquer Bouffe, Vues, Training ou l'analyse IA depuis les paramètres. Rien n'est supprimé : l'onglet disparaît de la barre, les données restent. Log et les paramètres ne se masquent pas — l'un est la raison d'être de l'app, l'autre la seule porte pour rallumer le reste. Réglage synchronisé sur le compte.
+- **Onglets activables** — masquer Food, Vues, Training ou l'analyse IA depuis les paramètres. Rien n'est supprimé : l'onglet disparaît de la barre, les données restent. Log et les paramètres ne se masquent pas — l'un est la raison d'être de l'app, l'autre la seule porte pour rallumer le reste. Réglage synchronisé sur le compte.
 - **Numéro de semaine** — affiché à côté de la date du Log et de l'Historique, activable/désactivable dans les paramètres (Affichage). Préférence par appareil.
 - **Retours intégrés** — bug, idée, avis ou autre, écrits depuis les paramètres et enregistrés en base, avec le contexte technique (style, taille d'écran, navigateur) capté automatiquement.
-- **Bouffe : scanner de code-barres** — caméra (BarcodeDetector natif ou ZXing en repli), plusieurs passes de recadrage/rotation, secours photo native et saisie manuelle du code.
+- **Food : scanner de code-barres** — caméra (BarcodeDetector natif ou ZXing en repli), plusieurs passes de recadrage/rotation, secours photo native et saisie manuelle du code.
 - **Recherche Open Food Facts** — plusieurs moteurs en cascade, cache et limiteur de débit (quota OFF).
 - **Table Ciqual embarquée** — recherche instantanée hors-ligne des aliments sans étiquette (légumes, viandes brutes…), avec micronutriments.
 - **Snapshot nutritionnel** — chaque ligne de repas figée à sa valeur du moment ; corriger un aliment plus tard ne modifie pas l'historique.
 - **Interrupteur caméra** — le scanner ne demande aucun flux tant qu'il est éteint ; le choix est retenu par appareil, si bien qu'une fois allumé il démarre seul, autorisation déjà accordée.
 - **Favoris** — une étoile range un aliment dans « Mes favoris », pour retrouver en un geste ce qu'on mange tous les jours.
+- **Carte d'aliment** — une seule ligne d'actions : favori · modifier · supprimer, puis la source réduite à un bouton rond portant sa flèche (elle sort de l'app, elle ne pèse pas autant que ce qu'on fait dedans). La suppression est là, pas seulement au fond de la fiche d'édition.
+- **Compteurs de Food** — les calories prennent toute la largeur, les trois macros se partagent la ligne suivante, et chaque objectif se lit « actuel / cible ». L'engrenage n'est que sur la carte calories : il ouvre les objectifs des quatre.
 - **Repas enregistrés (presets)** — un ensemble d'ingrédients ajouté d'un coup, une ligne de journal par ingrédient (chacune reste corrigeable seule), avec une recette facultative en liste d'étapes.
 - **Analyse IA d'un repas** — décrire un plat en texte, Claude le décompose en ingrédients pesés avec leurs valeurs pour 100 g, sa marge d'erreur et sa cause. Le résultat est entièrement éditable avant d'être versé au journal, et peut être enregistré comme repas.
 - **Objectifs nutritionnels** journaliers avec barres de progression et alerte dépassement.
@@ -160,6 +163,8 @@ déjà à soi :
 - **Un ingrédient porte ses valeurs pour 100 g, jamais ses valeurs absolues.** C'est ce qui permet de changer un poids sans rappeler le modèle ni la base. `itemNutriments()` fait la mise à l'échelle au moment de l'affichage et de l'écriture du journal.
 - **Un repas ajouté produit une ligne de journal par ingrédient**, pas une ligne agrégée — chacune reste corrigeable et supprimable seule, et garde son snapshot comme n'importe quel ajout.
 - **OFF (Open Food Facts) a un quota de recherche serré** (~10 req/min) — `takeSearchToken`/cache dans `app.food.jsx` ; ne pas retirer le limiteur sans comprendre pourquoi il existe (429 sinon).
+- **Renommer un onglet ne renomme pas ce qui est déjà enregistré.** L'onglet « Bouffe » est devenu « Food » (id `bouffe` → `food`), mais les comptes existants portent encore l'ancienne clé dans `prefs.tabs` : sans relecture, un onglet masqué serait réapparu au prochain chargement. `useAccountPrefs` reporte donc l'ancienne valeur sur la nouvelle clé tant que celle-ci n'existe pas. Même réflexe pour tout futur renommage d'id persisté.
+- **Un nom long doit se couper, jamais élargir sa carte.** Une case de grille vaut par défaut `min-width:auto` — « au moins la largeur de mon contenu » — donc une carte au nom à rallonge imposait 692 px à une colonne de 354 px. Et `html{overflow-x:hidden}` masquait le débordement au lieu de le signaler : la carte était simplement coupée, hors d'atteinte. D'où la règle `.today-grid>*,.trackers-grid>*,.gridview>*,.chart-grid-layout>*{min-width:0}` : sans elle, aucune troncature interne ne peut entrer en jeu. Corollaire pour tester : `overflow-x:hidden` rend un contrôle de défilement horizontal aveugle — comparer la largeur des cartes à celle de la fenêtre.
 - **Cache-busting manuel** — après une modif de `app.jsx` ou `app.food.jsx`, penser à incrémenter le `?v=` correspondant dans `Tracklog.html`, sinon des utilisateurs peuvent rester sur une version en cache.
 - **Pas de tests automatisés, pas de build.** Toute validation passe par relecture + test manuel dans un navigateur (le fichier compile-t-il via Babel, l'app charge-t-elle sans erreur console).
 - **Workflow de branche actuel** : développement direct sur `Tracklog_V1` (branche par défaut = celle publiée), pas de branche de feature intermédiaire — voir historique de commits pour le contexte.
