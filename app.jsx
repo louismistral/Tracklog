@@ -126,10 +126,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function trackerFromRow(r){
-  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMax:r.scale_max || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, jokerEnabled:!!r.joker_enabled, cumulative:!!r.cumulative, curveStyle:r.curve_style === 'smooth' ? 'smooth' : 'line', chartGrain:GRAINS.some(g => g.id === r.chart_grain) ? r.chart_grain : 'day', order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
+  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMin:r.scale_min ?? undefined, scaleMax:r.scale_max || undefined, scaleStep:r.scale_step || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, jokerEnabled:!!r.joker_enabled, cumulative:!!r.cumulative, curveStyle:r.curve_style === 'smooth' ? 'smooth' : 'line', chartGrain:GRAINS.some(g => g.id === r.chart_grain) ? r.chart_grain : 'day', goodDirection:r.good_direction || undefined, targetValue:r.target_value ?? undefined, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
 }
 function trackerToRow(t, userId){
-  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_max:t.scaleMax || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, joker_enabled:!!t.jokerEnabled, cumulative:!!t.cumulative, curve_style:t.curveStyle === 'smooth' ? 'smooth' : 'line', chart_grain:GRAINS.some(g => g.id === t.chartGrain) ? t.chartGrain : 'day', order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
+  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_min:t.scaleMin ?? null, scale_max:t.scaleMax || null, scale_step:t.scaleStep || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, joker_enabled:!!t.jokerEnabled, cumulative:!!t.cumulative, curve_style:t.curveStyle === 'smooth' ? 'smooth' : 'line', chart_grain:GRAINS.some(g => g.id === t.chartGrain) ? t.chartGrain : 'day', good_direction:t.goodDirection || null, target_value:t.targetValue ?? null, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
 }
 function entryFromRow(r){
   return { id:r.id, trackerId:r.tracker_id, value:r.value, note:r.note || '', ts:r.ts };
@@ -418,6 +418,17 @@ function InfoBubble({ children }){
       <button type="button" className={`info-btn ${open?'on':''}`} onClick={()=>setOpen(o=>!o)} aria-label="Plus d'infos">i</button>
       {open && <span className="info-pop">{children}</span>}
     </span>
+  );
+}
+// A two-state Oui/Non pill with a sliding thumb — same family as the Affiché/Masqué
+// segmented toggle, used everywhere a checkbox used to stand for a yes/no setting.
+function BoolPill({ value, onChange, onLabel = 'Oui', offLabel = 'Non', disabled = false }){
+  return (
+    <div className={`bool-pill ${value ? 'on' : 'off'} ${disabled ? 'disabled' : ''}`} role="group">
+      <span className="bool-pill-thumb" aria-hidden="true"></span>
+      <button type="button" className={value ? 'on' : ''} aria-pressed={value} disabled={disabled} onClick={()=>onChange(true)}>{onLabel}</button>
+      <button type="button" className={!value ? 'on' : ''} aria-pressed={!value} disabled={disabled} onClick={()=>onChange(false)}>{offLabel}</button>
+    </div>
   );
 }
 function startOfMonth(ts){ const d = new Date(ts); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); }
@@ -1713,20 +1724,21 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
       {t.type === 'number' && (
         <div style={{display:'flex',alignItems:'baseline',gap:6}}>
           <input type="number" step="any" value={num} onChange={e=>setNum(e.target.value)}
-            onKeyDown={e=>{ if(e.key==='Enter') submit(); }} placeholder="0" style={{width:'100%'}} />
+            onKeyDown={e=>{ if(e.key==='Enter') submit(); }} placeholder="0" style={{width:'5.5em',flex:'0 1 auto'}} />
           {t.unit && <span className="unit">{t.unit}</span>}
         </div>
       )}
       {t.type === 'scale' && (() => {
-        const max = t.scaleMax || 5;
+        const min = t.scaleMin ?? 1, max = t.scaleMax || 5, step = t.scaleStep || 1;
+        const mid = min + Math.round(((max - min) / step) / 2) * step;
         return (
           <div className="scale-slider">
             <input
-              type="range" min="1" max={max} step="1"
-              value={scale ?? Math.ceil(max/2)}
-              onChange={e=>setScale(parseInt(e.target.value,10))}
-              aria-label={`Note sur ${max}`}
-              style={{'--fill': `${(((scale ?? Math.ceil(max/2)) - 1) / Math.max(1, max-1)) * 100}%`}}
+              type="range" min={min} max={max} step={step}
+              value={scale ?? mid}
+              onChange={e=>setScale(parseFloat(e.target.value))}
+              aria-label={`Note de ${min} à ${max}`}
+              style={{'--fill': `${(((scale ?? mid) - min) / Math.max(1e-9, max-min)) * 100}%`}}
             />
             {/* Reads "—" until touched, so an untouched slider never looks like a score. */}
             <span className={`scale-val ${scale==null?'unset':''}`}>
@@ -1743,7 +1755,7 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
       )}
       {t.type === 'duration' && (
         <div style={{display:'flex',gap:6,alignItems:'baseline'}}>
-          <input type="number" min="0" placeholder="0" value={durH} onChange={e=>setDurH(e.target.value)} style={{width:44,textAlign:'right'}} />
+          <input type="number" min="0" placeholder="0" value={durH} onChange={e=>setDurH(e.target.value)} style={{width:44,textAlign:'left'}} />
           <span className="unit">h</span>
           <input type="number" min="0" placeholder="00" value={durM}
             onChange={e=>{
@@ -1756,7 +1768,7 @@ function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, 
                 setDurM(raw);
               }
             }}
-            style={{width:44,textAlign:'right'}} />
+            style={{width:44,textAlign:'left'}} />
           <span className="unit">min</span>
         </div>
       )}
@@ -2130,7 +2142,13 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
           <button className={logSub==='chrono'?'on':''} onClick={()=>onLogSub('chrono')}>Chrono</button>
         </div>
         {logSub === 'jour'
-          ? <button className="pill add" onClick={onAddTracker}>＋ Nouveau tracker</button>
+          ? (
+            <button className="pill add subnav-add" onClick={onAddTracker} title="Nouveau tracker">
+              <span className="add-full">＋ Nouveau tracker</span>
+              <span className="add-mid">＋ Tracker</span>
+              <span className="add-min">＋</span>
+            </button>
+          )
           : <span className="log-subhint serif">{hint}</span>}
       </div>
       {logSub === 'chrono' ? (
@@ -2470,7 +2488,7 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
         </>
       )}
       {mode === 'summary' && (
-        <GridSummary trackers={dataVisible} entries={entries} rangeDays={range} />
+        <GridSummary trackers={dataVisible} entries={entries} rangeDays={range} onEdit={onEdit} />
       )}
     </div>
   );
@@ -2572,11 +2590,9 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
   const fixedScale = tracker.type === 'boolean' || tracker.type === 'scale';
   const domain = fixedScale
     ? (() => {
-        const max = tracker.type === 'scale' ? (tracker.scaleMax || 5) : 1;
-        const ticks = tracker.type === 'scale'
-          ? [0, Math.round(max/2), max]
-          : [0, 1];
-        return { min: 0, max, ticks, step: 1 };
+        if (tracker.type !== 'scale') return { min: 0, max: 1, ticks: [0, 1], step: 1 };
+        const min = tracker.scaleMin ?? 1, max = tracker.scaleMax || 5;
+        return { min, max, ticks: [min, (min+max)/2, max], step: (max-min)/2 || 1 };
       })()
     // Aiming for ~6 gradations is what turns a 4.67-wide range into whole
     // units, an 863-wide one into steps of 200, and a 1.3-wide one into
@@ -2609,7 +2625,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
   // size: rounding 12.5 and 13.0 to "13" and "13" made the axis unreadable.
   const fmtY = (v) => {
     if (tracker.type === 'duration') return fmtDuration(v);
-    if (tracker.type === 'scale')    return Math.round(v).toString();
+    if (tracker.type === 'scale')    return v.toFixed(decimalsForStep(tracker.scaleStep || 1));
     if (tracker.type === 'boolean')  return v >= 0.5 ? 'oui' : 'non';
     return v.toFixed(yDecimals);
   };
@@ -2650,7 +2666,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
       <div className="chart-head">
         <div className="name">
           {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
-          <span className="dot" style={{background:tracker.color}}></span>{tracker.name}
+          <span style={{color:tracker.color}}>{tracker.name}</span>
         </div>
         <div className="chart-head-right">
           <div className="stats">
@@ -2832,13 +2848,45 @@ function buildDailySeries(tracker, entries, rangeDays, endTs = Date.now()){
 }
 
 // Normalize a series to 0..1 using tracker-aware bounds.
+// A tracker's "good direction" decides which raw end reads as 1 (best) once
+// normalized: up-is-better (default), down-is-better, or closest-to-target —
+// so a metric where less is the win (ex. temps d'écran) can still push a
+// master or la Tendance générale upward when it improves.
+function directionFrac(tracker, value, min, max){
+  const dir = tracker.goodDirection || 'up';
+  const target = tracker.targetValue;
+  if (dir === 'target' && target != null){
+    const maxDev = Math.max(Math.abs(max - target), Math.abs(min - target)) || 1;
+    return 1 - Math.min(1, Math.abs(value - target) / maxDev);
+  }
+  const span = Math.max(1e-9, max - min);
+  let frac = (value - min) / span;
+  if (dir === 'down') frac = 1 - frac;
+  return frac;
+}
+// Whether a change from prevStat to curStat reads as an improvement, honoring
+// the tracker's goodDirection — independent of which way the raw number moved.
+function trendGoodness(tracker, curStat, prevStat){
+  if (curStat == null || prevStat == null) return null;
+  const dir = tracker.goodDirection || 'up';
+  if (dir === 'target' && tracker.targetValue != null){
+    const curDist = Math.abs(curStat - tracker.targetValue);
+    const prevDist = Math.abs(prevStat - tracker.targetValue);
+    if (curDist === prevDist) return 0;
+    return curDist < prevDist ? 1 : -1;
+  }
+  if (curStat === prevStat) return 0;
+  const wentUp = curStat > prevStat;
+  return dir === 'down' ? (wentUp ? -1 : 1) : (wentUp ? 1 : -1);
+}
 function normalizeSeries(tracker, series){
   if (tracker.type === 'boolean') {
     return series.map(p => ({ ts:p.ts, value: p.value == null ? null : p.value }));
   }
   if (tracker.type === 'scale') {
+    const min = tracker.scaleMin ?? 1;
     const max = tracker.scaleMax || 5;
-    return series.map(p => ({ ts:p.ts, value: p.value == null ? null : p.value / max }));
+    return series.map(p => ({ ts:p.ts, value: p.value == null ? null : directionFrac(tracker, p.value, min, max) }));
   }
   // number / duration / text — use min/max within the series
   const vals = series.map(p=>p.value).filter(v=>v!=null);
@@ -2847,7 +2895,7 @@ function normalizeSeries(tracker, series){
   }
   const min = Math.min(...vals), max = Math.max(...vals);
   if (max === min) return series.map(p => ({ ts:p.ts, value: p.value == null ? null : 0.5 }));
-  return series.map(p => ({ ts:p.ts, value: p.value == null ? null : (p.value - min) / (max - min) }));
+  return series.map(p => ({ ts:p.ts, value: p.value == null ? null : directionFrac(tracker, p.value, min, max) }));
 }
 
 // Forward-fill nulls so trend averages don't drop holes
@@ -3388,7 +3436,7 @@ function CalendarCard({ tracker, entries, rangeDays, onEdit }){
   return (
     <div className="chart-card">
       <div className="chart-head">
-        <div className="name"><span className="dot" style={{background:tracker.color}}></span>{tracker.name}</div>
+        <div className="name"><span style={{color:tracker.color}}>{tracker.name}</span></div>
         <div className="chart-head-right">
           <div className="stats">
             <div>jours actifs <span className="v">{dayVals.filter(d=>d.count>0).length}/{totalDays}</span></div>
@@ -3455,7 +3503,7 @@ function CalendarCard({ tracker, entries, rangeDays, onEdit }){
 /* ============================================================
    Grid summary (KPI cards)
    ============================================================ */
-function GridSummary({ trackers, entries, rangeDays }){
+function GridSummary({ trackers, entries, rangeDays, onEdit }){
   const now = Date.now();
   const start = now - rangeDays*86400000;
   const prevStart = start - rangeDays*86400000;
@@ -3477,6 +3525,10 @@ function GridSummary({ trackers, entries, rangeDays }){
     const curStat = stat(inRange);
     const prevStat = stat(prev);
     const delta = curStat != null && prevStat != null && prevStat !== 0 ? (curStat - prevStat) / Math.abs(prevStat) : null;
+    // Which way is progress depends on the tracker's own goodDirection — a raw
+    // increase isn't automatically "up" in the trend's sense if less is better.
+    const goodness = (t.type === 'number' || t.type === 'scale' || t.type === 'duration')
+      ? trendGoodness(t, curStat, prevStat) : (delta != null ? (delta>0?1:delta<0?-1:0) : null);
 
     let display = '—';
     if (curStat != null){
@@ -3486,20 +3538,30 @@ function GridSummary({ trackers, entries, rangeDays }){
     }
 
     const showAggTag = !t.daily && t.aggregate === 'sum' && (t.type === 'number' || t.type === 'duration');
-    return { t, display, count: inRange.length, delta, showAggTag };
+    return { t, display, count: inRange.length, delta, goodness, showAggTag };
   });
 
   return (
     <div className="gridview">
       {cards.map(c => (
         <div className="gv-card" key={c.t.id}>
-          <div className="label"><span className="dot" style={{background:c.t.color}}></span>{c.t.name}</div>
+          <div className="label">
+            <span style={{color:c.t.color}}>{c.t.name}</span>
+            {onEdit && (
+              <button className="chart-edit-btn gv-edit" onClick={()=>onEdit(c.t)} aria-label="Paramètres du tracker" title="Paramètres du tracker">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                  <circle cx="8" cy="8" r="2.3" />
+                  <path d="M8 1.6v1.7M8 12.7v1.7M14.4 8h-1.7M3.3 8H1.6M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2M12.5 12.5l-1.2-1.2M4.7 4.7 3.5 3.5" strokeLinecap="round" />
+                </svg>
+              </button>
+            )}
+          </div>
           <div className="v">
             {c.display}
             {fmtUnit(c.t) && c.display !== '—' && <span className="u">{fmtUnit(c.t)}</span>}
             {c.showAggTag && <span className="tk-chip" style={{marginLeft:8,verticalAlign:'middle'}}>total</span>}
           </div>
-          <div className={`trend ${c.delta != null ? (c.delta>0?'up':c.delta<0?'down':'') : ''}`}>
+          <div className={`trend ${c.goodness != null ? (c.goodness>0?'up':c.goodness<0?'down':'') : ''}`}>
             {c.count} entrée{c.count>1?'s':''}
             {c.delta != null && <> · {c.delta>0?'↑':c.delta<0?'↓':'='} {Math.abs(c.delta*100).toFixed(0)}%</>}
           </div>
@@ -3584,17 +3646,28 @@ function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
             {t.type === 'number' && (
               <div style={{display:'flex',alignItems:'baseline'}}>
                 <input type="number" step="any" autoFocus value={num} onChange={e=>setNum(e.target.value)}
-                  onKeyDown={e=>{ if(e.key==='Enter') submit(); }} placeholder="0" style={{width:'100%'}} />
+                  onKeyDown={e=>{ if(e.key==='Enter') submit(); }} placeholder="0" style={{width:'5.5em',flex:'0 1 auto'}} />
                 {t.unit && <span className="unit">{t.unit}</span>}
               </div>
             )}
-            {t.type === 'scale' && (
-              <div className="scale">
-                {Array.from({length: t.scaleMax||5}).map((_,i)=>(
-                  <button key={i} className={scale===i+1?'on':''} onClick={()=>setScale(i+1)}>{i+1}</button>
-                ))}
-              </div>
-            )}
+            {t.type === 'scale' && (() => {
+              const smin = t.scaleMin ?? 1, smax = t.scaleMax || 5, sstep = t.scaleStep || 1;
+              const mid = smin + Math.round(((smax - smin) / sstep) / 2) * sstep;
+              return (
+                <div className="scale-slider">
+                  <input
+                    type="range" min={smin} max={smax} step={sstep}
+                    value={scale ?? mid}
+                    onChange={e=>setScale(parseFloat(e.target.value))}
+                    aria-label={`Note de ${smin} à ${smax}`}
+                    style={{'--fill': `${(((scale ?? mid) - smin) / Math.max(1e-9, smax-smin)) * 100}%`}}
+                  />
+                  <span className={`scale-val ${scale==null?'unset':''}`}>
+                    {scale == null ? '—' : scale}<span className="scale-max">/{smax}</span>
+                  </span>
+                </div>
+              );
+            })()}
             {t.type === 'boolean' && (
               <div className="bool">
                 <button className={bool===true?'on':''} onClick={()=>setBool(true)}>Oui</button>
@@ -3603,7 +3676,7 @@ function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
             )}
             {t.type === 'duration' && (
               <div style={{display:'flex',gap:8,alignItems:'baseline'}}>
-                <input type="number" min="0" placeholder="0" value={durH} onChange={e=>setDurH(e.target.value)} style={{width:50,textAlign:'right'}} />
+                <input type="number" min="0" placeholder="0" value={durH} onChange={e=>setDurH(e.target.value)} style={{width:50,textAlign:'left'}} />
                 <span className="unit">h</span>
                 <input type="number" min="0" placeholder="00" value={durM}
                   onChange={e=>{
@@ -3615,7 +3688,7 @@ function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
                       setDurM(raw);
                     }
                   }}
-                  style={{width:50,textAlign:'right'}} />
+                  style={{width:50,textAlign:'left'}} />
                 <span className="unit">min</span>
               </div>
             )}
@@ -3673,7 +3746,11 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
   const [name, setName] = useState(tracker?.name || '');
   const [type, setType] = useState(tracker?.type && tracker.type !== 'master' ? tracker.type : 'number');
   const [unit, setUnit] = useState(tracker?.unit || '');
+  const [scaleMin, setScaleMin] = useState(tracker?.scaleMin ?? 1);
   const [scaleMax, setScaleMax] = useState(tracker?.scaleMax || 5);
+  const [scaleStep, setScaleStep] = useState(tracker?.scaleStep || 1);
+  const [goodDirection, setGoodDirection] = useState(tracker?.goodDirection || 'up');
+  const [targetValue, setTargetValue] = useState(tracker?.targetValue != null ? String(tracker.targetValue) : '');
   const [choices, setChoices] = useState(tracker?.choices?.length ? tracker.choices : ['', '']);
   const [members, setMembers] = useState(tracker?.members || []);
   // — Paramètres : comment on le remplit et le lit —
@@ -3718,8 +3795,9 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
     if (isMasterKind){
       t.type = 'master';
       t.members = members;
-      t.unit = null; t.scaleMax = null; t.choices = null; t.multiple = false;
+      t.unit = null; t.scaleMin = null; t.scaleMax = null; t.scaleStep = null; t.choices = null; t.multiple = false;
       t.jokerEnabled = false;
+      t.goodDirection = null; t.targetValue = null;
     } else {
       t.type = type;
       t.daily = daily;
@@ -3728,9 +3806,15 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
       t.cumulative = (type === 'number' || type === 'duration') && cumulative;
       t.members = null;
       t.unit = (type === 'number' && unit.trim()) ? unit.trim() : null;
-      t.scaleMax = type === 'scale' ? scaleMax : null;
+      t.scaleMin = type === 'scale' ? (scaleMin === '' || isNaN(scaleMin) ? 1 : scaleMin) : null;
+      t.scaleMax = type === 'scale' ? (scaleMax === '' || isNaN(scaleMax) || scaleMax <= t.scaleMin ? t.scaleMin + 4 : scaleMax) : null;
+      t.scaleStep = type === 'scale' ? (scaleStep === '' || isNaN(scaleStep) || scaleStep <= 0 ? 1 : scaleStep) : null;
       t.choices = type === 'choice' ? [...new Set(cleanChoices)] : null;
       t.multiple = type === 'choice' ? multiple : false;
+      const directional = type === 'number' || type === 'scale' || type === 'duration';
+      t.goodDirection = directional ? goodDirection : null;
+      t.targetValue = (directional && goodDirection === 'target' && targetValue !== '' && !isNaN(parseFloat(targetValue)))
+        ? parseFloat(targetValue) : null;
     }
     onSave(t);
   };
@@ -3800,12 +3884,24 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
               </div>
             )}
             {type === 'scale' && (
-              <div className="field" style={{borderBottom:'none'}}>
-                <label>Max</label>
-                <div className="seg">
-                  {[3,5,7,10].map(n => (
-                    <button key={n} className={scaleMax===n?'on':''} onClick={()=>setScaleMax(n)}>1–{n}</button>
-                  ))}
+              <div className="field" style={{borderBottom:'none',flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
+                <label style={{width:'auto'}}>Échelle</label>
+                <div className="period-row">
+                  <div className="period-field">
+                    <span>Min</span>
+                    <input type="number" step="any" value={scaleMin}
+                      onChange={e=>setScaleMin(e.target.value === '' ? '' : parseFloat(e.target.value))} />
+                  </div>
+                  <div className="period-field">
+                    <span>Max</span>
+                    <input type="number" step="any" value={scaleMax}
+                      onChange={e=>setScaleMax(e.target.value === '' ? '' : parseFloat(e.target.value))} />
+                  </div>
+                  <div className="period-field">
+                    <span>Incrément</span>
+                    <input type="number" step="any" min="0.01" value={scaleStep}
+                      onChange={e=>setScaleStep(e.target.value === '' ? '' : parseFloat(e.target.value))} />
+                  </div>
                 </div>
               </div>
             )}
@@ -3849,16 +3945,15 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
 
         {!isMasterKind && !daily && (
           <div className="field">
-            <label className="period-toggle" style={{width:'auto'}}>
-              <input type="checkbox" checked={jokerEnabled} onChange={e=>setJokerEnabled(e.target.checked)}
-                style={{flex:'none',width:16,height:16,margin:0,accentColor:'var(--accent)',cursor:'pointer'}} />
-              <span>Case joker</span>
+            <label>Case joker</label>
+            <div className="ctl-with-info">
+              <BoolPill value={jokerEnabled} onChange={setJokerEnabled} />
               <InfoBubble>
                 Ajoute un bouton pour marquer une journée entière comme joker (pull day, repos…).
                 Les entrées de ce jour sont alors exclues des calculs — pas comptées comme zéro.
                 Désactivée par défaut.
               </InfoBubble>
-            </label>
+            </div>
           </div>
         )}
 
@@ -3896,17 +3991,16 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         )}
 
         <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:10,paddingTop:14}}>
-          <label className="period-toggle" style={{width:'auto'}}>
-            <input type="checkbox" checked={windowEnabled} onChange={e=>setWindowEnabled(e.target.checked)}
-              style={{flex:'none',width:16,height:16,margin:0,accentColor:'var(--accent)',cursor:'pointer'}} />
-            <span>Période d’activité</span>
+          <div className="ctl-with-info" style={{width:'auto'}}>
+            <label style={{width:'auto'}}>Période d’activité</label>
+            <BoolPill value={windowEnabled} onChange={setWindowEnabled} />
             <InfoBubble>
-              Cochée, ce tracker n’influence les graphes et moyennes qu’entre les deux dates.
+              Activée, ce tracker n’influence les graphes et moyennes qu’entre les deux dates.
               <span className="k"> Début</span> par défaut = jour de création (utile si vous ne l’utilisez qu’après quelques jours).
               Laissez <span className="k">Fin</span> vide tant qu’il est actif — l’archivage la renseigne automatiquement.
-              Décochée, le tracker compte <span className="k">tous les jours</span>, sans limite.
+              Désactivée, le tracker compte <span className="k">tous les jours</span>, sans limite.
             </InfoBubble>
-          </label>
+          </div>
           {windowEnabled ? (
             <div className="period-row">
               <div className="period-field">
@@ -3964,18 +4058,42 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           </div>
         </div>
 
+        {!isMasterKind && (type === 'number' || type === 'scale' || type === 'duration') && (
+          <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
+            <label style={{width:'auto'}}>Sens de l’amélioration</label>
+            <div className="ctl-with-info">
+              <div className="seg wrap">
+                <button className={goodDirection==='up'?'on':''} onClick={()=>setGoodDirection('up')}>Monter = mieux</button>
+                <button className={goodDirection==='down'?'on':''} onClick={()=>setGoodDirection('down')}>Descendre = mieux</button>
+                <button className={goodDirection==='target'?'on':''} onClick={()=>setGoodDirection('target')}>Valeur cible</button>
+              </div>
+              <InfoBubble>
+                Décide de quel côté est le progrès dans les vues composites (Master, Tendance générale, Grille) —
+                un temps d’écran qui baisse doit compter comme une amélioration, pas comme une chute.
+                <span className="k"> Valeur cible</span> : se rapprocher d’un nombre précis compte comme un progrès,
+                peu importe de quel côté on vient.
+              </InfoBubble>
+            </div>
+            {goodDirection === 'target' && (
+              <div className="period-field" style={{maxWidth:200}}>
+                <span>Valeur cible{unit.trim() ? ` (${unit.trim()})` : ''}</span>
+                <input type="number" step="any" value={targetValue} onChange={e=>setTargetValue(e.target.value)} placeholder="ex. 0" />
+              </div>
+            )}
+          </div>
+        )}
+
         {!isMasterKind && (type === 'number' || type === 'duration') && (
           <div className="field">
-            <label className="period-toggle" style={{width:'auto'}}>
-              <input type="checkbox" checked={cumulative} onChange={e=>setCumulative(e.target.checked)}
-                style={{flex:'none',width:16,height:16,margin:0,accentColor:'var(--accent)',cursor:'pointer'}} />
-              <span>Graphe cumulatif</span>
+            <label>Graphe cumulatif</label>
+            <div className="ctl-with-info">
+              <BoolPill value={cumulative} onChange={setCumulative} />
               <InfoBubble>
                 Le graphe affiche la somme de toutes les entrées depuis le début plutôt que la valeur du jour —
                 une courbe qui ne peut que monter, au lieu de suivre l’entrée du jour.
                 Groupé par semaine ou par mois, chaque point porte le total atteint en fin de période.
               </InfoBubble>
-            </label>
+            </div>
           </div>
         )}
 

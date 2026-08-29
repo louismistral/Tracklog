@@ -2407,16 +2407,15 @@ function ManualEntry({ seed, initialMeal, onSubmit, onCancel }){
       </div>
 
       {!forcedKeep && (
-        <label className={`fd-keep ${canKeep?'':'off'}`}>
-          <input type="checkbox" checked={keep && canKeep} disabled={!canKeep}
-                 onChange={e=>setKeep(e.target.checked)} />
+        <div className={`fd-keep ${canKeep?'':'off'}`}>
+          <BoolPill value={keep && canKeep} onChange={setKeep} disabled={!canKeep} />
           <span>
             garder dans mes aliments
             {portion
               ? <i> — impossible en portions : le poids pour 100 g est inconnu</i>
               : !name.trim() ? <i> — donne-lui un nom d'abord</i> : null}
           </span>
-        </label>
+        </div>
       )}
 
       <div className="modal-actions">

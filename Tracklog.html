@@ -299,6 +299,16 @@
   .vue-mode{display:flex;gap:2px;background:var(--bg-2);padding:3px;border-radius:999px;border:1px solid var(--line)}
   .vue-mode button{padding:6px 14px;border-radius:999px;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.1em;transition:color .35s var(--ease),background .35s var(--ease)}
   .vue-mode button.on{background:var(--ink);color:var(--bg);box-shadow:none}
+
+  /* Oui/Non pill — same family as .vue-mode, but the "on" side is one thumb that
+     glides between the two options instead of each button swapping background alone. */
+  .bool-pill{position:relative;display:inline-flex;flex-shrink:0;background:var(--bg-2);padding:3px;border-radius:999px;border:1px solid var(--line)}
+  .bool-pill-thumb{position:absolute;top:3px;left:3px;bottom:3px;width:calc(50% - 3px);background:var(--ink);border-radius:999px;transition:transform .35s var(--ease);z-index:0}
+  .bool-pill.off .bool-pill-thumb{transform:translateX(100%)}
+  .bool-pill button{position:relative;z-index:1;flex:1 1 0;padding:6px 14px;border-radius:999px;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.1em;white-space:nowrap;transition:color .35s var(--ease);background:transparent}
+  .bool-pill button.on{color:var(--bg)}
+  .bool-pill.disabled{opacity:0.5}
+  .bool-pill.disabled button{cursor:not-allowed}
   .range{display:flex;align-items:center;gap:18px;font-size:11px;color:var(--ink-3);letter-spacing:0.12em;text-transform:uppercase;flex-wrap:wrap}
   .range button{transition:color .35s var(--ease)}
   .range button:hover{color:var(--ink-2)}
@@ -336,7 +346,7 @@
   .chart-card{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:24px;margin-bottom:14px;transition:border-color .5s var(--ease),transform .5s var(--ease)}
   .chart-card:hover{border-color:var(--line-2)}
   .chart-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:20px}
-  .chart-head .name{font-size:14px;display:flex;align-items:center;gap:8px}
+  .chart-head .name{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
   .chart-head .name .dot{width:8px;height:8px;border-radius:50%}
   .chart-head .stats{display:flex;gap:22px;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.06em}
   .chart-head .stats .v{color:var(--ink);font-family:"Geist Mono",monospace;font-weight:500;font-size:14px;font-feature-settings:"tnum";letter-spacing:0}
@@ -387,8 +397,10 @@
   .gridview{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
   .gv-card{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:16px;display:flex;flex-direction:column;gap:6px;transition:border-color .5s var(--ease),transform .5s var(--ease)}
   .gv-card:hover{border-color:var(--line-2);transform:translateY(-2px)}
-  .gv-card .label{font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.12em;display:flex;align-items:center;gap:6px}
+  .gv-card .label{font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.12em;display:flex;align-items:center;justify-content:space-between;gap:6px}
+  .gv-card .label>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .gv-card .label .dot{width:6px;height:6px;border-radius:50%}
+  .gv-edit{width:17px;height:17px}
   .gv-card .v{font-family:"Geist Mono",monospace;font-size:26px;font-weight:500;font-feature-settings:"tnum"}
   .gv-card .v .u{color:var(--ink-3);font-size:13px;font-weight:400;margin-left:3px}
   .gv-card .trend{font-size:11px;color:var(--ink-3);font-family:"Geist Mono",monospace}
@@ -496,7 +508,8 @@
   .period-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer}
   .period-toggle input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;flex-shrink:0}
   .period-row{display:flex;gap:10px;width:100%}
-  .period-field{flex:1;display:flex;flex-direction:column;gap:5px}
+  .period-field{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+  .period-field input{width:100%;min-width:0}
   .period-field span{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3)}
   .period-field input{font-size:13px;border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;background:var(--bg-3);color:var(--ink)}
   .period-arch{align-self:flex-start;margin-top:2px;font-size:10px;color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:8px 14px;text-transform:uppercase;letter-spacing:0.12em;transition:all .35s var(--ease)}
@@ -654,8 +667,14 @@
   body.pip-body .chrono-time{font-size:26px}
   body.pip-body .chrono-btn{padding:7px 11px}
 
-  .log-subnav{display:flex;align-items:center;gap:22px;margin-bottom:26px}
+  .log-subnav{display:flex;align-items:center;gap:22px;margin-bottom:26px;flex-wrap:wrap;row-gap:10px}
   .log-subhint{font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.08em}
+  /* Same row as the Jour/Historique/Chrono pill group — sized to match it exactly,
+     never taller than that one line; the label itself shrinks before anything wraps. */
+  .subnav-add{white-space:nowrap;flex:0 0 auto;padding:6px 14px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em}
+  .subnav-add .add-mid,.subnav-add .add-min{display:none}
+  @media (max-width:560px){ .subnav-add .add-full{display:none} .subnav-add .add-mid{display:inline} }
+  @media (max-width:360px){ .subnav-add .add-mid{display:none} .subnav-add .add-min{display:inline} }
 
   .trackers-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
   .trackers-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
@@ -1088,8 +1107,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Bouffe, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=37"></script>
-<script type="text/babel" src="app.food.jsx?v=7"></script>
+<script type="text/babel" src="app.jsx?v=38"></script>
+<script type="text/babel" src="app.food.jsx?v=8"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>
