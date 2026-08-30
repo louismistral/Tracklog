@@ -521,6 +521,9 @@ function useDragReorder(ids, onReorder){
   const movedRef = useRef(false);
   const startRef = useRef({ x: 0, y: 0 });
   const insRef = useRef(0);
+  // Un appui long qui arme le glisser ne doit pas, au relâchement, valider aussi
+  // le clic de l'élément (une pastille du rail bascule le filtre au clic).
+  const armedRef = useRef(false);
   const onReorderRef = useRef(onReorder);
   onReorderRef.current = onReorder;
 
@@ -539,6 +542,12 @@ function useDragReorder(ids, onReorder){
   const setNodeRef = (id) => (el) => {
     if (el) nodesRef.current[id] = el; else delete nodesRef.current[id];
   };
+
+  // Une fois le glisser armé, le doigt pilote la carte : ce blocage annule le
+  // défilement que `touch-action:pan-y` autoriserait encore. Non passif, et posé
+  // alors que le doigt est encore immobile — le seul moment où preventDefault
+  // empêche encore un défilement de démarrer.
+  const blockScroll = useRef((e) => { if (e.cancelable) e.preventDefault(); }).current;
 
   const handleMove = useRef((e) => {
     const id = dragIdRef.current;
@@ -606,6 +615,11 @@ function useDragReorder(ids, onReorder){
     window.removeEventListener('pointermove', handleMove);
     window.removeEventListener('pointerup', handleUp);
     window.removeEventListener('pointercancel', handleUp);
+    window.removeEventListener('touchmove', blockScroll);
+    // `armedRef` neutralise le clic qui suit le relâchement ; on le rend au tour
+    // d'après plutôt que d'attendre le prochain pointerdown, sinon un clic qui
+    // n'en est pas précédé (clavier, appel programmatique) resterait avalé.
+    setTimeout(() => { armedRef.current = false; }, 0);
     document.body.classList.remove('dragging-reorder');
     hideDropIndicator();
 
@@ -634,32 +648,89 @@ function useDragReorder(ids, onReorder){
     setDragId(null);
   }).current;
 
-  const startDrag = (id) => (e) => {
-    if (e.button != null && e.button !== 0) return;
-    if (e.cancelable) e.preventDefault();
+  // Au doigt, un glisser ne s'arme qu'après un appui maintenu — sinon le simple
+  // fait de faire défiler la page en posant le doigt sur une carte la déplaçait.
+  // Pendant l'attente on ne bloque rien : si le doigt part avant la fin, c'est
+  // un défilement (ou un tap), et le glisser n'a jamais lieu. À la souris il n'y
+  // a pas de défilement à confondre avec un glisser : il reste immédiat.
+  const HOLD_MS = 350;
+  const HOLD_SLOP = 9;   // px de tolérance : un doigt ne tient jamais parfaitement immobile
+  const holdRef = useRef(null);
+
+  const cancelHold = useRef(() => {
+    if (holdRef.current?.timer) clearTimeout(holdRef.current.timer);
+    if (holdRef.current?.cleanup) holdRef.current.cleanup();
+    holdRef.current = null;
+  }).current;
+
+  const beginDrag = (id, x, y) => {
     dragIdRef.current = id;
     movedRef.current = false;
-    startRef.current = { x: e.clientX, y: e.clientY };
+    startRef.current = { x, y };
     insRef.current = Math.max(0, orderRef.current.indexOf(id));
     setDragId(id);
+    armedRef.current = true;
     document.body.classList.add('dragging-reorder');
     window.addEventListener('pointermove', handleMove, { passive: false });
     window.addEventListener('pointerup', handleUp);
     window.addEventListener('pointercancel', handleUp);
+    window.addEventListener('touchmove', blockScroll, { passive: false });
   };
+
+  const startDrag = (id) => (e) => {
+    if (e.button != null && e.button !== 0) return;
+    armedRef.current = false;
+    if (e.pointerType !== 'touch'){
+      // preventDefault empêche la sélection de texte pendant le glisser.
+      if (e.cancelable) e.preventDefault();
+      beginDrag(id, e.clientX, e.clientY);
+      return;
+    }
+
+    // Ni preventDefault ni écouteur bloquant ici : le navigateur doit rester
+    // libre de faire défiler tant que l'appui n'a pas tenu.
+    cancelHold();
+    const x0 = e.clientX, y0 = e.clientY;
+    const onMove = (ev) => {
+      if (Math.abs(ev.clientX - x0) > HOLD_SLOP || Math.abs(ev.clientY - y0) > HOLD_SLOP) cancelHold();
+    };
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', cancelHold);
+      window.removeEventListener('pointercancel', cancelHold);
+    };
+    window.addEventListener('pointermove', onMove, { passive: true });
+    window.addEventListener('pointerup', cancelHold);
+    window.addEventListener('pointercancel', cancelHold);
+    holdRef.current = {
+      cleanup,
+      timer: setTimeout(() => {
+        cleanup();
+        holdRef.current = null;
+        // Une petite vibration dit « c'est attrapé » — sans elle, rien ne
+        // distingue un appui trop court d'un appui assez long.
+        try { navigator.vibrate?.(12); } catch {}
+        beginDrag(id, x0, y0);
+      }, HOLD_MS),
+    };
+  };
+
+  // Un démontage en pleine attente laisserait le minuteur armer un glisser sur
+  // une carte qui n'est plus là.
+  useEffect(() => cancelHold, [cancelHold]);
 
   // Without a reorder handler (the list is under an automatic sort) dragging would
   // fight the sort, so hand back inert controls: `startDrag` yielding null also
   // removes the grip, since cards only draw one when given a handler.
-  if (!onReorder) return { order: ids, dragId: null, setNodeRef: () => undefined, startDrag: () => null };
-  return { order, dragId, setNodeRef, startDrag };
+  if (!onReorder) return { order: ids, dragId: null, setNodeRef: () => undefined, startDrag: () => null, wasArmed: () => false };
+  return { order, dragId, setNodeRef, startDrag, wasArmed: () => armedRef.current };
 }
 
 // Small grip handle that starts a drag. Kept separate from the rest of a
 // card so it never steals clicks from buttons/inputs inside it.
 function DragHandle({ onPointerDown, dragging }){
   return (
-    <span className={`drag-handle ${dragging?'dragging':''}`} onPointerDown={onPointerDown} aria-label="Réordonner" title="Glisser pour réordonner">
+    <span className={`drag-handle ${dragging?'dragging':''}`} onPointerDown={onPointerDown} aria-label="Réordonner" title="Maintenir puis glisser pour réordonner">
       <svg width="9" height="15" viewBox="0 0 9 15"><circle cx="2.2" cy="2.2" r="1"/><circle cx="6.8" cy="2.2" r="1"/><circle cx="2.2" cy="7.5" r="1"/><circle cx="6.8" cy="7.5" r="1"/><circle cx="2.2" cy="12.8" r="1"/><circle cx="6.8" cy="12.8" r="1"/></svg>
     </span>
   );
@@ -799,12 +870,46 @@ function App({ session }){
   // Multi-select filter for the rail. `selectedIds` is the remembered set;
   // `showAll` temporarily overrides it (the "Tout" toggle) while keeping the
   // set intact (shown greyed) so it isn't lost.
-  const [selectedIds, setSelectedIds] = useState([]);
-  const [showAll, setShowAll] = useState(true);
+  //
+  // Le filtre survit au rechargement : il décrit sur quoi on travaille en ce
+  // moment, et le perdre à chaque ouverture obligeait à le reposer à la main.
+  // Il reste par appareil — on ne filtre pas la même chose sur le téléphone que
+  // sur le PC — donc localStorage plutôt que le compte, comme les chronos.
+  const filterKey = `tracklog.filter.${userId}`;
+  const savedFilter = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(`tracklog.filter.${session.user.id}`);
+      const v = raw ? JSON.parse(raw) : null;
+      return v && typeof v === 'object' ? v : {};
+    } catch { return {}; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const [selectedIds, setSelectedIds] = useState(
+    () => Array.isArray(savedFilter.selectedIds) ? savedFilter.selectedIds : []);
+  const [showAll, setShowAll] = useState(() => savedFilter.showAll !== false);
   // Filters and sorting start collapsed everywhere — they're occasional controls,
-  // and on a phone an expanded rail pushed the day's cards below the fold.
-  const [railOpen, setRailOpen] = useState(false);
-  const [sortMode, setSortMode] = useState('manuel'); // manuel | alpha | recent | type
+  // and on a phone an expanded rail pushed the day's cards below the fold. Le rail
+  // se rouvre en revanche s'il était ouvert : c'est là qu'on voit le filtre actif.
+  const [railOpen, setRailOpen] = useState(() => savedFilter.railOpen === true);
+  const [sortMode, setSortMode] = useState(
+    () => SORTS.some(s => s.id === savedFilter.sortMode) ? savedFilter.sortMode : 'manuel');
+  useEffect(() => {
+    try {
+      localStorage.setItem(filterKey, JSON.stringify({ selectedIds, showAll, railOpen, sortMode }));
+    } catch {}
+  }, [filterKey, selectedIds, showAll, railOpen, sortMode]);
+  // Un tracker supprimé (ou archivé) depuis un autre appareil laisserait son id
+  // dans le filtre restauré, qui ne filtrerait plus rien de visible. On purge
+  // une fois les trackers chargés — pas avant, ils sont vides le temps de la
+  // requête et ça effacerait le filtre à chaque ouverture.
+  useEffect(() => {
+    if (loading) return;
+    setSelectedIds(prev => {
+      const alive = new Set(trackers.filter(t => !t.archived).map(t => t.id));
+      const next = prev.filter(id => alive.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [loading, trackers]);
   const [newTrackerOpen, setNewTrackerOpen] = useState(false);
   const [editTracker, setEditTracker] = useState(null);
   const [editEntry, setEditEntry] = useState(null);
@@ -1406,7 +1511,7 @@ const SORTS = [
 function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onToggleAll, onAdd, onEdit, onReorder, open, onToggleOpen, sortMode, onSortMode }){
   const byId = useMemo(() => Object.fromEntries(trackers.map(t => [t.id, t])), [trackers]);
   const ids = useMemo(() => trackers.map(t => t.id), [trackers]);
-  const { order, dragId, startDrag, setNodeRef } = useDragReorder(ids, onReorder);
+  const { order, dragId, startDrag, setNodeRef, wasArmed } = useDragReorder(ids, onReorder);
   const dragStartRef = useRef(null);
   const selSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
@@ -1453,12 +1558,16 @@ function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onTog
                 className={`pill ${cls} ${dragId===t.id?'dragging':''}`}
                 onPointerDown={(e)=>{ dragStartRef.current = { x:e.clientX, y:e.clientY }; startDrag(t.id)(e); }}
                 onClickCapture={(e)=>{
+                  // Un appui long attrape la pastille pour la réordonner ; le relâcher
+                  // ne doit pas basculer le filtre par-dessus le marché, même sans
+                  // avoir bougé d'un pixel.
                   const s = dragStartRef.current;
-                  if (s && (Math.abs(e.clientX-s.x) > 6 || Math.abs(e.clientY-s.y) > 6)){ e.preventDefault(); e.stopPropagation(); }
+                  const moved = s && (Math.abs(e.clientX-s.x) > 6 || Math.abs(e.clientY-s.y) > 6);
+                  if (wasArmed() || moved){ e.preventDefault(); e.stopPropagation(); }
                 }}
                 onClick={()=>onToggle(t.id)}
                 onDoubleClick={()=>onEdit(t)}
-                title="Cliquer pour filtrer · glisser pour réordonner · double-clic pour modifier"
+                title="Cliquer pour filtrer · maintenir puis glisser pour réordonner · double-clic pour modifier"
               >
                 {isMaster(t)
                   ? <span className="master-mark" style={{background:t.color, width:8, height:8}}></span>
@@ -2696,10 +2805,51 @@ function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, drag
     return Math.min(points.length - 1, Math.max(0, idx));
   };
   const handleMouseMove = (e) => { const i = pointToIndex(e.clientX); if (i != null) setActive(i); };
-  const handleTouch = (e) => {
-    const t = e.touches[0]; if (!t) return;
-    const i = pointToIndex(t.clientX); if (i != null) setActive(i);
+
+  // Au doigt, la lecture ne s'ouvre qu'après un appui maintenu : faire défiler
+  // la page en effleurant un graphe faisait sinon surgir une bulle qu'on
+  // n'avait pas demandée. Une fois ouverte, le doigt balaie librement la courbe.
+  // À la souris le survol reste immédiat — il n'y a pas de défilement à
+  // confondre avec l'intention de lire.
+  const TOUCH_HOLD_MS = 260;
+  const TOUCH_SLOP = 10;
+  const touchHold = useRef(null);
+  const scrubbing = useRef(false);
+  const endTouchHold = () => {
+    if (touchHold.current?.timer) clearTimeout(touchHold.current.timer);
+    touchHold.current = null;
   };
+  useEffect(() => endTouchHold, []);
+
+  const handleTouchStart = (e) => {
+    const t = e.touches[0]; if (!t) return;
+    scrubbing.current = false;
+    endTouchHold();
+    const x0 = t.clientX, y0 = t.clientY;
+    touchHold.current = {
+      x0, y0,
+      timer: setTimeout(() => {
+        touchHold.current = null;
+        scrubbing.current = true;
+        try { navigator.vibrate?.(10); } catch {}
+        const i = pointToIndex(x0);
+        if (i != null) setActive(i);
+      }, TOUCH_HOLD_MS),
+    };
+  };
+  const handleTouchMove = (e) => {
+    const t = e.touches[0]; if (!t) return;
+    if (scrubbing.current){
+      const i = pointToIndex(t.clientX);
+      if (i != null) setActive(i);
+      return;
+    }
+    // Le doigt part avant la fin de l'attente : c'est un défilement, pas une lecture.
+    const h = touchHold.current;
+    if (h && (Math.abs(t.clientX - h.x0) > TOUCH_SLOP || Math.abs(t.clientY - h.y0) > TOUCH_SLOP)) endTouchHold();
+  };
+  const handleTouchEnd = () => { endTouchHold(); scrubbing.current = false; };
+
   const activePoint = active != null ? points[active] : null;
 
   return (
@@ -2741,8 +2891,10 @@ function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, drag
         <svg ref={svgRef} className="chart-svg" style={{height: H + 'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
           onMouseMove={handleMouseMove}
           onMouseLeave={()=>setActive(null)}
-          onTouchStart={handleTouch}
-          onTouchMove={handleTouch}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
         >
           {/* Y grid */}
           {yTicks.map((v,i)=>(

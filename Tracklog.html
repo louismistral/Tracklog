@@ -511,7 +511,7 @@
   /* Drag-to-reorder — grip handle + lifted state, reused by every
      reorderable list (rail pills, day cards, tracker cards, master
      strips, chart cards). */
-  .drag-handle{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex-shrink:0;color:var(--ink-3);opacity:.65;cursor:grab;touch-action:none;border-radius:4px;transition:color .25s var(--ease),background .25s var(--ease),opacity .25s var(--ease)}
+  .drag-handle{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex-shrink:0;color:var(--ink-3);opacity:.65;cursor:grab;touch-action:pan-y;border-radius:4px;transition:color .25s var(--ease),background .25s var(--ease),opacity .25s var(--ease)}
   .drag-handle:hover{color:var(--ink);background:var(--bg-3);opacity:1}
   .drag-handle svg circle{fill:currentColor}
   .drag-handle.dragging{cursor:grabbing;color:var(--accent);opacity:1}
@@ -531,7 +531,7 @@
      animation from replaying on the cards that shifted. */
   body.reordering .today-card,body.reordering .tk-card,body.reordering .chart-card,
   body.reordering .gv-card,body.reordering .master-strip,body.reordering .pill{animation:none !important}
-  .pill{cursor:grab;touch-action:none}
+  .pill{cursor:grab;touch-action:pan-y}
   .pill.add{cursor:pointer}
   .pill.dragging{cursor:grabbing}
 
@@ -1217,7 +1217,7 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=40"></script>
+<script type="text/babel" src="app.jsx?v=41"></script>
 <script type="text/babel" src="app.food.jsx?v=10"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
