@@ -118,6 +118,23 @@ const GRAINS = [
   { id:'month', label:'Mois' },
 ];
 
+/* ---- Densité des cartes de graphe -----------------------------------------
+   Combien de cartes par ligne dans la vue Cartes. Au-delà de quatre, une carte
+   est plus étroite que son propre axe : le graphe cesse de se lire.
+   Chaque cran retire du détail plutôt que de le tasser — c'est ce qui fait la
+   différence entre « plus petit » et « illisible ». */
+const MAX_PER_ROW = 4;
+function chartDetail(perRow){
+  // `axisLabels:false` au cran serré n'est pas qu'une simplification voulue :
+  // le SVG est étiré en `preserveAspectRatio="none"`, donc son texte se
+  // comprime horizontalement avec la carte. À 250 px de large les graduations
+  // deviennent des taches. On les retire, la carte devient une sparkline —
+  // la valeur du jour reste lisible, elle, dans l'en-tête.
+  if (perRow >= 3) return { height: 84,  padL: 8,  padB: 8,  yTicks: 3, midTick: false, axisLabels: false, stats: 'value' };
+  if (perRow === 2) return { height: 110, padL: 32, padB: 20, yTicks: 5, midTick: true,  axisLabels: true,  stats: 'short' };
+  return                   { height: 160, padL: 40, padB: 24, yTicks: 6, midTick: true,  axisLabels: true,  stats: 'full'  };
+}
+
 /* ============================================================
    Supabase — cloud persistence + auth
    ============================================================ */
@@ -2368,7 +2385,12 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
   const [mode, setMode] = useState('chart'); // chart | calendar | summary
   const [rangeMode, setRangeMode] = useState('30'); // '7'|'30'|'90'|'365'|'ytd'|'all'|'custom'
   const [customStart, setCustomStart] = useState('');
-  const [layout, setLayout] = useState('list'); // list | grid | master | average
+  // « Liste » et « Grille » ne sont pas deux affichages mais un seul réglé à
+  // deux crans : combien de cartes par ligne. Le curseur remplace le choix, et
+  // chaque cran de plus rétrécit les cartes et les allège de leurs statistiques
+  // secondaires — sans quoi elles se tasseraient au lieu de se simplifier.
+  const [layout, setLayout] = useState('cards'); // cards | master | average
+  const [perRow, setPerRow] = useState(1);       // 1..MAX_PER_ROW
 
   const filterSet = filterIds ? new Set(filterIds) : null;
   const visibleTrackers = filterSet ? trackers.filter(t => filterSet.has(t.id)) : trackers;
@@ -2376,7 +2398,6 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
   // so computed masters are handled separately (their own card). The filter
   // now narrows the Master overlay and Tendance too.
   const dataVisible = visibleTrackers.filter(t => !isMaster(t));
-  const effectiveLayout = layout;
 
   const visibleById = useMemo(() => Object.fromEntries(visibleTrackers.map(t => [t.id, t])), [visibleTrackers]);
   const visibleIds = useMemo(() => visibleTrackers.map(t => t.id), [visibleTrackers]);
@@ -2439,52 +2460,55 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
           <div className="layout-bar">
             <span className="layout-label">Affichage</span>
             <div className="vue-mode small">
-              <button className={effectiveLayout==='list'?'on':''} onClick={()=>setLayout('list')} title="Une ligne par tracker, plein largeur">
-                <svg width="12" height="10" viewBox="0 0 12 10"><rect x="0" y="0" width="12" height="2.5" fill="currentColor"/><rect x="0" y="3.75" width="12" height="2.5" fill="currentColor"/><rect x="0" y="7.5" width="12" height="2.5" fill="currentColor"/></svg>
-                Liste
+              <button className={layout==='cards'?'on':''} onClick={()=>setLayout('cards')} title="Une carte par tracker — le curseur règle combien par ligne">
+                <svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="currentColor" strokeWidth="1"><rect x="0.5" y="0.5" width="11" height="9" rx="1"/><path d="M2.5 7 L5 4.5 L7 6 L9.5 3"/></svg>
+                Cartes
               </button>
-              <button className={effectiveLayout==='grid'?'on':''} onClick={()=>setLayout('grid')} title="Tuiles compactes">
-                <svg width="12" height="10" viewBox="0 0 12 10"><rect x="0" y="0" width="5" height="4.5" fill="currentColor"/><rect x="7" y="0" width="5" height="4.5" fill="currentColor"/><rect x="0" y="5.5" width="5" height="4.5" fill="currentColor"/><rect x="7" y="5.5" width="5" height="4.5" fill="currentColor"/></svg>
-                Grille
-              </button>
-              <button className={effectiveLayout==='master'?'on':''} onClick={()=>setLayout('master')} title="Les séries sélectionnées superposées, normalisées 0–100">
+              <button className={layout==='master'?'on':''} onClick={()=>setLayout('master')} title="Les séries sélectionnées superposées, normalisées 0–100">
                 <svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="currentColor" strokeWidth="1"><path d="M0 7 L3 4 L6 6 L9 2 L12 5"/><path d="M0 5 L3 7 L6 3 L9 5 L12 3" opacity="0.5"/></svg>
                 Master
               </button>
-              <button className={effectiveLayout==='average'?'on':''} onClick={()=>setLayout('average')} title="Moyenne normalisée des trackers sélectionnés">
+              <button className={layout==='average'?'on':''} onClick={()=>setLayout('average')} title="Moyenne normalisée des trackers sélectionnés">
                 <svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M0 6 Q3 3 6 5 T12 4"/></svg>
                 Tendance
               </button>
             </div>
+            {/* Le curseur ne s'affiche que là où il a un sens : Master et Tendance
+                sont un seul graphe, il n'y a rien à répartir par ligne. */}
+            {layout === 'cards' && (
+              <div className="per-row">
+                <span className="per-row-end" aria-hidden="true">−</span>
+                <input
+                  type="range" min="1" max={MAX_PER_ROW} step="1" value={perRow}
+                  onChange={e=>setPerRow(parseInt(e.target.value, 10))}
+                  aria-label="Cartes par ligne"
+                  title={`${perRow} carte${perRow>1?'s':''} par ligne`}
+                  style={{'--fill': `${((perRow-1)/(MAX_PER_ROW-1))*100}%`}}
+                />
+                <span className="per-row-end" aria-hidden="true">+</span>
+                <span className="per-row-n mono">{perRow}</span>
+              </div>
+            )}
           </div>
 
-          {effectiveLayout === 'list' && cardsDrag.order.map(id => {
-            const t = visibleById[id];
-            if (!t) return null;
-            const dragProps = { containerRef: cardsDrag.setNodeRef(t.id), dragging: cardsDrag.dragId===t.id, onDragStart: cardsDrag.startDrag(t.id) };
-            return isMaster(t)
-              ? <MasterTrackerCard key={t.id} master={t} trackerById={trackerById} entries={entries} rangeDays={range} onEdit={onEdit} {...dragProps} />
-              : <ChartCard key={t.id} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} onOpenDay={onOpenDay} {...dragProps} />;
-          })}
-
-          {effectiveLayout === 'grid' && (
-            <div className="chart-grid-layout">
+          {layout === 'cards' && (
+            <div className="chart-grid-layout" data-per={perRow}>
               {cardsDrag.order.map(id => {
                 const t = visibleById[id];
                 if (!t) return null;
                 const dragProps = { containerRef: cardsDrag.setNodeRef(t.id), dragging: cardsDrag.dragId===t.id, onDragStart: cardsDrag.startDrag(t.id) };
                 return isMaster(t)
-                  ? <MasterTrackerCard key={t.id} compact master={t} trackerById={trackerById} entries={entries} rangeDays={range} onEdit={onEdit} {...dragProps} />
-                  : <ChartCard key={t.id} compact tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} onOpenDay={onOpenDay} {...dragProps} />;
+                  ? <MasterTrackerCard key={t.id} perRow={perRow} master={t} trackerById={trackerById} entries={entries} rangeDays={range} onEdit={onEdit} {...dragProps} />
+                  : <ChartCard key={t.id} perRow={perRow} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} onOpenDay={onOpenDay} {...dragProps} />;
               })}
             </div>
           )}
 
-          {effectiveLayout === 'master' && (
+          {layout === 'master' && (
             <MasterChart trackers={dataVisible} entries={entries} rangeDays={range} />
           )}
 
-          {effectiveLayout === 'average' && (
+          {layout === 'average' && (
             <TrendChart trackers={dataVisible} entries={entries} rangeDays={range} />
           )}
 
@@ -2509,7 +2533,9 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
 /* ============================================================
    Chart card — line chart with axes
    ============================================================ */
-function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef, dragging, onDragStart, onEdit, onOpenDay }){
+function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, dragging, onDragStart, onEdit, onOpenDay }){
+  const detail = chartDetail(perRow);
+  const compact = perRow >= 2;
   const now = Date.now();
   const start = now - rangeDays*86400000;
   const isCumulative = !!tracker.cumulative && (tracker.type === 'number' || tracker.type === 'duration');
@@ -2592,7 +2618,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
   const total = isSumMode && hasData ? numericValues.reduce((a,b)=>a+b,0) : null;
 
   // SVG dimensions
-  const W = 800, H = compact ? 110 : 160, PAD_L = compact ? 32 : 40, PAD_R = 12, PAD_T = 10, PAD_B = compact ? 20 : 24;
+  const W = 800, H = detail.height, PAD_L = detail.padL, PAD_R = 12, PAD_T = 10, PAD_B = detail.padB;
   const innerW = W - PAD_L - PAD_R;
   const innerH = H - PAD_T - PAD_B;
 
@@ -2612,7 +2638,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
     : niceDomain(
         Math.min(...numericValues, Infinity),
         Math.max(...numericValues, -Infinity),
-        compact ? 5 : 6,
+        detail.yTicks,
         tracker.type
       );
   const yMin = domain.min, yMax = domain.max;
@@ -2642,10 +2668,13 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
     return v.toFixed(yDecimals);
   };
 
-  // X-axis ticks (start, middle, end)
+  // X-axis ticks (start, middle, end). Une carte serrée perd celui du milieu :
+  // trois dates dans 250 px se chevauchent au lieu de situer quoi que ce soit.
   const xTicks = [
     { i: 0, label: grainTick(points[0]?.ts, grain) },
-    { i: Math.floor(points.length/2), label: grainTick(points[Math.floor(points.length/2)]?.ts, grain) },
+    ...(detail.midTick
+      ? [{ i: Math.floor(points.length/2), label: grainTick(points[Math.floor(points.length/2)]?.ts, grain) }]
+      : []),
     { i: points.length-1, label: grainTick(points[points.length-1]?.ts, grain) },
   ].filter(t => points[t.i]);
 
@@ -2674,7 +2703,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
   const activePoint = active != null ? points[active] : null;
 
   return (
-    <div ref={containerRef} className={`chart-card ${compact?'compact':''} ${dragging?'dragging':''}`}>
+    <div ref={containerRef} className={`chart-card ${compact?'compact':''} ${perRow>=3?'dense':''} ${dragging?'dragging':''}`}>
       <div className="chart-head">
         <div className="name">
           {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
@@ -2682,7 +2711,9 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
         </div>
         <div className="chart-head-right">
           <div className="stats">
-            {compact ? (
+            {/* Trois paliers de détail : la valeur seule quand la carte est
+                étroite, puis la moyenne, puis le compte d'entrées. */}
+            {detail.stats === 'value' ? (
               <div><span className="v">{latest != null ? fmtValue(tracker, latest) : '—'}</span></div>
             ) : isCumulative ? (
               <>
@@ -2693,8 +2724,8 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
               <>
                 <div>actuel <span className="v">{latest != null ? fmtValue(tracker, latest) : '—'}</span></div>
                 <div>{isSumMode ? 'total/jour' : 'moyenne'} <span className="v">{avg != null ? fmtValue(tracker, +avg.toFixed(1)) : '—'}</span></div>
-                {isSumMode && <div>total période <span className="v">{total != null ? fmtValue(tracker, +total.toFixed(1)) : '—'}</span></div>}
-                <div>entrées <span className="v">{entries.filter(e=>e.ts >= start).length}</span></div>
+                {detail.stats === 'full' && isSumMode && <div>total période <span className="v">{total != null ? fmtValue(tracker, +total.toFixed(1)) : '—'}</span></div>}
+                {detail.stats === 'full' && <div>entrées <span className="v">{entries.filter(e=>e.ts >= start).length}</span></div>}
               </>
             )}
           </div>
@@ -2717,7 +2748,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
           {yTicks.map((v,i)=>(
             <g key={i}>
               <line className="chart-grid" x1={PAD_L} x2={W-PAD_R} y1={yAt(v)} y2={yAt(v)} />
-              <text className="chart-axis" x={PAD_L-6} y={yAt(v)+3} textAnchor="end">{fmtY(v)}</text>
+              {detail.axisLabels && <text className="chart-axis" x={PAD_L-6} y={yAt(v)+3} textAnchor="end">{fmtY(v)}</text>}
             </g>
           ))}
           {/* Area fill */}
@@ -2750,7 +2781,7 @@ function ChartCard({ tracker, entries, rangeDays, compact = false, containerRef,
             </circle>
           ))}
           {/* X ticks */}
-          {xTicks.map((t,i)=>(
+          {detail.axisLabels && xTicks.map((t,i)=>(
             <text key={i} className="chart-axis" x={xAt(t.i)} y={H-6} textAnchor={i===0?'start':i===xTicks.length-1?'end':'middle'}>{t.label}</text>
           ))}
           {/* Scrub cursor — the day currently hovered/touched */}
@@ -3260,7 +3291,9 @@ function MasterStrip({ master, trackerById, entries, dayTs, containerRef, draggi
    Master tracker card — a saved index: average of the normalized
    performance of its chosen member trackers (0–100 per day).
    ============================================================ */
-function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = false, containerRef, dragging, onDragStart, onEdit }){
+function MasterTrackerCard({ master, trackerById, entries, rangeDays, perRow = 1, containerRef, dragging, onDragStart, onEdit }){
+  const detail = chartDetail(perRow);
+  const compact = perRow >= 2;
   const members = masterMembers(master, trackerById);
   const grain = GRAINS.some(g => g.id === master.chartGrain) ? master.chartGrain : 'day';
   const curveStyle = master.curveStyle === 'smooth' ? 'smooth' : 'line';
@@ -3281,7 +3314,9 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = 
   const overallAvg = numericValues.length ? numericValues.reduce((a,b)=>a+b,0)/numericValues.length : null;
   const delta = (latest != null && earliest != null) ? latest - earliest : null;
 
-  const W = 800, H = compact ? 130 : 220, PAD_L = 34, PAD_R = 14, PAD_T = 14, PAD_B = 24;
+  // Un master a plus d'amplitude à montrer qu'une série brute : il garde une
+  // hauteur plus généreuse à densité égale.
+  const W = 800, H = perRow >= 3 ? 100 : compact ? 130 : 220, PAD_L = detail.padL, PAD_R = 14, PAD_T = 14, PAD_B = detail.padB;
   const innerW = W - PAD_L - PAD_R;
   const innerH = H - PAD_T - PAD_B;
   const xAt = (i) => PAD_L + (i / Math.max(1, avgSeries.length - 1)) * innerW;
@@ -3303,16 +3338,16 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = 
   ] : [];
 
   return (
-    <div ref={containerRef} className={`chart-card ${compact?'compact':''} ${dragging?'dragging':''}`}>
+    <div ref={containerRef} className={`chart-card ${compact?'compact':''} ${perRow>=3?'dense':''} ${dragging?'dragging':''}`}>
       <div className="chart-head">
         <div className="name">
           {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
-          <span className="master-mark" style={{background:master.color}}></span>{master.name}
-          <span className="master-tag">master</span>
+          <span className="master-mark" style={{background:master.color}}></span><span>{master.name}</span>
+          {!compact && <span className="master-tag">master</span>}
         </div>
         <div className="chart-head-right">
           <div className="stats">
-            {compact ? (
+            {detail.stats === 'value' ? (
               <div><span className="v">{latest!=null ? Math.round(latest*100) : '—'}</span></div>
             ) : (
               <>
@@ -3338,7 +3373,7 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = 
           {yTicks.map((v,i)=>(
             <g key={i}>
               <line className="chart-grid" x1={PAD_L} x2={W-PAD_R} y1={yAt(v)} y2={yAt(v)} />
-              <text className="chart-axis" x={PAD_L-6} y={yAt(v)+3} textAnchor="end">{Math.round(v*100)}</text>
+              {detail.axisLabels && <text className="chart-axis" x={PAD_L-6} y={yAt(v)+3} textAnchor="end">{Math.round(v*100)}</text>}
             </g>
           ))}
           {/* Days where no member recorded anything are bridged dashed, not drawn solid */}
@@ -3359,7 +3394,7 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, compact = 
               </g>
             );
           })}
-          {xTicks.map((t,i)=>(
+          {detail.axisLabels && xTicks.map((t,i)=>(
             <text key={i} className="chart-axis" x={xAt(t.i)} y={H-6} textAnchor={i===0?'start':i===xTicks.length-1?'end':'middle'}>{t.label}</text>
           ))}
         </svg>

@@ -324,7 +324,43 @@
   .vue-mode.small button.on{color:var(--bg)}
   .vue-mode.small button.on svg{opacity:1}
   .vue-mode.small button:disabled{opacity:0.3;cursor:not-allowed}
-  .chart-grid-layout{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px;margin-bottom:14px}
+  /* Combien de cartes par ligne — le curseur écrit `data-per`, une valeur par
+     règle plutôt qu'un `repeat()` calculé : la fonction repeat() n'accepte pas
+     de calc() pour son nombre de colonnes, donc pas de min() pour brider les
+     petits écrans. Les paliers ci-dessous s'en chargent explicitement. */
+  .chart-grid-layout{display:grid;gap:14px;margin-bottom:14px;grid-template-columns:1fr}
+  .chart-grid-layout[data-per="2"]{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .chart-grid-layout[data-per="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .chart-grid-layout[data-per="4"]{grid-template-columns:repeat(4,minmax(0,1fr))}
+  /* La carte porte déjà sa marge basse quand elle vit hors grille ; ici le gap
+     s'en charge, sinon les lignes s'écartent de 28 px au lieu de 14. */
+  .chart-grid-layout>.chart-card{margin-bottom:0}
+  @media (max-width:1100px){ .chart-grid-layout[data-per="4"]{grid-template-columns:repeat(3,minmax(0,1fr))} }
+  @media (max-width:880px){ .chart-grid-layout[data-per="3"],.chart-grid-layout[data-per="4"]{grid-template-columns:repeat(2,minmax(0,1fr))} }
+
+  /* Le curseur « − / + ». Même famille que le curseur d'échelle, en plus court. */
+  .per-row{display:flex;align-items:center;gap:9px;flex-shrink:0}
+  .per-row-end{font-size:13px;color:var(--ink-3);line-height:1;user-select:none}
+  .per-row input[type=range]{-webkit-appearance:none;appearance:none;width:92px;height:18px;background:transparent;cursor:pointer}
+  .per-row input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;
+    background:linear-gradient(to right,var(--accent) var(--fill,0%),var(--line-2) var(--fill,0%))}
+  .per-row input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:var(--line-2)}
+  .per-row input[type=range]::-moz-range-progress{height:3px;border-radius:2px;background:var(--accent)}
+  .per-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:13px;height:13px;border-radius:50%;background:var(--ink);border:none;margin-top:-5px;transition:transform .2s var(--ease),background .2s var(--ease)}
+  .per-row input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:var(--ink);border:none}
+  .per-row input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.15)}
+  .per-row input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}
+  .per-row-n{font-size:12px;color:var(--ink-3);font-feature-settings:"tnum";min-width:9px;text-align:right}
+
+  /* Palier le plus serré : la carte se déleste aussi de son cadre visuel. */
+  .chart-card.dense{padding:12px 13px}
+  .chart-card.dense .chart-head{margin-bottom:6px;gap:8px}
+  .chart-card.dense .chart-head .name{font-size:12px;gap:6px}
+  .chart-card.dense .stats{font-size:10px;gap:10px}
+  .chart-card.dense .stats .v{font-size:12px}
+  .chart-card.dense .chart-edit-btn{width:20px;height:20px}
+  .chart-card.dense .chart-axis{font-size:9px}
+  .chart-card.dense .drag-handle{display:none}
   .chart-card.compact{padding:16px 18px}
   .chart-card.compact .chart-head{margin-bottom:8px}
   .chart-card.compact .stats{font-size:11px}
@@ -1069,8 +1105,11 @@
     .chart-head .stats{flex-wrap:wrap;gap:6px 16px}
     .trackers-head{flex-wrap:wrap;gap:12px}
 
-    /* Fixed min-widths that force horizontal overflow on narrow screens */
-    .chart-grid-layout{grid-template-columns:1fr}
+    /* Fixed min-widths that force horizontal overflow on narrow screens.
+       Le sélecteur d'attribut est nécessaire : `.chart-grid-layout` seul est
+       moins spécifique que `.chart-grid-layout[data-per="3"]` et se ferait
+       battre quel que soit l'ordre des règles. */
+    .chart-grid-layout,.chart-grid-layout[data-per]{grid-template-columns:1fr}
     .today-grid{grid-template-columns:1fr}
     .trackers-grid{grid-template-columns:1fr}
     .gridview{grid-template-columns:repeat(2,1fr)}
@@ -1178,8 +1217,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=39"></script>
-<script type="text/babel" src="app.food.jsx?v=9"></script>
+<script type="text/babel" src="app.jsx?v=40"></script>
+<script type="text/babel" src="app.food.jsx?v=10"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>
