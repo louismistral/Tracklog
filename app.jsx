@@ -1,4 +1,4 @@
-const { useState, useEffect, useMemo, useRef, useCallback, useContext } = React;
+const { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useContext } = React;
 
 /* ============================================================
    Data model
@@ -432,7 +432,7 @@ function InfoBubble({ children }){
   if (!infoEnabled) return null;
   return (
     <span className="info" ref={ref}>
-      <button type="button" className={`info-btn ${open?'on':''}`} onClick={()=>setOpen(o=>!o)} aria-label="Plus d'infos">i</button>
+      <button type="button" className={`icon-btn sm info-btn ${open?'on':''}`} onClick={()=>setOpen(o=>!o)} aria-label="Plus d'infos">i</button>
       {open && <span className="info-pop">{children}</span>}
     </span>
   );
@@ -451,15 +451,77 @@ function GearIcon({ size = 13 }){
   );
 }
 
-// A two-state Oui/Non pill with a sliding thumb — same family as the Affiché/Masqué
-// segmented toggle, used everywhere a checkbox used to stand for a yes/no setting.
+// The one toggle mechanism in the app: a track of buttons with a background
+// that *slides* to whichever carries `.on`, measured for real in the DOM
+// rather than each button independently swapping its own background. Every
+// segmented control in Tracklog — Jour/Historique/Chrono, a tracker's type,
+// Oui/Non — renders through this, so "the sliding one" is the only kind.
+//
+// Deliberately dumb: callers keep writing their own <button className={x===id?'on':''}>
+// list exactly as before. Segmented only wraps them, watches its own DOM after
+// each render for whichever child carries `.on`, and positions `.seg-thumb`
+// under it. That's what makes migrating every existing toggle a one-line change
+// instead of a rewrite: nothing about the buttons themselves has to change.
+//
+// Three sizes carry real, deliberate differences — not leftover drift:
+//   (default) sentence-case option chips, each with its own outline — a modal's
+//     "Une / jour" / "Plusieurs / jour". Long phrasing stays readable in this size.
+//   compact   uppercase nav pills sharing one track — Jour/Historique/Chrono,
+//     Graphes/Calendrier/Grille. Short, tracked-out labels only.
+//   small     the same compact track, one notch down — rail sort, library tabs,
+//     the chart density row (icon-bearing buttons welcome).
+function Segmented({ size, wrap, className = '', children, ...rest }){
+  const ref = useRef(null);
+  const [thumb, setThumb] = useState(null);
+
+  // Écrire le même rectangle qu'on tient déjà redéclenche un rendu qui
+  // redéclenche cet effet — sans la garde d'égalité, une boucle infinie
+  // (React coupe court avec « Maximum update depth exceeded »).
+  const measure = () => {
+    const track = ref.current;
+    const active = track && track.querySelector(':scope > button.on');
+    if (!track || !active){
+      setThumb(prev => prev === null ? prev : null);
+      return;
+    }
+    // offsetLeft/Top are already relative to the nearest positioned ancestor's
+    // padding box — exactly the containing block a `position:absolute` child
+    // uses. Diffing two getBoundingClientRect() calls instead looked close but
+    // was off by the track's own border width (the thumb landed 1px down-right
+    // of the button it was supposed to sit under).
+    const next = { left: active.offsetLeft, top: active.offsetTop, width: active.offsetWidth, height: active.offsetHeight };
+    setThumb(prev => (prev && prev.left === next.left && prev.top === next.top
+      && prev.width === next.width && prev.height === next.height) ? prev : next);
+  };
+
+  useLayoutEffect(measure);
+
+  useEffect(() => {
+    const track = ref.current;
+    if (!track || !window.ResizeObserver) return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(track);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <div ref={ref} className={`seg-track ${size ? size : ''} ${wrap ? 'wrap' : ''} ${className}`} role="group" {...rest}>
+      {thumb && <span className="seg-thumb" style={{
+        transform: `translate(${thumb.left}px, ${thumb.top}px)`, width: thumb.width, height: thumb.height,
+      }} aria-hidden="true" />}
+      {children}
+    </div>
+  );
+}
+
+// Oui/Non is just a two-option Segmented — kept as its own component because
+// callers ask for it by value/onChange, not by rendering the two buttons themselves.
 function BoolPill({ value, onChange, onLabel = 'Oui', offLabel = 'Non', disabled = false }){
   return (
-    <div className={`bool-pill ${value ? 'on' : 'off'} ${disabled ? 'disabled' : ''}`} role="group">
-      <span className="bool-pill-thumb" aria-hidden="true"></span>
+    <Segmented size="compact" className={disabled ? 'disabled' : ''}>
       <button type="button" className={value ? 'on' : ''} aria-pressed={value} disabled={disabled} onClick={()=>onChange(true)}>{onLabel}</button>
       <button type="button" className={!value ? 'on' : ''} aria-pressed={!value} disabled={disabled} onClick={()=>onChange(false)}>{offLabel}</button>
-    </div>
+    </Segmented>
   );
 }
 function startOfMonth(ts){ const d = new Date(ts); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); }
@@ -1311,10 +1373,10 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
           <div className="field" key={t.id}>
             <label>{t.label}</label>
             <div className="ctl-with-info">
-              <div className="vue-mode small">
+              <Segmented size="small">
                 <button className={tabs[t.id] !== false ? 'on' : ''} onClick={()=>onSetTabVisible(t.id, true)}>Affiché</button>
                 <button className={tabs[t.id] === false ? 'on' : ''} onClick={()=>onSetTabVisible(t.id, false)}>Masqué</button>
-              </div>
+              </Segmented>
               <span className="settings-inline-hint">{t.hint}</span>
             </div>
           </div>
@@ -1323,10 +1385,10 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
           <div className="field" key={f.id} style={{borderBottom:'none'}}>
             <label>{f.label}</label>
             <div className="ctl-with-info">
-              <div className="vue-mode small">
+              <Segmented size="small">
                 <button className={tabs[f.id] !== false ? 'on' : ''} onClick={()=>onSetTabVisible(f.id, true)}>Affiché</button>
                 <button className={tabs[f.id] === false ? 'on' : ''} onClick={()=>onSetTabVisible(f.id, false)}>Masqué</button>
-              </div>
+              </Segmented>
               <span className="settings-inline-hint">{f.hint}</span>
             </div>
           </div>
@@ -1343,10 +1405,10 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
         <p className="settings-section-title">Affichage</p>
         <div className="field">
           <label>Bulles d'info</label>
-          <div className="vue-mode small">
+          <Segmented size="small">
             <button className={infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(true)}>Activées</button>
             <button className={!infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(false)}>Désactivées</button>
-          </div>
+          </Segmented>
         </div>
         <p className="settings-hint">
           Les petits « i » qui expliquent chaque réglage, un peu partout dans l'app.
@@ -1354,10 +1416,10 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
         </p>
         <div className="field" style={{borderBottom:'none'}}>
           <label>Numéro de semaine</label>
-          <div className="vue-mode small">
+          <Segmented size="small">
             <button className={showWeek?'on':''} onClick={()=>onSetShowWeek(true)}>Affiché</button>
             <button className={!showWeek?'on':''} onClick={()=>onSetShowWeek(false)}>Masqué</button>
-          </div>
+          </Segmented>
         </div>
         <p className="settings-hint">
           À côté de la date du jour, dans le Log et l'Historique.
@@ -1444,13 +1506,13 @@ function FeedbackCard({ userId }){
 
       <div className="field">
         <label>Type</label>
-        <div className="seg wrap">
+        <Segmented wrap>
           {FEEDBACK_KINDS.map(k => (
             <button key={k.id} className={kind===k.id?'on':''} onClick={()=>{ setKind(k.id); setState('idle'); }}>
               {k.label}
             </button>
           ))}
-        </div>
+        </Segmented>
       </div>
 
       <div className="field" style={{borderBottom:'none',flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
@@ -1528,12 +1590,12 @@ function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onTog
       {open && (
         <div className="rail-sort">
           <span className="rail-sort-label">Trier</span>
-          <div className="vue-mode small">
+          <Segmented size="small">
             {SORTS.map(s => (
               <button key={s.id} className={sortMode===s.id?'on':''} title={s.hint}
                 onClick={()=>onSortMode(s.id)}>{s.label}</button>
             ))}
-          </div>
+          </Segmented>
         </div>
       )}
       {open && (
@@ -2092,10 +2154,10 @@ function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, o
             {/* Solo: starting one banks and stops whichever other was running — never
                 more than one clock ticking. Multi: every chrono starts and stops only
                 on its own button, exactly as before. */}
-            <div className="vue-mode small" title={exclusive ? 'Un seul chrono actif à la fois' : 'Plusieurs chronos peuvent tourner ensemble'}>
+            <Segmented size="small" title={exclusive ? 'Un seul chrono actif à la fois' : 'Plusieurs chronos peuvent tourner ensemble'}>
               <button className={!exclusive?'on':''} onClick={()=>onSetExclusive(false)}>Multi</button>
               <button className={exclusive?'on':''} onClick={()=>onSetExclusive(true)}>Solo</button>
-            </div>
+            </Segmented>
             {PIP_SUPPORTED && (
               <>
                 <button className="chrono-btn" onClick={openPip} disabled={!!pipWin}>
@@ -2235,10 +2297,10 @@ function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
         </div>
         <div className="field" style={{borderBottom:'none'}}>
           <label>Secondes</label>
-          <div className="seg">
+          <Segmented>
             <button className={!showSeconds?'on':''} onClick={()=>setShowSeconds(false)}>Minutes</button>
             <button className={showSeconds?'on':''} onClick={()=>setShowSeconds(true)}>Sec.</button>
-          </div>
+          </Segmented>
           <InfoBubble>
             Par défaut le chrono affiche la minute, comme les trackers l’enregistrent.
             Activez les secondes pour suivre des sessions courtes.
@@ -2274,11 +2336,11 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
   return (
     <div>
       <div className="log-subnav">
-        <div className="vue-mode">
+        <Segmented size="compact">
           <button className={logSub==='jour'?'on':''} onClick={()=>onLogSub('jour')}>Jour</button>
           <button className={logSub==='historique'?'on':''} onClick={()=>onLogSub('historique')}>Historique</button>
           <button className={logSub==='chrono'?'on':''} onClick={()=>onLogSub('chrono')}>Chrono</button>
-        </div>
+        </Segmented>
         {logSub === 'jour'
           ? (
             <button className="pill add subnav-add" onClick={onAddTracker} title="Nouveau tracker">
@@ -2461,9 +2523,9 @@ function MonthCalendar({ monthTs, onPrev, onNext, entries, selectedKey, onSelect
   return (
     <div className="cal">
       <div className="cal-head">
-        <button className="cal-nav" onClick={onPrev} aria-label="Mois précédent">‹</button>
+        <button className="icon-btn cal-nav" onClick={onPrev} aria-label="Mois précédent">‹</button>
         <span className="cal-title">{monthLabel}</span>
-        <button className="cal-nav" onClick={onNext} aria-label="Mois suivant">›</button>
+        <button className="icon-btn cal-nav" onClick={onNext} aria-label="Mois suivant">›</button>
       </div>
       <div className="cal-grid">
         {['L','M','M','J','V','S','D'].map((d,i)=>(
@@ -2540,11 +2602,11 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
   return (
     <div>
       <div className="vue-controls">
-        <div className="vue-mode">
+        <Segmented size="compact">
           <button className={mode==='chart'?'on':''} onClick={()=>setMode('chart')}>Graphes</button>
           <button className={mode==='calendar'?'on':''} onClick={()=>setMode('calendar')}>Calendrier</button>
           <button className={mode==='summary'?'on':''} onClick={()=>setMode('summary')}>Grille</button>
-        </div>
+        </Segmented>
         <div className="range">
           {['7','30','90','365'].map(r => (
             <button key={r} className={rangeMode===r?'on':''} onClick={()=>setRangeMode(r)}>{r}j</button>
@@ -2568,7 +2630,7 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
         <>
           <div className="layout-bar">
             <span className="layout-label">Affichage</span>
-            <div className="vue-mode small">
+            <Segmented size="small">
               <button className={layout==='cards'?'on':''} onClick={()=>setLayout('cards')} title="Une carte par tracker — le curseur règle combien par ligne">
                 <svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="currentColor" strokeWidth="1"><rect x="0.5" y="0.5" width="11" height="9" rx="1"/><path d="M2.5 7 L5 4.5 L7 6 L9.5 3"/></svg>
                 Cartes
@@ -2581,7 +2643,7 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
                 <svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M0 6 Q3 3 6 5 T12 4"/></svg>
                 Tendance
               </button>
-            </div>
+            </Segmented>
             {/* Le curseur ne s'affiche que là où il a un sens : Master et Tendance
                 sont un seul graphe, il n'y a rien à répartir par ligne. */}
             {layout === 'cards' && (
@@ -2880,7 +2942,7 @@ function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, drag
             )}
           </div>
           {onEdit && (
-            <button className="chart-edit-btn" onClick={()=>onEdit(tracker)} aria-label="Paramètres du tracker" title="Paramètres du tracker">
+            <button className="icon-btn chart-edit-btn" onClick={()=>onEdit(tracker)} aria-label="Paramètres du tracker" title="Paramètres du tracker">
               <GearIcon />
             </button>
           )}
@@ -2978,13 +3040,13 @@ function ChartTooltip({ xPct, date, value, onEdit, onClose }){
       onMouseDown={(e)=>e.stopPropagation()}
       onTouchStart={(e)=>e.stopPropagation()}
     >
-      <button className="chart-tooltip-close" onClick={onClose} aria-label="Fermer" title="Fermer">
+      <button className="icon-btn sm chart-tooltip-close" onClick={onClose} aria-label="Fermer" title="Fermer">
         <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M1 1L8 8M8 1L1 8"/></svg>
       </button>
       <div className="chart-tooltip-date">{date}</div>
       <div className="chart-tooltip-value">{value}</div>
       {onEdit && (
-        <button className="chart-tooltip-edit" onClick={onEdit} aria-label="Éditer ce jour dans l'historique" title="Éditer ce jour dans l'historique">
+        <button className="icon-btn sm chart-tooltip-edit" onClick={onEdit} aria-label="Éditer ce jour dans l'historique" title="Éditer ce jour dans l'historique">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
             <path d="M11 2l3 3-8 8-3.5.5.5-3.5 8-8z"/>
           </svg>
@@ -3431,7 +3493,7 @@ function MasterStrip({ master, trackerById, entries, dayTs, containerRef, draggi
       </div>
       <div className="ms-val">{pct != null ? pct : '—'}<span className="ms-unit">/100</span></div>
       {onEdit && (
-        <button className="chart-edit-btn ms-edit" onClick={()=>onEdit(master)} aria-label="Paramètres du master" title="Paramètres du master">
+        <button className="icon-btn chart-edit-btn" onClick={()=>onEdit(master)} aria-label="Paramètres du master" title="Paramètres du master">
           <GearIcon size={12} />
         </button>
       )}
@@ -3512,7 +3574,7 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, perRow = 1
             )}
           </div>
           {onEdit && (
-            <button className="chart-edit-btn" onClick={()=>onEdit(master)} aria-label="Paramètres du master" title="Paramètres du master">
+            <button className="icon-btn chart-edit-btn" onClick={()=>onEdit(master)} aria-label="Paramètres du master" title="Paramètres du master">
               <GearIcon />
             </button>
           )}
@@ -3632,7 +3694,7 @@ function CalendarCard({ tracker, entries, rangeDays, onEdit }){
             <div>jours actifs <span className="v">{dayVals.filter(d=>d.count>0).length}/{totalDays}</span></div>
           </div>
           {onEdit && (
-            <button className="chart-edit-btn" onClick={()=>onEdit(tracker)} aria-label="Paramètres du tracker" title="Paramètres du tracker">
+            <button className="icon-btn chart-edit-btn" onClick={()=>onEdit(tracker)} aria-label="Paramètres du tracker" title="Paramètres du tracker">
               <GearIcon />
             </button>
           )}
@@ -3735,7 +3797,7 @@ function GridSummary({ trackers, entries, rangeDays, onEdit }){
           <div className="label">
             <span style={{color:c.t.color}}>{c.t.name}</span>
             {onEdit && (
-              <button className="chart-edit-btn gv-edit" onClick={()=>onEdit(c.t)} aria-label="Paramètres du tracker" title="Paramètres du tracker">
+              <button className="icon-btn sm chart-edit-btn" onClick={()=>onEdit(c.t)} aria-label="Paramètres du tracker" title="Paramètres du tracker">
                 <GearIcon size={12} />
               </button>
             )}
@@ -4015,10 +4077,10 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         <div className="field">
           <label>Genre</label>
           <div className="ctl-with-info">
-            <div className="seg">
+            <Segmented>
               <button className={!isMasterKind?'on':''} onClick={()=>setKind('data')}>Tracker</button>
               <button className={isMasterKind?'on':''} onClick={()=>setKind('master')}>Master</button>
-            </div>
+            </Segmented>
             <InfoBubble>
               <span className="k">Tracker</span> : vous le remplissez avec des données.<br/>
               <span className="k">Master</span> : ne se remplit pas — c’est la moyenne normalisée (0–100) de la performance de plusieurs trackers choisis.
@@ -4098,7 +4160,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
                       <input value={c} onChange={e=>setChoiceAt(i, e.target.value)}
                         onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); addChoice(); } }}
                         placeholder={`Choix ${i+1}`} />
-                      <button type="button" className="choice-del" onClick={()=>removeChoice(i)} aria-label="Retirer" disabled={choices.length<=1}>×</button>
+                      <button type="button" className="icon-btn choice-del" onClick={()=>removeChoice(i)} aria-label="Retirer" disabled={choices.length<=1}>×</button>
                     </div>
                   ))}
                   <button type="button" className="choice-add" onClick={addChoice}>＋ Ajouter un choix</button>
@@ -4115,10 +4177,10 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           <div className="field">
             <label>Fréquence</label>
             <div className="ctl-with-info">
-              <div className="seg">
+              <Segmented>
                 <button className={daily?'on':''} onClick={()=>setDaily(true)}>Une / jour</button>
                 <button className={!daily?'on':''} onClick={()=>setDaily(false)}>Plusieurs / jour</button>
-              </div>
+              </Segmented>
               <InfoBubble>
                 <span className="k">Une / jour</span> : une seule entrée par jour, ré-enregistrer un jour déjà noté remplace sa valeur.<br/>
                 <span className="k">Plusieurs / jour</span> : autant d’entrées que vous voulez chaque jour.
@@ -4145,11 +4207,11 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           <div className="field">
             <label>Calcul</label>
             <div className="ctl-with-info">
-              <div className="seg wrap">
+              <Segmented wrap>
                 {AGGREGATES.map(a => (
                   <button key={a.id} className={aggregate===a.id?'on':''} onClick={()=>setAggregate(a.id)}>{a.label}</button>
                 ))}
-              </div>
+              </Segmented>
               <InfoBubble>
                 Combine plusieurs entrées d’un même jour :<br/>
                 <span className="k">Moyenne</span> (10, 15, 20 → 15) · <span className="k">Somme</span> (→ 45) · <span className="k">Minimum</span> (→ 10) · <span className="k">Maximum</span> (→ 20).
@@ -4162,10 +4224,10 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           <div className="field">
             <label>Sélection</label>
             <div className="ctl-with-info">
-              <div className="seg">
+              <Segmented>
                 <button className={!multiple?'on':''} onClick={()=>setMultiple(false)}>Choix unique</button>
                 <button className={multiple?'on':''} onClick={()=>setMultiple(true)}>Choix multiple</button>
-              </div>
+              </Segmented>
               <InfoBubble>
                 <span className="k">Choix unique</span> : une seule option par entrée.<br/>
                 <span className="k">Choix multiple</span> : plusieurs options cochables par entrée.
@@ -4212,11 +4274,11 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         <div className="field">
           <label>Courbe</label>
           <div className="ctl-with-info">
-            <div className="seg">
+            <Segmented>
               {CURVE_STYLES.map(c => (
                 <button key={c.id} className={curveStyle===c.id?'on':''} onClick={()=>setCurveStyle(c.id)}>{c.label}</button>
               ))}
-            </div>
+            </Segmented>
             <InfoBubble>
               <span className="k">Polyligne</span> : les points reliés par des segments droits.<br/>
               <span className="k">Lissée</span> : une courbe arrondie qui passe quand même exactement par
@@ -4228,11 +4290,11 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         <div className="field">
           <label>Un point =</label>
           <div className="ctl-with-info">
-            <div className="seg">
+            <Segmented>
               {GRAINS.map(g => (
                 <button key={g.id} className={chartGrain===g.id?'on':''} onClick={()=>setChartGrain(g.id)}>{g.label}</button>
               ))}
-            </div>
+            </Segmented>
             <InfoBubble>
               Regroupe les jours sur le graphe. <span className="k">Semaine</span> et <span className="k">Mois</span>
               affichent la <span className="k">moyenne</span> des jours renseignés de la période — les jours vides ne
@@ -4246,11 +4308,11 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
             <label style={{width:'auto'}}>Sens de l’amélioration</label>
             <div className="ctl-with-info">
-              <div className="seg wrap">
+              <Segmented wrap>
                 <button className={goodDirection==='up'?'on':''} onClick={()=>setGoodDirection('up')}>Monter = mieux</button>
                 <button className={goodDirection==='down'?'on':''} onClick={()=>setGoodDirection('down')}>Descendre = mieux</button>
                 <button className={goodDirection==='target'?'on':''} onClick={()=>setGoodDirection('target')}>Valeur cible</button>
-              </div>
+              </Segmented>
               <InfoBubble>
                 Décide de quel côté est le progrès dans les vues composites (Master, Tendance générale, Grille) —
                 un temps d’écran qui baisse doit compter comme une amélioration, pas comme une chute.

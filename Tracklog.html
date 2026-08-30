@@ -158,8 +158,10 @@
   .archive-row:hover{background:var(--bg-3)}
   .archive-row .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
   .archive-name{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .badge,.archive-type,.rail-sort-tag,.tc-badge,.tk-type,.tk-chip,.master-tag,.ms-partial{
+    padding:2px 8px;border-radius:999px}
   .archive-type{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-3);
-    border:1px solid var(--line-2);border-radius:999px;padding:3px 8px;flex-shrink:0}
+    border:1px solid var(--line-2);flex-shrink:0}
   .settings-hint .k{color:var(--ink-2)}
   .settings-inline-hint{font-size:11px;color:var(--ink-3);line-height:1.5}
 
@@ -200,11 +202,15 @@
   .rail-count{background:var(--accent);color:#fff;font-size:10px;font-family:"Geist Mono",monospace;border-radius:999px;padding:1px 7px;line-height:1.5}
   /* An active sort is announced on the collapsed toggle, so the list order is never
      silently different from the one you arranged. */
-  .rail-sort-tag{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-2);border:1px solid var(--line-2);border-radius:999px;padding:2px 8px}
+  .rail-sort-tag{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-2);border:1px solid var(--line-2)}
   .rail-sort{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:0 0 16px}
   .rail-sort-label{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3)}
   .rail{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:0 0 22px}
-  .pill{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;font-size:12px;letter-spacing:0.02em;background:transparent;border:1px solid var(--line-2);color:var(--ink-2);transition:color .4s var(--ease),border-color .4s var(--ease),background .4s var(--ease),transform .4s var(--ease)}
+  /* line-height:1 fixe une vraie incohérence : le glyphe « ＋ » pleine chasse
+     porte, dans la plupart des polices, une hauteur de ligne plus grande que le
+     texte autour de lui — sans le forcer, la même classe .pill.add rendait à
+     30px ou 33px selon que le bouton portait ce caractère ou non. */
+  .pill{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;font-size:12px;line-height:1;letter-spacing:0.02em;background:transparent;border:1px solid var(--line-2);color:var(--ink-2);transition:color .4s var(--ease),border-color .4s var(--ease),background .4s var(--ease),transform .4s var(--ease)}
   .pill .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
   .pill:hover{border-color:var(--ink-2);color:var(--ink);transform:translateY(-1px)}
   .pill.active{background:var(--ink);color:var(--bg);border-color:var(--ink)}
@@ -257,7 +263,10 @@
   .bool button{padding:7px 15px;border-radius:999px;border:1px solid var(--line-2);font-size:12px;color:var(--ink-2);transition:all .35s var(--ease)}
   .bool button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
   .save{margin-top:18px;display:flex;justify-content:space-between;align-items:center;gap:12px}
-  .save button.primary{background:var(--accent);color:#fff;padding:11px 22px;border-radius:999px;font-size:11px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;transition:transform .4s var(--ease),background .4s var(--ease)}
+  .btn-primary,.save button.primary,.modal-actions .primary,.submit-all,.chrono-add-big,.fd-primary{
+    background:var(--accent);color:#fff;border-radius:999px;padding:12px 22px;
+    font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em}
+  .save button.primary{transition:transform .35s var(--ease),background .35s var(--ease)}
   .save button.primary:hover{background:#f0613b}
   .save button.primary:active{transform:scale(.97)}
   .save button.primary:disabled{opacity:0.3;cursor:not-allowed}
@@ -296,19 +305,40 @@
 
   /* Vues */
   .vue-controls{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
-  .vue-mode{display:flex;gap:2px;background:var(--bg-2);padding:3px;border-radius:999px;border:1px solid var(--line)}
-  .vue-mode button{padding:6px 14px;border-radius:999px;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.1em;transition:color .35s var(--ease),background .35s var(--ease)}
-  .vue-mode button.on{background:var(--ink);color:var(--bg);box-shadow:none}
 
-  /* Oui/Non pill — same family as .vue-mode, but the "on" side is one thumb that
-     glides between the two options instead of each button swapping background alone. */
-  .bool-pill{position:relative;display:inline-flex;flex-shrink:0;background:var(--bg-2);padding:3px;border-radius:999px;border:1px solid var(--line)}
-  .bool-pill-thumb{position:absolute;top:3px;left:3px;bottom:3px;width:calc(50% - 3px);background:var(--ink);border-radius:999px;transition:transform .35s var(--ease);z-index:0}
-  .bool-pill.off .bool-pill-thumb{transform:translateX(100%)}
-  .bool-pill button{position:relative;z-index:1;flex:1 1 0;padding:6px 14px;border-radius:999px;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.1em;white-space:nowrap;transition:color .35s var(--ease);background:transparent}
-  .bool-pill button.on{color:var(--bg)}
-  .bool-pill.disabled{opacity:0.5}
-  .bool-pill.disabled button{cursor:not-allowed}
+  /* ------------------------------------------------------------------
+     Segmented — le seul mécanisme de bascule de l'app. Un fond qui glisse
+     (mesuré en JS par le composant React `Segmented`, .seg-thumb) derrière
+     l'option active, plutôt que chaque bouton qui change sa propre couleur
+     de fond en place — c'est ce qui fait le glissé plutôt que le fondu.
+     Trois tailles nommées, chacune un vrai choix :
+       (par défaut)  chips à leur propre contour, texte en minuscule — les
+                      options d'une modale ("Une / jour" / "Plusieurs / jour").
+       .compact      piste unique en capitales tassées — la nav principale
+                      (Jour/Historique/Chrono, Graphes/Calendrier/Grille).
+       .small        la même piste compacte, un cran plus petit — tri du
+                      rail, onglets de bibliothèque, densité des graphes.
+     ------------------------------------------------------------------ */
+  .seg-track{position:relative;display:inline-flex;gap:6px;flex-wrap:wrap}
+  .seg-track.wrap{flex-wrap:wrap}
+  .seg-thumb{position:absolute;top:0;left:0;background:var(--ink);border-radius:999px;z-index:0;
+    transition:transform .35s var(--ease),width .35s var(--ease),height .35s var(--ease);pointer-events:none}
+  .seg-track button{position:relative;z-index:1;padding:7px 12px;border:1px solid var(--line-2);border-radius:999px;
+    font-size:12px;color:var(--ink-2);background:transparent;font-family:inherit;
+    transition:color .35s var(--ease),border-color .35s var(--ease)}
+  .seg-track button.on{color:var(--bg);border-color:transparent}
+  .seg-track button:disabled{opacity:0.4;cursor:not-allowed}
+
+  .seg-track.compact,.seg-track.small{gap:2px;background:var(--bg-2);padding:3px;border-radius:999px;border:1px solid var(--line);flex-wrap:nowrap}
+  .seg-track.compact button,.seg-track.small button{border:none;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.1em;white-space:nowrap}
+  .seg-track.compact button{padding:6px 14px;font-size:11px}
+  .seg-track.small button{padding:5px 11px;font-size:10.5px;display:inline-flex;align-items:center;gap:6px}
+  .seg-track.small button svg{opacity:0.7;transition:opacity .35s var(--ease)}
+  .seg-track.small button.on svg{opacity:1}
+
+  .seg-track.disabled{opacity:0.5}
+  .seg-track.disabled button{cursor:not-allowed}
+
   .range{display:flex;align-items:center;gap:18px;font-size:11px;color:var(--ink-3);letter-spacing:0.12em;text-transform:uppercase;flex-wrap:wrap}
   .range button{transition:color .35s var(--ease)}
   .range button:hover{color:var(--ink-2)}
@@ -319,11 +349,6 @@
   /* Chart layout bar */
   .layout-bar{display:flex;align-items:center;gap:16px;margin-bottom:18px}
   .layout-label{font-size:10px;text-transform:uppercase;letter-spacing:0.18em;color:var(--ink-3);font-weight:500}
-  .vue-mode.small button{padding:5px 11px;font-size:10.5px;display:inline-flex;align-items:center;gap:6px;color:var(--ink-3)}
-  .vue-mode.small button svg{opacity:0.7}
-  .vue-mode.small button.on{color:var(--bg)}
-  .vue-mode.small button.on svg{opacity:1}
-  .vue-mode.small button:disabled{opacity:0.3;cursor:not-allowed}
   /* Combien de cartes par ligne — le curseur écrit `data-per`, une valeur par
      règle plutôt qu'un `repeat()` calculé : la fonction repeat() n'accepte pas
      de calc() pour son nombre de colonnes, donc pas de min() pour brider les
@@ -390,9 +415,24 @@
   .chart-head .stats{display:flex;gap:22px;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.06em;flex-shrink:0}
   .chart-head .stats .v{color:var(--ink);font-family:"Geist Mono",monospace;font-weight:500;font-size:14px;font-feature-settings:"tnum";letter-spacing:0}
   .chart-head-right{display:flex;align-items:center;gap:14px}
-  .chart-edit-btn{cursor:pointer;width:24px;height:24px;padding:0;border-radius:50%;flex-shrink:0;
-    display:inline-flex;align-items:center;justify-content:center;color:var(--ink-3);border:1px solid var(--line-2);
-    transition:color .3s,border-color .3s,background .3s}
+
+  /* ------------------------------------------------------------------
+     Icon-btn — le rond à icône ou glyphe seul : engrenage d'une carte,
+     flèche du calendrier, croix de suppression, lien source. Un seul
+     composant pour la forme (cercle, contour, transition), deux tailles
+     nommées (26px par défaut, .sm à 20px pour les endroits vraiment
+     étroits — tuile de la Grille, infobulle flottante, bulle d'aide)
+     à la place des six valeurs qui s'étaient accumulées une par une.
+     La couleur et la réaction au survol restent propres à chaque
+     usage à côté — un survol qui vire au rouge pour une suppression
+     n'a pas à ressembler à un survol neutre. */
+  .icon-btn{cursor:pointer;width:26px;height:26px;padding:0;border-radius:50%;flex-shrink:0;
+    display:inline-flex;align-items:center;justify-content:center;background:transparent;
+    border:1px solid var(--line-2);color:var(--ink-3);
+    transition:color .3s var(--ease),border-color .3s var(--ease),background .3s var(--ease)}
+  .icon-btn.sm{width:20px;height:20px}
+  .icon-btn:disabled{opacity:0.3;cursor:not-allowed}
+
   .chart-edit-btn:hover{color:var(--ink-2);border-color:var(--ink-2);background:var(--accent-soft)}
   .chart-svg{width:100%;height:160px;display:block}
   .chart-svg-wrap{width:100%}
@@ -408,9 +448,7 @@
   @keyframes tooltip-in{from{opacity:0;transform:translateX(-50%) translateY(-3px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
   .chart-tooltip-date{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin-bottom:3px}
   .chart-tooltip-value{font-family:"Geist Mono",monospace;font-size:14px;font-feature-settings:"tnum";color:var(--ink)}
-  .chart-tooltip-close,.chart-tooltip-edit{position:absolute;cursor:pointer;width:20px;height:20px;padding:0;border-radius:50%;
-    display:inline-flex;align-items:center;justify-content:center;color:var(--ink-3);border:1px solid var(--line-2);background:var(--bg-2);
-    transition:color .2s,border-color .2s,background .2s}
+  .chart-tooltip-close,.chart-tooltip-edit{position:absolute;background:var(--bg-2)}
   .chart-tooltip-close{top:-8px;right:-8px}
   .chart-tooltip-edit{bottom:-8px;right:-8px;color:var(--accent)}
   .chart-tooltip-close:hover{color:var(--ink);border-color:var(--ink-2)}
@@ -439,7 +477,6 @@
   .gv-card .label{font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.12em;display:flex;align-items:center;justify-content:space-between;gap:6px}
   .gv-card .label>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .gv-card .label .dot{width:6px;height:6px;border-radius:50%}
-  .gv-edit{width:17px;height:17px}
   .gv-card .v{font-family:"Geist Mono",monospace;font-size:26px;font-weight:500;font-feature-settings:"tnum"}
   .gv-card .v .u{color:var(--ink-3);font-size:13px;font-weight:400;margin-left:3px}
   .gv-card .trend{font-size:11px;color:var(--ink-3);font-family:"Geist Mono",monospace}
@@ -466,16 +503,11 @@
   .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:24px;border-top:1px solid var(--line);padding-top:18px}
   .modal-actions .ghost{font-size:11px;padding:10px 16px;border-radius:999px;color:var(--ink-2);text-transform:uppercase;letter-spacing:0.12em;transition:color .3s,background .3s}
   .modal-actions .ghost:hover{background:var(--bg-3);color:var(--ink)}
-  .modal-actions .primary{background:var(--accent);color:#fff;padding:10px 20px;border-radius:999px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em;transition:background .3s}
+  .modal-actions .primary{transition:background .3s var(--ease)}
   .modal-actions .primary:hover{background:#f0613b}
   .modal-actions .primary:disabled{opacity:0.3;cursor:not-allowed}
   .modal-actions .danger{font-size:11px;padding:10px 12px;border-radius:999px;color:var(--warn);margin-right:auto;text-transform:uppercase;letter-spacing:0.12em;transition:background .3s}
   .modal-actions .danger:hover{background:var(--accent-soft)}
-
-  .seg{display:flex;gap:6px}
-  .seg.wrap{flex-wrap:wrap}
-  .seg button{padding:7px 12px;border:1px solid var(--line-2);border-radius:999px;font-size:12px;color:var(--ink-2);background:transparent;transition:all .35s var(--ease)}
-  .seg button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 
   /* Modal sections (Cœur / Paramètres) */
   .modal-section{font-family:"Instrument Serif",serif;font-style:italic;font-size:17px;color:var(--ink-2);margin:22px 0 2px;padding-top:16px;border-top:1px solid var(--line)}
@@ -486,7 +518,7 @@
 
   /* Click-to-reveal info bubble */
   .info{position:relative;display:inline-flex;line-height:0;flex-shrink:0}
-  .info-btn{width:17px;height:17px;border-radius:50%;border:1px solid var(--line-2);color:var(--ink-3);font-size:11px;font-style:italic;font-family:"Instrument Serif",serif;display:inline-flex;align-items:center;justify-content:center;transition:border-color .3s,color .3s}
+  .info-btn{font-size:11px;font-style:italic;font-family:"Instrument Serif",serif}
   .info-btn:hover,.info-btn.on{border-color:var(--accent);color:var(--accent)}
   .info-pop{position:absolute;top:calc(100% + 8px);right:0;width:250px;background:var(--bg-3);border:1px solid var(--line-2);border-radius:10px;padding:12px 14px;font-size:12px;line-height:1.6;color:var(--ink-2);text-transform:none;letter-spacing:0;font-weight:400;z-index:6;box-shadow:0 20px 44px -22px rgba(0,0,0,.8);animation:fadeIn .15s ease-out}
   .info-pop .k{color:var(--ink);font-weight:500}
@@ -495,15 +527,16 @@
   .choices-editor{display:flex;flex-direction:column;gap:8px;width:100%}
   .choice-row{display:flex;align-items:center;gap:8px}
   .choice-row input{flex:1;font-size:14px}
-  .choice-del{width:26px;height:26px;flex-shrink:0;border-radius:50%;border:1px solid var(--line-2);color:var(--ink-3);font-size:16px;line-height:1;transition:border-color .3s,color .3s}
+  .choice-del{font-size:16px;line-height:1}
   .choice-del:hover{border-color:var(--warn);color:var(--warn)}
   .choice-del:disabled{opacity:.3;cursor:not-allowed}
-  .choice-add{align-self:flex-start;font-size:12px;color:var(--ink-2);padding:7px 13px;border:1px dashed var(--line-2);border-radius:999px;transition:border-color .3s,color .3s}
+  .choice-add,.choices button,.member{font-size:12px;line-height:1;color:var(--ink-2);padding:7px 13px;border-radius:999px;background:transparent}
+  .choice-add{align-self:flex-start;border:1px dashed var(--line-2);transition:border-color .3s,color .3s}
   .choice-add:hover{border-color:var(--accent);color:var(--accent)}
 
   /* Choice picker (when logging an entry) */
   .choices{display:flex;flex-wrap:wrap;gap:6px;width:100%}
-  .choices button{padding:7px 13px;border-radius:999px;border:1px solid var(--line-2);font-size:12px;color:var(--ink-2);background:transparent;transition:all .35s var(--ease)}
+  .choices button{border:1px solid var(--line-2);transition:all .35s var(--ease)}
   .choices button:hover{border-color:var(--ink-2);color:var(--ink)}
   .choices button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
   .tc-empty-note{font-size:12px;color:var(--ink-3);font-style:italic;line-height:1.5}
@@ -537,7 +570,7 @@
 
   /* Master member picker (in the tracker modal) */
   .member-picker{display:flex;flex-wrap:wrap;gap:6px;width:100%}
-  .member{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:999px;border:1px solid var(--line-2);font-size:12px;color:var(--ink-2);background:transparent;transition:all .35s var(--ease)}
+  .member{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line-2);transition:all .35s var(--ease)}
   .member .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
   .member:hover{border-color:var(--ink-2);color:var(--ink)}
   .member.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
@@ -567,7 +600,7 @@
   .today-progress{font-size:11px;color:var(--ink-2);font-family:"Geist Mono",monospace;background:transparent;border:1px solid var(--line-2);padding:5px 12px;border-radius:999px;letter-spacing:0.05em}
   /* Appears only while several cards hold unsaved input, so it never sits there inert. */
   .submit-all-bar{display:flex;justify-content:flex-end;margin-bottom:-4px}
-  .submit-all{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:#fff;padding:9px 18px;border-radius:999px;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em;transition:background .3s var(--ease),transform .3s var(--ease)}
+  .submit-all{display:inline-flex;align-items:center;gap:9px;transition:background .3s var(--ease),transform .3s var(--ease)}
   .submit-all:hover{background:#f0613b;transform:translateY(-1px)}
   .sa-count{font-family:"Geist Mono",monospace;background:rgba(255,255,255,.22);border-radius:999px;padding:1px 7px;font-size:10px;letter-spacing:0}
   .day-groups{display:flex;flex-direction:column;gap:28px}
@@ -604,7 +637,7 @@
      the same information. */
   .tc-name{font-size:14px;font-weight:600;min-width:0;flex:1;letter-spacing:-0.005em;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .tc-badge{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:3px 8px;flex-shrink:0;white-space:nowrap}
+  .tc-badge{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-3);border:1px solid var(--line-2);flex-shrink:0;white-space:nowrap}
   .tc-badge.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
   /* flex-basis 0 so a compact field (number, duration) stays on its own line at full width —
      flexbox breaks lines on natural size, before any shrinking, so basis auto would wrap.
@@ -673,7 +706,7 @@
   .chrono-empty{padding:70px 20px;text-align:center}
   .chrono-empty .em-serif{font-family:"Instrument Serif",serif;font-style:italic;font-size:30px;color:var(--ink-2)}
   .chrono-empty-sub{font-size:13px;color:var(--ink-3);line-height:1.6;max-width:44ch;margin:0 auto 26px}
-  .chrono-add-big{background:var(--accent);color:#fff;padding:14px 28px;border-radius:999px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.14em;transition:background .4s var(--ease),transform .4s var(--ease)}
+  .chrono-add-big{transition:background .35s var(--ease),transform .35s var(--ease)}
   .chrono-add-big:hover{background:#f0613b;transform:translateY(-1px)}
   .chrono-add{margin-top:16px;padding:12px 20px;border-radius:999px;border:1px dashed var(--line-2);color:var(--ink-3);font-size:10px;text-transform:uppercase;letter-spacing:0.12em;transition:color .35s var(--ease),border-color .35s var(--ease)}
   .chrono-add:hover{color:var(--accent);border-color:var(--accent)}
@@ -728,7 +761,7 @@
   /* Last resort on the narrowest phones: tighten the sub-tabs themselves rather
      than let the row overflow the screen. */
   @media (max-width:390px){
-    .log-subnav .vue-mode button{padding:6px 9px;letter-spacing:0.05em}
+    .log-subnav .seg-track.compact button{padding:6px 9px;letter-spacing:0.05em}
   }
 
   .trackers-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
@@ -740,19 +773,20 @@
   .tk-name>span:not(.dot){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tk-name .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
   .tk-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-  .tk-type{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-2);background:transparent;border:1px solid var(--line-2);border-radius:999px;padding:3px 8px}
-  .tk-chip{font-size:10px;color:var(--ink-3);border:1px solid var(--line);border-radius:999px;padding:3px 8px;text-transform:uppercase;letter-spacing:0.06em}
+  .tk-type{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-2);background:transparent;border:1px solid var(--line-2)}
+  .tk-chip{font-size:10px;color:var(--ink-3);border:1px solid var(--line);text-transform:uppercase;letter-spacing:0.06em}
   .tk-count{font-size:11px;color:var(--ink-3);font-family:"Geist Mono",monospace}
   .tk-actions{display:flex;flex-direction:column;gap:6px;flex-shrink:0}
-  .tk-edit{font-size:10px;color:var(--ink-2);border:1px solid var(--line-2);border-radius:999px;padding:8px 14px;flex-shrink:0;background:transparent;text-transform:uppercase;letter-spacing:0.12em;transition:all .35s var(--ease)}
-  .tk-edit:hover{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+  .tk-edit,.de-today{font-size:10px;color:var(--ink-2);border:1px solid var(--line-2);border-radius:999px;padding:8px 14px;background:transparent;text-transform:uppercase;letter-spacing:0.12em;transition:all .35s var(--ease)}
+  .tk-edit{flex-shrink:0}
+  .tk-edit:hover,.de-today:hover{background:var(--ink);border-color:var(--ink);color:var(--bg)}
   .tk-arch{font-size:10px;color:var(--ink-3);border:1px solid var(--line);border-radius:999px;padding:8px 14px;background:transparent;text-transform:uppercase;letter-spacing:0.12em;transition:all .35s var(--ease)}
   .tk-arch:hover{border-color:var(--ink-2);color:var(--ink)}
   .tk-card.archived{opacity:0.6}
   .tk-card.archived:hover{opacity:1}
   /* Master marker (diamond) */
   .master-mark{width:10px;height:10px;flex-shrink:0;transform:rotate(45deg);border-radius:2px}
-  .master-tag{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:2px 7px;margin-left:8px;flex-shrink:0;white-space:nowrap}
+  .master-tag{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--accent);border:1px solid var(--accent);margin-left:8px;flex-shrink:0;white-space:nowrap}
 
   /* ------------------------------------------------------------------
      Un nom long se coupe — il n'élargit jamais sa carte.
@@ -784,14 +818,14 @@
   .member{max-width:min(100%,240px)}
   .member>span:not(.dot):not(.master-mark){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* Coverage hint: an index built on some of its members, not all of them. */
-  .ms-partial{font-size:9px;font-family:"Geist Mono",monospace;color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:2px 7px;margin-left:6px;white-space:nowrap}
+  .ms-partial{font-size:9px;font-family:"Geist Mono",monospace;color:var(--ink-3);border:1px solid var(--line-2);margin-left:6px;white-space:nowrap}
   .chart-head .name .master-mark{margin-right:2px}
 
   /* History calendar + day editor */
   .cal{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px;margin-bottom:30px;max-width:440px}
   .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
   .cal-title{font-family:"Instrument Serif",serif;font-style:italic;font-weight:400;font-size:20px;text-transform:capitalize;letter-spacing:0}
-  .cal-nav{width:32px;height:32px;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-2);font-size:17px;line-height:1;background:transparent;transition:all .35s var(--ease)}
+  .cal-nav{font-size:17px;line-height:1;color:var(--ink-2);transition:all .35s var(--ease)}
   .cal-nav:hover{background:var(--ink);border-color:var(--ink);color:var(--bg)}
   .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
   .cal-dow{text-align:center;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-3);padding-bottom:4px}
@@ -811,8 +845,7 @@
   .week-tag{display:inline-flex;align-items:center;vertical-align:middle;margin-left:10px;
     font-size:11px;font-style:normal;text-transform:none;letter-spacing:0.02em;
     color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:2px 9px}
-  .de-today{font-size:10px;color:var(--ink-2);border:1px solid var(--line-2);border-radius:999px;padding:7px 13px;background:transparent;margin-left:auto;text-transform:uppercase;letter-spacing:0.12em;transition:all .35s var(--ease)}
-  .de-today:hover{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+  .de-today{margin-left:auto}
   .day-entries{margin-top:4px}
 
   /* ============================================================
@@ -823,7 +856,6 @@
   .fd-date{display:flex;flex-direction:column;gap:2px;min-width:0}
   .fd-date-main{font-family:"Instrument Serif",serif;font-style:italic;font-size:26px;color:var(--ink);text-transform:capitalize;line-height:1}
   .fd-date-sub{font-size:10px;color:var(--ink-3);letter-spacing:0.08em}
-  .fd-datebar .de-today{margin-left:auto}
   .cal-nav:disabled{opacity:.3}
 
   /* Calories sur toute la largeur, les trois macros se partageant la ligne d'après. */
@@ -847,7 +879,7 @@
   .fd-link:hover{color:var(--ink)}
 
   .fd-scan-cta{margin-bottom:22px}
-  .fd-primary{display:inline-flex;align-items:center;gap:10px;background:var(--accent);color:#fff;border:none;border-radius:999px;padding:13px 24px;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;transition:all .35s var(--ease)}
+  .fd-primary{display:inline-flex;align-items:center;gap:9px;border:none;transition:all .35s var(--ease)}
   .fd-primary:hover{background:var(--accent-2)}
 
   .fd-meal{margin-bottom:20px}
@@ -924,8 +956,7 @@
   .fd-ing-qty>i{font-size:10px;color:var(--ink-3);font-style:normal}
   .fd-ing-kcal{flex-shrink:0;font-size:13px;color:var(--ink);min-width:62px;text-align:right}
   .fd-ing-kcal>i{font-size:9px;color:var(--ink-3);font-style:normal;margin-left:2px}
-  .fd-ing-btn{flex-shrink:0;width:24px;height:24px;border-radius:50%;border:1px solid var(--line-2);
-    color:var(--ink-3);font-size:11px;line-height:1;cursor:pointer;transition:color .3s,border-color .3s}
+  .fd-ing-btn{font-size:11px;line-height:1}
   .fd-ing-btn:hover{color:var(--ink);border-color:var(--ink-2)}
   .fd-ing-btn.del:hover{color:var(--warn);border-color:var(--warn)}
   .fd-ing-macros{display:flex;gap:14px;align-items:baseline;font-size:11px;color:var(--ink-3);margin-top:3px}
@@ -1046,10 +1077,7 @@
   .fd-food-actions{flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px;margin-top:12px}
   .fd-food-actions .tk-edit{padding:7px 10px;letter-spacing:0.08em}
   .tk-edit.danger-edit:hover{background:var(--warn);border-color:var(--warn);color:var(--bg)}
-  .fd-src-btn{cursor:pointer;width:28px;height:28px;padding:0;border-radius:50%;flex-shrink:0;margin-left:auto;
-    display:inline-flex;align-items:center;justify-content:center;color:var(--ink-3);
-    border:1px solid var(--line-2);background:transparent;text-decoration:none;
-    transition:color .3s var(--ease),border-color .3s var(--ease),background .3s var(--ease)}
+  .fd-src-btn{margin-left:auto;text-decoration:none}
   .fd-src-btn:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
 
   /* Répartition des calories */
@@ -1217,8 +1245,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=41"></script>
-<script type="text/babel" src="app.food.jsx?v=10"></script>
+<script type="text/babel" src="app.jsx?v=42"></script>
+<script type="text/babel" src="app.food.jsx?v=11"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>

@@ -1210,11 +1210,11 @@ function FoodPage({ store, sub, onSub, aiEnabled = true }){
   return (
     <div>
       <div className="log-subnav">
-        <div className="vue-mode">
+        <Segmented size="compact">
           <button className={sub==='jour'?'on':''} onClick={()=>onSub('jour')}>Jour</button>
           <button className={sub==='aliments'?'on':''} onClick={()=>onSub('aliments')}>Aliments</button>
           <button className={sub==='vues'?'on':''} onClick={()=>onSub('vues')}>Vues</button>
-        </div>
+        </Segmented>
         <span className="log-subhint serif">{hint}</span>
       </div>
 
@@ -1340,12 +1340,12 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
   return (
     <div className="fd-day">
       <div className="fd-datebar">
-        <button className="cal-nav" onClick={()=>onDay(shiftDayKey(day,-1))} aria-label="Jour précédent">‹</button>
+        <button className="icon-btn cal-nav" onClick={()=>onDay(shiftDayKey(day,-1))} aria-label="Jour précédent">‹</button>
         <div className="fd-date">
           <span className="fd-date-main">{dayLabel(dayKeyToTs(day))}</span>
           <span className="fd-date-sub mono">{day}</span>
         </div>
-        <button className="cal-nav" onClick={()=>onDay(shiftDayKey(day,1))} disabled={isToday} aria-label="Jour suivant">›</button>
+        <button className="icon-btn cal-nav" onClick={()=>onDay(shiftDayKey(day,1))} disabled={isToday} aria-label="Jour suivant">›</button>
         {!isToday && <button className="de-today" onClick={()=>onDay(today)}>Aujourd'hui</button>}
       </div>
 
@@ -1366,7 +1366,7 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
               <span className="fd-total-head">
                 <span className="fd-total-label">{m.label}</span>
                 {lead && (
-                  <button className="chart-edit-btn" onClick={onGoals}
+                  <button className="icon-btn chart-edit-btn" onClick={onGoals}
                           aria-label="Régler les objectifs" title="Régler les objectifs">
                     <GearIcon />
                   </button>
@@ -1568,9 +1568,9 @@ function IngredientRow({ item, onPatch, onRemove }){
           <i>g</i>
         </span>
         <span className="fd-ing-kcal mono">{fmtNum(n.kcal, 0)}<i>kcal</i></span>
-        <button className="fd-ing-btn" onClick={()=>setOpen(o=>!o)} aria-expanded={open}
+        <button className="icon-btn fd-ing-btn" onClick={()=>setOpen(o=>!o)} aria-expanded={open}
                 title="Valeurs pour 100 g">{open ? '×' : '···'}</button>
-        <button className="fd-ing-btn del" onClick={onRemove} title="Retirer">−</button>
+        <button className="icon-btn fd-ing-btn del" onClick={onRemove} title="Retirer">−</button>
       </div>
       <div className="fd-ing-macros mono">
         <span>{fmtMacro(n.protein)}<i>P</i></span>
@@ -1752,11 +1752,11 @@ function AiAnalyseTab({ store, day, initialMeal, onDone, onSaveAsMeal }){
 
           <div className="field" style={{borderBottom:'none'}}>
             <label>Repas</label>
-            <div className="seg wrap">
+            <Segmented wrap>
               {MEALS.map(m => (
                 <button key={m.id} className={mealSlot===m.id?'on':''} onClick={()=>setMealSlot(m.id)}>{m.label}</button>
               ))}
-            </div>
+            </Segmented>
           </div>
 
           <div className="modal-actions">
@@ -1805,11 +1805,11 @@ function MealsTab({ store, day, initialMeal, onDone, onNew, onEdit }){
         <>
           <div className="field" style={{borderBottom:'none'}}>
             <label>Repas</label>
-            <div className="seg wrap">
+            <Segmented wrap>
               {MEALS.map(m => (
                 <button key={m.id} className={mealSlot===m.id?'on':''} onClick={()=>setMealSlot(m.id)}>{m.label}</button>
               ))}
-            </div>
+            </Segmented>
           </div>
           <div className="fd-list">
             {list.map(m => {
@@ -1889,7 +1889,7 @@ function MealEditModal({ meal, store, onClose, onSave, onDelete }){
                 <input value={s} placeholder={`Étape ${i+1}`}
                   onChange={e=>setSteps(arr => arr.map((x,j) => j===i ? e.target.value : x))}
                   onKeyDown={e=>{ if (e.key === 'Enter'){ e.preventDefault(); setSteps(a => [...a, '']); } }} />
-                <button className="fd-ing-btn del" title="Retirer l'étape"
+                <button className="icon-btn fd-ing-btn del" title="Retirer l'étape"
                         onClick={()=>setSteps(a => a.length > 1 ? a.filter((_,j)=>j!==i) : [''])}>−</button>
               </div>
             ))}
@@ -2088,17 +2088,17 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
         {/* Deux rangées, parce que ce sont deux gestes différents : trouver un
             aliment quelque part, ou reprendre quelque chose qui est déjà à soi. */}
         <div className="fd-tabs">
-          <div className="seg wrap">
+          <Segmented wrap>
             <button className={source==='scan'?'on':''} onClick={()=>setSource('scan')}>Scanner</button>
             <button className={source==='recherche'?'on':''} onClick={()=>setSource('recherche')}>Rechercher</button>
             <button className={source==='manuel'?'on':''} onClick={()=>openManual({ name: query.trim() })}>À la main</button>
             {aiEnabled && <button className={source==='ia'?'on':''} onClick={()=>setSource('ia')}>IA</button>}
-          </div>
-          <div className="seg wrap">
+          </Segmented>
+          <Segmented wrap>
             <button className={source==='bibliotheque'?'on':''} onClick={()=>setSource('bibliotheque')}>Mes aliments</button>
             <button className={source==='favoris'?'on':''} onClick={()=>setSource('favoris')}>Mes favoris</button>
             <button className={source==='repas'?'on':''} onClick={()=>setSource('repas')}>Mes repas</button>
-          </div>
+          </Segmented>
         </div>
 
         {source === 'scan' && <FoodScanner key={scanNonce} onCode={handleCode} />}
@@ -2379,24 +2379,24 @@ function ManualEntry({ seed, initialMeal, onSubmit, onCancel }){
         <div className="fd-qty-inline">
           <input type="number" step="any" min="0" inputMode="decimal"
                  value={qty} onChange={e=>setQty(e.target.value)} />
-          <div className="seg">
+          <Segmented>
             {['g','ml','portion'].map(u => (
               <button key={u} className={unit===u?'on':''} onClick={()=>setUnit(u)}>{u}</button>
             ))}
-          </div>
+          </Segmented>
         </div>
       </div>
 
       <div className="field">
         <label>Valeurs</label>
-        <div className="seg">
+        <Segmented>
           <button className={!perQty?'on':''} disabled={portion} onClick={()=>setPer100(true)}>
             pour 100 {basis}
           </button>
           <button className={perQty?'on':''} onClick={()=>setPer100(false)}>
             total mangé
           </button>
-        </div>
+        </Segmented>
       </div>
 
       <div className="fd-mini-grid">
@@ -2416,11 +2416,11 @@ function ManualEntry({ seed, initialMeal, onSubmit, onCancel }){
 
       <div className="field" style={{borderBottom:'none'}}>
         <label>Repas</label>
-        <div className="seg wrap">
+        <Segmented wrap>
           {MEALS.map(m => (
             <button key={m.id} className={meal===m.id?'on':''} onClick={()=>setMeal(m.id)}>{m.label}</button>
           ))}
-        </div>
+        </Segmented>
       </div>
 
       {!forcedKeep && (
@@ -2477,14 +2477,14 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, onCl
             onChange={e=>setQty(e.target.value)}
             onKeyDown={e=>{ if(e.key==='Enter' && canSave) onSubmit({ qty:Number(qty), unit, grams, meal, nutriments }); }}
           />
-          <div className="seg">
+          <Segmented>
             <button className={unit===food.basis?'on':''} onClick={()=>setUnit(food.basis)}>{food.basis}</button>
             {hasServing && (
               <button className={unit==='portion'?'on':''} onClick={()=>setUnit('portion')}>
                 portion ({fmtNum(food.servingG,0)} {food.basis})
               </button>
             )}
-          </div>
+          </Segmented>
         </div>
 
         <div className="fd-chips">
@@ -2504,11 +2504,11 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, onCl
 
         <div className="field" style={{borderBottom:'none'}}>
           <label>Repas</label>
-          <div className="seg wrap">
+          <Segmented wrap>
             {MEALS.map(m => (
               <button key={m.id} className={meal===m.id?'on':''} onClick={()=>setMeal(m.id)}>{m.label}</button>
             ))}
-          </div>
+          </Segmented>
         </div>
 
         <div className="modal-actions">
@@ -2548,11 +2548,11 @@ function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, on
     return (
       <div>
         <div className="trackers-head">
-          <div className="vue-mode small">
+          <Segmented size="small">
             <button onClick={()=>setTab('aliments')}>Mes aliments</button>
             <button onClick={()=>setTab('favoris')}>Mes favoris</button>
             <button className="on">Mes repas · {store.meals.length}</button>
-          </div>
+          </Segmented>
           <div className="fd-lib-actions">
             <input className="fd-lib-search" placeholder="filtrer…" value={q} onChange={e=>setQ(e.target.value)} />
             <button className="pill add" onClick={onNewMeal}>+ Repas</button>
@@ -2596,7 +2596,7 @@ function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, on
   return (
     <div>
       <div className="trackers-head">
-        <div className="vue-mode small">
+        <Segmented size="small">
           <button className={tab==='aliments'?'on':''} onClick={()=>setTab('aliments')}>
             Mes aliments · {store.foods.length}
           </button>
@@ -2604,7 +2604,7 @@ function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, on
             Mes favoris{favCount ? ` · ${favCount}` : ''}
           </button>
           <button onClick={()=>setTab('repas')}>Mes repas · {store.meals.length}</button>
-        </div>
+        </Segmented>
         <div className="fd-lib-actions">
           <input className="fd-lib-search" placeholder="filtrer…" value={q} onChange={e=>setQ(e.target.value)} />
           <button className="pill add" onClick={onScan}>Scanner et noter</button>
@@ -2650,7 +2650,7 @@ function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, on
                   <button className="tk-edit" onClick={()=>onEdit(f)}>Modifier</button>
                   <button className="tk-edit danger-edit" onClick={()=>onDelete(f)}>Supprimer</button>
                   {foodSourceUrl(f, store.refByBarcode) && (
-                    <a className="fd-src-btn" href={foodSourceUrl(f, store.refByBarcode)}
+                    <a className="icon-btn fd-src-btn" href={foodSourceUrl(f, store.refByBarcode)}
                        target="_blank" rel="noopener noreferrer"
                        aria-label="Voir la fiche d'origine" title="Voir la fiche d'origine">
                       <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor"
@@ -2736,10 +2736,10 @@ function FoodEditModal({ food, isNew, onClose, onSave, onDelete }){
         </div>
         <div className="field">
           <label>Base</label>
-          <div className="seg">
+          <Segmented>
             <button className={basis==='g'?'on':''} onClick={()=>setBasis('g')}>solide (g)</button>
             <button className={basis==='ml'?'on':''} onClick={()=>setBasis('ml')}>liquide (ml)</button>
-          </div>
+          </Segmented>
         </div>
         <div className="field">
           <label>Portion</label>
@@ -2872,11 +2872,11 @@ function FoodVuesView({ store, onGoals }){
   return (
     <div>
       <div className="vue-controls">
-        <div className="vue-mode">
+        <Segmented size="compact">
           {FOOD_MACROS.map(x => (
             <button key={x.key} className={metric===x.key?'on':''} onClick={()=>setMetric(x.key)}>{x.label}</button>
           ))}
-        </div>
+        </Segmented>
         <div className="range">
           {FOOD_RANGES.map(r => (
             <button key={r} className={rangeDays===r?'on':''} onClick={()=>setRangeDays(r)}>{r}j</button>
@@ -2894,7 +2894,7 @@ function FoodVuesView({ store, onGoals }){
               <div>jours notés <span className="v">{loggedDays.length}</span></div>
               {inRange != null && <div>dans la cible <span className="v">{inRange}</span></div>}
             </div>
-            <button className="chart-edit-btn" onClick={onGoals} title="Objectifs" aria-label="Objectifs">
+            <button className="icon-btn chart-edit-btn" onClick={onGoals} title="Objectifs" aria-label="Objectifs">
               <GearIcon />
             </button>
           </div>
