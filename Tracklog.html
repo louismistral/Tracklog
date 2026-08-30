@@ -973,10 +973,16 @@
   /* Analyse IA */
   .fd-ai-input textarea{width:100%;resize:vertical;min-height:70px}
   .fd-ai-actions{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;margin-top:8px}
+  .fd-ai-actions-end{justify-content:flex-end}
   .fd-ai-hint{font-size:12px;color:var(--ink-3);flex:1}
   .fd-ai-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:16px 0 4px}
   .fd-ai-plat{font-size:18px}
   .fd-ai-marge{font-size:11px;color:var(--ink-3);text-align:right}
+  .fd-ai-photo-row{display:flex;gap:12px;align-items:center;margin-top:10px}
+  .fd-ai-photo{position:relative;flex-shrink:0;width:52px;height:52px;border-radius:12px;overflow:hidden;border:1px solid var(--line-2)}
+  .fd-ai-photo img{width:100%;height:100%;object-fit:cover;display:block}
+  .fd-ai-photo-del{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.55);color:#fff;border:none}
+  .fd-ai-photo-del:hover{background:var(--warn)}
 
   /* Recette d'un repas — une simple liste d'étapes numérotées */
   .fd-steps{display:flex;flex-direction:column;gap:8px}
@@ -1246,7 +1252,7 @@
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
 <script type="text/babel" src="app.jsx?v=42"></script>
-<script type="text/babel" src="app.food.jsx?v=11"></script>
+<script type="text/babel" src="app.food.jsx?v=12"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>

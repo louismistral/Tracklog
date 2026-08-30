@@ -135,7 +135,7 @@ déjà à soi :
 - **Carte d'aliment** — une seule ligne d'actions : favori · modifier · supprimer, puis la source réduite à un bouton rond portant sa flèche (elle sort de l'app, elle ne pèse pas autant que ce qu'on fait dedans). La suppression est là, pas seulement au fond de la fiche d'édition.
 - **Compteurs de Food** — les calories prennent toute la largeur, les trois macros se partagent la ligne suivante, et chaque objectif se lit « actuel / cible ». L'engrenage n'est que sur la carte calories : il ouvre les objectifs des quatre.
 - **Repas enregistrés (presets)** — un ensemble d'ingrédients ajouté d'un coup, une ligne de journal par ingrédient (chacune reste corrigeable seule), avec une recette facultative en liste d'étapes.
-- **Analyse IA d'un repas** — décrire un plat en texte, Claude le décompose en ingrédients pesés avec leurs valeurs pour 100 g, sa marge d'erreur et sa cause. Le résultat est entièrement éditable avant d'être versé au journal, et peut être enregistré comme repas.
+- **Analyse IA d'un repas** — décrire un plat en texte, joindre une photo, ou les deux : envoyés dans la même requête, Claude le décompose en ingrédients pesés avec leurs valeurs pour 100 g, sa marge d'erreur et sa cause. La photo, quand elle est là, prime sur le texte pour la composition visible ; le texte sert à préciser ce qu'elle ne montre pas. Le résultat est entièrement éditable avant d'être versé au journal, et peut être enregistré comme repas.
 - **Objectifs nutritionnels** journaliers avec barres de progression et alerte dépassement.
 - **Détail réglementaire + micronutriments** avec % des repères journaliers (AJR) quand disponibles.
 - **PWA installable**, thème système, auth email/mot de passe + lien magique + réinitialisation.

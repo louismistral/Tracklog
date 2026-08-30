@@ -1148,7 +1148,7 @@ function useFoodStore(userId){
    ============================================================ */
 const ANALYSE_URL = `${SUPABASE_URL}/functions/v1/analyse-repas`;
 
-async function analyseRepas(description, { signal } = {}){
+async function analyseRepas(description, { signal, image } = {}){
   const { data } = await supabase.auth.getSession();
   const token = data?.session?.access_token;
   if (!token) throw new Error('Session expirée — reconnecte-toi.');
@@ -1159,7 +1159,10 @@ async function analyseRepas(description, { signal } = {}){
       method: 'POST',
       signal,
       headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
-      body: JSON.stringify({ description }),
+      // La photo voyage en base64 dans le même corps que la description — une
+      // seule requête, le modèle voit les deux ensemble plutôt que de recouper
+      // deux réponses séparées.
+      body: JSON.stringify(image ? { description, image } : { description }),
     });
   } catch(e){
     if (e.name === 'AbortError') throw e;
@@ -1677,8 +1680,12 @@ function IngredientEditor({ items, onChange, store, children }){
    question que le modèle pose quand une précision resserrerait
    nettement l'estimation.
    ============================================================ */
+const AI_PHOTO_MAX_BYTES = 5 * 1024 * 1024; // 5 Mo — large marge avant l'encodage base64
+
 function AiAnalyseTab({ store, day, initialMeal, onDone, onSaveAsMeal }){
   const [description, setDescription] = useState('');
+  const [photo, setPhoto] = useState(null);   // { dataUrl, base64, mediaType }
+  const [photoErr, setPhotoErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [result, setResult] = useState(null);   // { plat, items, marge, question }
@@ -1688,17 +1695,36 @@ function AiAnalyseTab({ store, day, initialMeal, onDone, onSaveAsMeal }){
 
   useEffect(() => () => { try { abortRef.current && abortRef.current.abort(); } catch {} }, []);
 
+  const pickPhoto = (file) => {
+    setPhotoErr('');
+    if (!file) return;
+    if (!file.type.startsWith('image/')){ setPhotoErr("Ce fichier n'est pas une image."); return; }
+    if (file.size > AI_PHOTO_MAX_BYTES){ setPhotoErr('Photo trop lourde (5 Mo max).'); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      const base64 = dataUrl.split(',')[1] || '';
+      const mediaType = (dataUrl.match(/^data:([^;]+);base64/) || [])[1] || file.type;
+      setPhoto({ dataUrl, base64, mediaType });
+    };
+    reader.onerror = () => setPhotoErr('Photo illisible.');
+    reader.readAsDataURL(file);
+  };
+
+  const canRun = (description.trim().length >= 3 || !!photo) && !busy;
+
   const run = async () => {
     const d = description.trim();
-    if (d.length < 3 || busy) return;
+    if ((d.length < 3 && !photo) || busy) return;
     setBusy(true); setErr('');
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
-      const out = await analyseRepas(d, { signal: ctrl.signal });
+      const image = photo ? { data: photo.base64, mediaType: photo.mediaType } : null;
+      const out = await analyseRepas(d, { signal: ctrl.signal, image });
       setResult(out);
       setItems(out.items);
-      if (!out.items.length) setErr("L'analyse n'a rien pu décomposer. Reformule en détaillant le plat.");
+      if (!out.items.length) setErr("L'analyse n'a rien pu décomposer. Reformule en détaillant le plat, ou précise la photo.");
     } catch(e){
       if (e.name !== 'AbortError') setErr(e.message || 'Analyse impossible.');
     }
@@ -1723,12 +1749,29 @@ function AiAnalyseTab({ store, day, initialMeal, onDone, onSaveAsMeal }){
           onKeyDown={e=>{ if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) run(); }}
           placeholder="Poke bowl saumon, riz, avocat, edamame, sauce soja sucrée — bol moyen de resto"
         />
-        <div className="fd-ai-actions">
+
+        <div className="fd-ai-photo-row">
+          {photo ? (
+            <div className="fd-ai-photo">
+              <img src={photo.dataUrl} alt="" />
+              <button className="icon-btn sm fd-ai-photo-del" title="Retirer la photo" onClick={()=>setPhoto(null)}>✕</button>
+            </div>
+          ) : (
+            <label className="fd-photo">
+              <input type="file" accept="image/*" capture="environment"
+                     onChange={e => { pickPhoto(e.target.files && e.target.files[0]); e.target.value = ''; }} />
+              ＋ Photo du repas
+            </label>
+          )}
           <span className="fd-ai-hint serif">
-            Décris ce que tu as mangé. Plus tu donnes de détails — poids pesés, morceau de viande,
-            huile de cuisson — plus l'estimation se resserre.
+            Texte, photo, ou les deux — envoyés dans la même analyse. Plus tu donnes de détails —
+            poids pesés, morceau de viande, huile de cuisson — plus l'estimation se resserre.
           </span>
-          <button className="primary sm" disabled={description.trim().length < 3 || busy} onClick={run}>
+        </div>
+        {photoErr && <p className="fd-note warn serif">{photoErr}</p>}
+
+        <div className="fd-ai-actions fd-ai-actions-end">
+          <button className="primary sm" disabled={!canRun} onClick={run}>
             {busy ? 'Analyse…' : result ? 'Relancer' : 'Analyser'}
           </button>
         </div>

@@ -9,8 +9,8 @@
    n'a aucune protection propre. Elle vit donc ici, en secret
    côté serveur, et le navigateur ne voit que le résultat.
 
-   Le front envoie une description de repas ; on renvoie sa
-   décomposition en ingrédients pesés, avec des valeurs
+   Le front envoie une description de repas, et/ou une photo ; on
+   renvoie sa décomposition en ingrédients pesés, avec des valeurs
    nutritionnelles POUR 100 g — c'est ce qui permet à l'app de
    recalculer les macros toute seule quand l'utilisateur corrige
    un poids, sans redemander quoi que ce soit au modèle.
@@ -25,6 +25,8 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY');
 
 const MODEL = 'claude-opus-5';
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const MAX_IMAGE_BASE64_CHARS = 8_000_000; // ~6 Mo décodés, large marge sous la limite de la fonction
 
 // L'app est servie depuis un autre domaine que Supabase : sans ces en-têtes,
 // le navigateur refuse la réponse avant même de la lire.
@@ -83,6 +85,11 @@ const SCHEMA = {
    a supposé, puisque c'est l'utilisateur qui corrigera les poids ensuite. */
 const SYSTEM = `Tu estimes les calories et macros d'un repas, pour une app de suivi nutritionnel.
 
+Le message peut contenir une photo du repas, un texte qui le décrit, ou les deux. Quand une photo est
+fournie, elle prime sur ta seule imagination pour la composition et les proportions visibles ; le texte
+(s'il y en a) sert à corriger ou préciser ce que la photo ne montre pas — un ingrédient caché sous les
+autres, une quantité pesée, la sauce utilisée.
+
 Toute la précision vient de quatre inconnues. Face à un repas, la question n'est pas « où j'en suis dans les étapes » mais « laquelle de ces quatre me manque » :
 
 1. LA COMPOSITION — la liste des ingrédients, Y COMPRIS ceux qu'on ne voit pas : huile ou beurre de cuisson, sucre de la sauce, crème du liant, marinade. C'est le point structurellement opaque au restaurant. Suppose-les explicitement plutôt que de les omettre : ce sont eux qui font déraper une estimation.
@@ -124,14 +131,30 @@ Deno.serve(async (req: Request) => {
   }
 
   let description = '';
+  let image: { data: string; mediaType: string } | null = null;
   try {
     const body = await req.json();
     description = String(body?.description ?? '').trim();
+    if (body?.image){
+      const data = String(body.image.data ?? '');
+      const mediaType = String(body.image.mediaType ?? '');
+      if (!data || !ALLOWED_IMAGE_TYPES.has(mediaType)){
+        return json({ error: 'Photo illisible ou format non supporté (jpeg, png, webp, gif).' }, 400);
+      }
+      if (data.length > MAX_IMAGE_BASE64_CHARS) return json({ error: 'Photo trop lourde.' }, 400);
+      image = { data, mediaType };
+    }
   } catch {
     return json({ error: 'Requête illisible.' }, 400);
   }
-  if (description.length < 3) return json({ error: 'Décris le repas en quelques mots.' }, 400);
+  if (description.length < 3 && !image) return json({ error: 'Décris le repas, ou joins une photo.' }, 400);
   if (description.length > 4000) return json({ error: 'Description trop longue.' }, 400);
+
+  // Photo d'abord, texte ensuite : c'est l'ordre que Claude lit le mieux quand
+  // les deux sont présents — le texte agit alors comme une légende de l'image.
+  const content: Array<Record<string, unknown>> = [];
+  if (image) content.push({ type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } });
+  content.push({ type: 'text', text: description || 'Décompose ce repas à partir de la photo.' });
 
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
@@ -151,7 +174,7 @@ Deno.serve(async (req: Request) => {
         thinking: { type: 'adaptive' },
         output_config: { format: { type: 'json_schema', schema: SCHEMA } },
         fallbacks: 'default',
-        messages: [{ role: 'user', content: description }],
+        messages: [{ role: 'user', content }],
       }),
     });
 
