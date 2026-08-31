@@ -86,6 +86,36 @@ const UNIT_FROM_GRAM = { g:1, mg:1000, 'µg':1e6 };
 // prescription : la page pousse à les remplacer dès la première ouverture.
 const DEFAULT_GOALS = { kcal:2200, protein:130, carbs:250, fat:70 };
 
+/* ---- Objectifs de macros : trois façons d'arriver au même gramme ---------
+   Un objectif de macro n'est pas toujours pensé en grammes : « 2 g/kg de
+   protéines » ou « 30 % des calories en lipides » sont des règles qu'on fixe
+   une fois et qui doivent suivre le poids ou l'objectif calorique quand ils
+   changent, pas un nombre à recalculer à la main à chaque fois. `mode` +
+   `ratio` sont donc la source de vérité (`ratio` = un pourcentage pour
+   'percent', un g/kg pour 'perkg', ignoré pour 'grams') ; les grammes qui en
+   sortent sont ce que le reste de l'app lit — rien d'autre n'a besoin de
+   savoir qu'un objectif vient d'un ratio plutôt que d'un chiffre posé. */
+const GOAL_MODES = [
+  { id:'grams',   label:'Grammes', unit:(m)=>m.unit },
+  { id:'percent', label:'% kcal',  unit:()=>'%' },
+  { id:'perkg',   label:'g/kg',    unit:()=>'g/kg' },
+];
+// 4 kcal/g pour les protéines et les glucides, 9 pour les lipides.
+const MACRO_KCAL_FACTOR = { protein:4, carbs:4, fat:9 };
+
+function macroGramsFromRatio(macroKey, mode, ratio, kcalTarget, weightKg){
+  if (ratio == null || isNaN(ratio)) return null;
+  if (mode === 'percent'){
+    if (!kcalTarget) return null;
+    return (kcalTarget * (ratio / 100)) / MACRO_KCAL_FACTOR[macroKey];
+  }
+  if (mode === 'perkg'){
+    if (!weightKg) return null;
+    return ratio * weightKg;
+  }
+  return ratio; // 'grams' : le ratio EST le grammage.
+}
+
 /* ============================================================
    Lignes ↔ objets
    ============================================================ */
@@ -1039,7 +1069,13 @@ function useFoodStore(userId){
       // quand même là, `goalsSet` répondait « oui, ils sont réglés ».
       if (!g.error && g.data){
         const row = g.data;
-        setGoals({ kcal:row.kcal ?? null, protein:row.protein_g ?? null, carbs:row.carbs_g ?? null, fat:row.fat_g ?? null });
+        setGoals({
+          kcal:row.kcal ?? null, protein:row.protein_g ?? null, carbs:row.carbs_g ?? null, fat:row.fat_g ?? null,
+          weightKg:row.weight_kg ?? null,
+          proteinMode:row.protein_mode || 'grams', proteinRatio:row.protein_ratio ?? null,
+          carbsMode:row.carbs_mode || 'grams', carbsRatio:row.carbs_ratio ?? null,
+          fatMode:row.fat_mode || 'grams', fatRatio:row.fat_ratio ?? null,
+        });
       }
       setReady(true);
     })();
@@ -1121,7 +1157,11 @@ function useFoodStore(userId){
 
   const saveGoals = async (g) => {
     const row = { user_id:userId, kcal:g.kcal ?? null, protein_g:g.protein ?? null,
-                  carbs_g:g.carbs ?? null, fat_g:g.fat ?? null, updated_at:Date.now() };
+                  carbs_g:g.carbs ?? null, fat_g:g.fat ?? null, weight_kg:g.weightKg ?? null,
+                  protein_mode:g.proteinMode || 'grams', protein_ratio:g.proteinRatio ?? null,
+                  carbs_mode:g.carbsMode || 'grams', carbs_ratio:g.carbsRatio ?? null,
+                  fat_mode:g.fatMode || 'grams', fat_ratio:g.fatRatio ?? null,
+                  updated_at:Date.now() };
     const { error } = await supabase.from('nutrition_goals').upsert(row);
     if (!error) setGoals(g);
   };
@@ -1137,7 +1177,10 @@ function useFoodStore(userId){
 
   // Un objectif laissé vide retombe sur sa valeur par défaut plutôt que sur zéro :
   // régler ses calories sans toucher aux macros ne doit pas effacer les trois autres cibles.
-  const setGoalValues = Object.fromEntries(Object.entries(goals || {}).filter(([, v]) => v != null));
+  // Seules les 4 macros comptent pour « un objectif est réglé » — le poids et
+  // les modes/ratios ne sont que la manière dont ces grammes ont été obtenus.
+  const setGoalValues = Object.fromEntries(
+    FOOD_MACROS.map(m => m.key).filter(k => goals && goals[k] != null).map(k => [k, goals[k]]));
   const effectiveGoals = { ...DEFAULT_GOALS, ...setGoalValues };
   return { ready, foods, logs, logsByDay, meals, goals, effectiveGoals, goalsSet: Object.keys(setGoalValues).length > 0,
            refFoods, refByBarcode,
@@ -1274,7 +1317,12 @@ function FoodPage({ store, sub, onSub, aiEnabled = true }){
       )}
       {goalsOpen && (
         <GoalsModal
-          goals={store.effectiveGoals}
+          // effectiveGoals ne porte que les 4 grammes (avec repli sur les
+          // valeurs par défaut) ; le mode/ratio/poids qui ont produit ces
+          // grammes ne vivent que sur goals — la modale a besoin des deux :
+          // les grammes pour afficher quelque chose de sensé la première fois,
+          // et le mode/ratio pour se rouvrir tel qu'on l'a laissé.
+          goals={{ ...store.effectiveGoals, ...(store.goals || {}) }}
           isSet={store.goalsSet}
           onClose={()=>setGoalsOpen(false)}
           onSave={async (g)=>{ await store.saveGoals(g); setGoalsOpen(false); }}
@@ -2827,17 +2875,45 @@ function FoodEditModal({ food, isNew, onClose, onSave, onDelete }){
 }
 
 /* ---- Objectifs ------------------------------------------------------------ */
+const MACRO_GOAL_KEYS = ['protein', 'carbs', 'fat'];
+
 function GoalsModal({ goals, isSet, onClose, onSave }){
-  const [v, setV] = useState(() => ({
-    kcal: goals.kcal != null ? String(goals.kcal) : '',
-    protein: goals.protein != null ? String(goals.protein) : '',
-    carbs: goals.carbs != null ? String(goals.carbs) : '',
-    fat: goals.fat != null ? String(goals.fat) : '',
-  }));
-  const num = (k) => { const n = parseFloat(String(v[k]).replace(',', '.')); return isNaN(n) ? null : n; };
+  const [kcalStr, setKcalStr] = useState(goals.kcal != null ? String(goals.kcal) : '');
+  const [weightStr, setWeightStr] = useState(goals.weightKg != null ? String(goals.weightKg) : '');
+  // Un objectif de macro se retape sous la forme où il a été réglé : un
+  // gramme direct, ou le ratio (% de kcal, g/kg) qui l'a produit — pas le
+  // gramme calculé, qu'on redemanderait sinon à recalculer à la main à
+  // chaque ouverture.
+  const initMacro = (key) => {
+    const mode = goals[key + 'Mode'] || 'grams';
+    const raw = mode === 'grams' ? goals[key] : goals[key + 'Ratio'];
+    return { mode, raw: raw != null ? String(raw) : '' };
+  };
+  const [macro, setMacro] = useState(() => Object.fromEntries(MACRO_GOAL_KEYS.map(k => [k, initMacro(k)])));
+
+  const kcalNum = (() => { const n = parseFloat(kcalStr.replace(',', '.')); return isNaN(n) ? null : n; })();
+  const weightNum = (() => { const n = parseFloat(weightStr.replace(',', '.')); return isNaN(n) ? null : n; })();
+  const macroNum = (key) => { const n = parseFloat(String(macro[key].raw).replace(',', '.')); return isNaN(n) ? null : n; };
+  const macroGrams = (key) => macroGramsFromRatio(key, macro[key].mode, macroNum(key), kcalNum, weightNum);
+  const setMode = (key, mode) => setMacro(s => ({ ...s, [key]: { ...s[key], mode } }));
+  const setRaw = (key, raw) => setMacro(s => ({ ...s, [key]: { ...s[key], raw } }));
+
+  const grams = Object.fromEntries(MACRO_GOAL_KEYS.map(k => [k, macroGrams(k)]));
   // 4 kcal/g pour les protéines et les glucides, 9 pour les lipides : de quoi
-  // voir tout de suite si les trois macros tiennent dans l'objectif calorique.
-  const implied = (num('protein') || 0) * 4 + (num('carbs') || 0) * 4 + (num('fat') || 0) * 9;
+  // voir tout de suite si les trois macros tiennent dans l'objectif calorique,
+  // quel que soit le mode qui les a produites.
+  const implied = (grams.protein || 0) * 4 + (grams.carbs || 0) * 4 + (grams.fat || 0) * 9;
+  const usesWeight = MACRO_GOAL_KEYS.some(k => macro[k].mode === 'perkg');
+
+  const submit = () => {
+    const patch = { kcal: kcalNum, weightKg: weightNum };
+    for (const k of MACRO_GOAL_KEYS){
+      patch[k] = grams[k];
+      patch[k + 'Mode'] = macro[k].mode;
+      patch[k + 'Ratio'] = macro[k].mode === 'grams' ? null : macroNum(k);
+    }
+    onSave(patch);
+  };
 
   return (
     <div className="scrim" onClick={onClose}>
@@ -2846,28 +2922,67 @@ function GoalsModal({ goals, isSet, onClose, onSave }){
         <div className="modal-sub">
           {isSet ? 'Ce que vous visez chaque jour.' : 'Valeurs par défaut — remplacez-les par les vôtres.'}
         </div>
-        {FOOD_MACROS.map(m => (
-          <div className="field" key={m.key}>
-            <label>{m.label}</label>
-            <div style={{display:'flex',alignItems:'baseline',flex:1}}>
-              <input type="number" step="any" min="0" style={{width:'100%'}}
-                value={v[m.key]} onChange={e=>setV(s => ({ ...s, [m.key]: e.target.value }))} />
-              <span className="unit">{m.unit}</span>
-            </div>
+
+        <div className="field">
+          <label>{MACRO_BY_KEY.kcal.label}</label>
+          <div style={{display:'flex',alignItems:'baseline',flex:1}}>
+            <input type="number" step="any" min="0" style={{width:'100%'}}
+              value={kcalStr} onChange={e=>setKcalStr(e.target.value)} />
+            <span className="unit">{MACRO_BY_KEY.kcal.unit}</span>
           </div>
-        ))}
+        </div>
+
+        {/* Le poids n'est demandé que pour calculer un g/kg — mais il reste ici,
+            pas replié derrière le mode, pour ne pas le faire disparaître et
+            réapparaître à chaque bascule de Segmented. */}
+        <div className="field" style={{opacity: usesWeight ? 1 : 0.55}}>
+          <label>Poids</label>
+          <div style={{display:'flex',alignItems:'baseline',flex:1}}>
+            <input type="number" step="any" min="0" style={{width:'100%'}}
+              value={weightStr} onChange={e=>setWeightStr(e.target.value)}
+              placeholder={usesWeight ? 'requis pour g/kg' : 'optionnel'} />
+            <span className="unit">kg</span>
+          </div>
+        </div>
+
+        {MACRO_GOAL_KEYS.map(key => {
+          const m = MACRO_BY_KEY[key];
+          const mode = macro[key].mode;
+          const modeDef = GOAL_MODES.find(g => g.id === mode);
+          const computed = grams[key];
+          return (
+            <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:8}} key={key}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+                <label style={{width:'auto'}}>{m.label}</label>
+                <Segmented size="small">
+                  {GOAL_MODES.map(gm => (
+                    <button key={gm.id} className={mode===gm.id?'on':''} onClick={()=>setMode(key, gm.id)}>{gm.label}</button>
+                  ))}
+                </Segmented>
+              </div>
+              <div style={{display:'flex',alignItems:'baseline',gap:8}}>
+                <input type="number" step="any" min="0" style={{width:'100%'}}
+                  value={macro[key].raw} onChange={e=>setRaw(key, e.target.value)} />
+                <span className="unit">{modeDef.unit(m)}</span>
+                {mode !== 'grams' && (
+                  <span className="goal-macro-derived mono">
+                    {computed != null ? `→ ${fmtNum(computed, 0)} g` : `→ renseigne ${mode==='percent' ? 'les calories' : 'le poids'}`}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+
         {implied > 0 && (
           <p className="fd-note serif">
             Ces macros font <span className="mono">{fmtNum(implied,0)} kcal</span>
-            {num('kcal') ? ` pour un objectif de ${fmtNum(num('kcal'),0)} kcal.` : '.'}
+            {kcalNum ? ` pour un objectif de ${fmtNum(kcalNum,0)} kcal.` : '.'}
           </p>
         )}
         <div className="modal-actions">
           <button className="ghost" onClick={onClose}>Annuler</button>
-          <button className="primary"
-            onClick={()=>onSave({ kcal:num('kcal'), protein:num('protein'), carbs:num('carbs'), fat:num('fat') })}>
-            Enregistrer
-          </button>
+          <button className="primary" onClick={submit}>Enregistrer</button>
         </div>
       </div>
     </div>

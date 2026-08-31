@@ -255,6 +255,10 @@
   .field label{font-size:10px;color:var(--ink-3);width:82px;flex-shrink:0;text-transform:uppercase;letter-spacing:0.12em}
   .field input,.field select,.field textarea{flex:1;font-size:14px}
   .field .unit{color:var(--ink-3);font-size:13px;margin-left:6px}
+  /* Le grammage qu'un ratio produit — visible en direct à côté du champ, pour
+     ne jamais avoir à ouvrir un calcul à côté pour savoir ce que « 2 g/kg »
+     donne réellement. */
+  .goal-macro-derived{font-size:12px;color:var(--ink-3);white-space:nowrap;flex-shrink:0}
   .field textarea{resize:none;min-height:20px;line-height:1.4}
   .scale{display:flex;gap:6px;flex-wrap:wrap}
   .scale button{width:34px;height:34px;border-radius:0;border:1px solid var(--line-2);font-size:13px;color:var(--ink-2);font-family:"Geist Mono",monospace;transition:all .35s var(--ease)}
@@ -1298,7 +1302,7 @@
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
 <script type="text/babel" src="app.jsx?v=43"></script>
-<script type="text/babel" src="app.food.jsx?v=13"></script>
+<script type="text/babel" src="app.food.jsx?v=14"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>
