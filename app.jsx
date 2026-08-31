@@ -50,14 +50,28 @@ const { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useC
      value pour 'choice' : string (choix unique) ou string[] (choix multiples)
    ============================================================ */
 
-const COLORS = [
-  '#1c1b18', // ink
-  'oklch(0.55 0.10 150)', // green
-  'oklch(0.55 0.10 250)', // blue
-  'oklch(0.55 0.10 30)',  // terracotta
-  'oklch(0.55 0.10 80)',  // ochre
-  'oklch(0.55 0.10 320)', // mauve
-];
+/* ---- Couleurs de tracker --------------------------------------------------
+   Un nuancier construit, pas une liste écrite à la main : toutes les teintes,
+   quatre niveaux de luminosité, et une chroma constante — c'est elle qui fait
+   que deux trackers de couleurs différentes appartiennent quand même au même
+   dessin. Faire varier la saturation en même temps que la teinte donnerait des
+   couleurs qui « crient » plus fort que d'autres sans raison.
+
+   Les cinq teintes d'origine (30, 80, 150, 250, 320) sont dans la liste, à leur
+   valeur exacte : les trackers déjà créés retombent sur une pastille du
+   nuancier, ils n'ont pas l'air d'être hors palette. Et si une couleur stockée
+   n'y est vraiment pas (import, ancienne version), TrackerModal l'ajoute en fin
+   de grille plutôt que de faire semblant que rien n'est sélectionné. */
+const COLOR_HUES = [5, 30, 55, 80, 115, 150, 185, 215, 250, 285, 320, 350];
+const COLOR_LIGHTS = [0.40, 0.55, 0.70, 0.82];
+const COLOR_CHROMA = 0.10;
+// Les neutres ouvrent la grille : l'encre d'origine, puis trois gris qui suivent
+// les mêmes paliers de luminosité que les teintes.
+const COLOR_NEUTRALS = ['#1c1b18', 'oklch(0.45 0 0)', 'oklch(0.62 0 0)', 'oklch(0.78 0 0)'];
+const COLOR_ROWS = COLOR_LIGHTS.map(l => COLOR_HUES.map(h => `oklch(${l.toFixed(2)} ${COLOR_CHROMA.toFixed(2)} ${h})`));
+const COLORS = [...COLOR_NEUTRALS, ...COLOR_ROWS.flat()];
+// La couleur proposée à la création : le vert de toujours (L 0.55, teinte 150).
+const DEFAULT_COLOR = `oklch(0.55 ${COLOR_CHROMA.toFixed(2)} 150)`;
 
 const TYPES = [
   { id:'number',   label:'Nombre',   desc:'kg, €, pas, ml…' },
@@ -100,18 +114,34 @@ const TOGGLEABLE_TABS = [
   { id:'food',     label:'Food',     hint:'suivi nutritionnel, scanner, aliments et repas' },
   { id:'vues',     label:'Vues',     hint:'graphes, calendrier, grille de KPI' },
   { id:'training', label:'Training', hint:'à venir' },
+  { id:'analyst',  label:'AI analyst', hint:'lecture des données par Claude — corrélations entre trackers ; à venir' },
 ];
 const TOGGLEABLE_FEATURES = [
   { id:'ia', label:'Analyse IA', hint:'l’onglet IA de la page Food, qui décompose un repas décrit en texte' },
 ];
-const DEFAULT_TABS = { food:true, vues:true, training:true, ia:true };
+const DEFAULT_TABS = { food:true, vues:true, training:true, analyst:true, ia:true };
+
+/* Les onglets de la barre du haut, dans leur ordre par défaut. L'ordre affiché
+   vient du compte (prefs.tabOrder) : il se réarrange en maintenant un onglet,
+   comme les cartes et les pastilles du rail. « Log » est du lot — il ne se
+   masque pas, mais rien n'oblige à le garder en tête. Les paramètres, eux, ne
+   sont pas un onglet : c'est l'engrenage, à sa place fixe au bout de la barre. */
+const NAV_TABS = [
+  { id:'log',      label:'Log' },
+  { id:'food',     label:'Food' },
+  { id:'training', label:'Training' },
+  { id:'vues',     label:'Vues' },
+  { id:'analyst',  label:'AI analyst' },
+];
 
 // How a chart draws its line, and how wide one plotted point is. Two
 // independent per-tracker display settings — neither changes the stored data.
 const CURVE_STYLES = [
   { id:'line',   label:'Polyligne' },
   { id:'smooth', label:'Lissée' },
+  { id:'bars',   label:'Bâtons' },
 ];
+const isCurveStyle = (id) => CURVE_STYLES.some(c => c.id === id);
 const GRAINS = [
   { id:'day',   label:'Jour' },
   { id:'week',  label:'Semaine' },
@@ -143,10 +173,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function trackerFromRow(r){
-  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMin:r.scale_min ?? undefined, scaleMax:r.scale_max || undefined, scaleStep:r.scale_step || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, jokerEnabled:!!r.joker_enabled, cumulative:!!r.cumulative, curveStyle:r.curve_style === 'smooth' ? 'smooth' : 'line', chartGrain:GRAINS.some(g => g.id === r.chart_grain) ? r.chart_grain : 'day', goodDirection:r.good_direction || undefined, targetValue:r.target_value ?? undefined, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
+  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMin:r.scale_min ?? undefined, scaleMax:r.scale_max || undefined, scaleStep:r.scale_step || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, jokerEnabled:!!r.joker_enabled, cumulative:!!r.cumulative, curveStyle:isCurveStyle(r.curve_style) ? r.curve_style : 'line', chartGrain:GRAINS.some(g => g.id === r.chart_grain) ? r.chart_grain : 'day', goodDirection:r.good_direction || undefined, targetValue:r.target_value ?? undefined, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
 }
 function trackerToRow(t, userId){
-  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_min:t.scaleMin ?? null, scale_max:t.scaleMax || null, scale_step:t.scaleStep || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, joker_enabled:!!t.jokerEnabled, cumulative:!!t.cumulative, curve_style:t.curveStyle === 'smooth' ? 'smooth' : 'line', chart_grain:GRAINS.some(g => g.id === t.chartGrain) ? t.chartGrain : 'day', good_direction:t.goodDirection || null, target_value:t.targetValue ?? null, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
+  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_min:t.scaleMin ?? null, scale_max:t.scaleMax || null, scale_step:t.scaleStep || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, joker_enabled:!!t.jokerEnabled, cumulative:!!t.cumulative, curve_style:isCurveStyle(t.curveStyle) ? t.curveStyle : 'line', chart_grain:GRAINS.some(g => g.id === t.chartGrain) ? t.chartGrain : 'day', good_direction:t.goodDirection || null, target_value:t.targetValue ?? null, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
 }
 function entryFromRow(r){
   return { id:r.id, trackerId:r.tracker_id, value:r.value, note:r.note || '', ts:r.ts };
@@ -229,6 +259,35 @@ function smoothPath(pts){
   return d;
 }
 const curvePath = (pts, style) => style === 'smooth' ? smoothPath(pts) : linePath(pts);
+
+/* ---- Bâtons ---------------------------------------------------------------
+   La troisième forme, à côté de la polyligne et de la courbe lissée : un bâton
+   par point plutôt qu'un trait qui les relie. Ce n'est pas qu'un habillage —
+   un trait entre deux jours affirme que la valeur est passée par tout ce qui
+   les sépare, ce qu'une mesure quotidienne ne dit jamais. Un bâton ne parle que
+   du jour qu'il occupe, et un jour sans donnée reste un vide, pas un pont.
+   Le pied des bâtons est le zéro quand l'échelle le contient, le bas du cadre
+   sinon : sur une échelle qui ne descend pas à zéro, une longueur de bâton ne
+   se compare pas — seule sa hauteur situe la valeur. */
+function ChartBars({ points, xAt, yAt, baseY, color, spacing }){
+  const w = Math.max(1.5, Math.min(spacing * 0.62, 16));
+  return points.map((p, i) => {
+    if (p.value == null) return null;
+    const y = yAt(p.value);
+    // Une valeur posée sur le pied même (le bas de l'échelle) ne dessinerait
+    // rien : elle garde un trait d'un pixel, mais au-dessus de la ligne, pas
+    // en dessous — sinon la rangée des minimums déborde du cadre d'un pixel et
+    // les bâtons n'ont plus tous le même pied.
+    const above = y <= baseY;
+    const h = Math.max(1, Math.abs(y - baseY));
+    return (
+      <rect key={i} x={xAt(i) - w/2} y={above ? Math.min(y, baseY - 1) : baseY} width={w} height={h}
+            fill={color} opacity={p.hasEntry === false ? 0.45 : 0.75} />
+    );
+  });
+}
+// Le pied des bâtons, dans le repère du graphe.
+const barBaseY = (yMin, yMax, yAt, bottom) => (yMin <= 0 && yMax >= 0) ? yAt(0) : bottom;
 
 /* ---- Plot grain -----------------------------------------------------------
    Roll a daily series up into weeks (Monday-first) or months. Each bucket is
@@ -417,6 +476,19 @@ const isMaster = (t) => t.type === 'master';
 // through every one of them would touch nearly every component signature in the file,
 // and more call sites are coming later, per Louis.
 const InfoVisibilityContext = React.createContext(true);
+
+/* L'explication d'un réglage, écrite sous lui dans le corps de la page plutôt
+   que cachée derrière un « i » à ouvrir. La règle de partage avec InfoBubble :
+   là où il y a la place de l'écrire — une page de réglages, où la description
+   fait justement partie de ce qu'on est venu lire — on l'écrit ; là où elle
+   étoufferait ce qu'elle explique (une modale déjà dense, une carte, une barre
+   d'outils), c'est la bulle flottante qui prend le relais. Les deux répondent au
+   même interrupteur : « Explications » dans les paramètres. */
+function Help({ children }){
+  const on = useContext(InfoVisibilityContext);
+  if (!on) return null;
+  return <p className="settings-hint">{children}</p>;
+}
 
 function InfoBubble({ children }){
   const infoEnabled = useContext(InfoVisibilityContext);
@@ -615,6 +687,9 @@ function useDragReorder(ids, onReorder){
     const id = dragIdRef.current;
     if (id == null) return;
     movedRef.current = true;
+    // Le doigt (ou la souris) a bougé : c'est un glisser, et le clic qui suivra
+    // le relâchement n'en est pas un. Voir `armedRef` plus haut.
+    armedRef.current = true;
     if (e.cancelable) e.preventDefault();
     const px = e.clientX, py = e.clientY;
 
@@ -725,13 +800,19 @@ function useDragReorder(ids, onReorder){
     holdRef.current = null;
   }).current;
 
-  const beginDrag = (id, x, y) => {
+  // `armed` = ce geste a déjà consommé le clic à venir. C'est vrai d'un appui
+  // long au doigt dès qu'il a tenu (le relâcher ne doit rien déclencher d'autre),
+  // mais pas d'un simple clic de souris : à la souris, le glisser s'arme dès le
+  // pointerdown, et considérer tout de suite le clic comme avalé rendait muettes
+  // les pastilles du rail — cliquer pour filtrer ne faisait plus rien. Le clic ne
+  // devient un glisser qu'à partir du moment où ça bouge (voir handleMove).
+  const beginDrag = (id, x, y, armed = false) => {
     dragIdRef.current = id;
     movedRef.current = false;
     startRef.current = { x, y };
     insRef.current = Math.max(0, orderRef.current.indexOf(id));
     setDragId(id);
-    armedRef.current = true;
+    armedRef.current = armed;
     document.body.classList.add('dragging-reorder');
     window.addEventListener('pointermove', handleMove, { passive: false });
     window.addEventListener('pointerup', handleUp);
@@ -772,7 +853,7 @@ function useDragReorder(ids, onReorder){
         // Une petite vibration dit « c'est attrapé » — sans elle, rien ne
         // distingue un appui trop court d'un appui assez long.
         try { navigator.vibrate?.(12); } catch {}
-        beginDrag(id, x0, y0);
+        beginDrag(id, x0, y0, true);
       }, HOLD_MS),
     };
   };
@@ -802,18 +883,47 @@ function DragHandle({ onPointerDown, dragging }){
 /* ============================================================
    Préférences de compte — user_settings
    ------------------------------------------------------------
-   Un seul blob jsonb par compte. Le thème et les bulles d'aide
-   restent en localStorage : ce sont des choix d'appareil (un
-   téléphone dehors, un écran de bureau). Ce qui décrit la forme
-   de l'app — quels onglets existent — suit le compte, sinon
-   masquer Food sur le PC laisserait le téléphone incohérent.
+   Un seul blob jsonb par compte, et c'est lui qui fait autorité :
+   Tracklog se vit sur un téléphone ET sur un PC, donc un réglage
+   posé d'un côté doit se retrouver de l'autre. Style, bulles
+   d'aide, numéro de semaine, interrupteur caméra, ordre et
+   visibilité des onglets — tout ça suit le compte.
+
+   localStorage reste, mais comme miroir, pas comme source : il
+   sert à afficher le bon réglage AVANT que la base ait répondu
+   (le style est même lu par un script en tête de page, avant
+   que l'app existe) et à ne pas perdre la main si user_settings
+   est injoignable. Voir useSyncedPref juste en dessous.
+
+   Ce qui reste vraiment local : les chronos, qui sont un état de
+   travail en cours sur cet appareil-là, pas un réglage.
 
    Écriture optimiste : l'état local part devant, la base suit.
    Un réglage d'affichage qui attend le réseau donne une app
    qui colle, et l'échec n'y coûte qu'un rechargement.
    ============================================================ */
+// Le contexte porte { prefs, savePrefs } jusqu'aux composants trop loin dans
+// l'arbre pour qu'on leur passe le réglage à la main — au premier chef le
+// scanner de la page Food, qui vit à trois modales de App.
+const AccountPrefsContext = React.createContext(null);
+// Hors de tout Provider (un composant monté seul dans un test), un réglage
+// reste utilisable : il ne fait que ne pas se synchroniser. L'objet est stable
+// pour ne pas invalider les mémos qui en dépendent à chaque rendu.
+const LOCAL_ONLY_PREFS = { prefs: {}, savePrefs: () => {} };
 function useAccountPrefs(userId){
   const [prefs, setPrefs] = useState(null);   // null = pas encore chargé
+  // Un réglage touché avant que la base ait répondu ne doit pas partir seul :
+  // le blob est écrit en entier, l'envoyer avec un objet vide effacerait tout le
+  // reste (les onglets, en premier). On retient donc ce qui a été changé et on
+  // le rejoue par-dessus ce qui arrive.
+  const pendingRef = useRef(null);
+
+  const write = useCallback((next) => {
+    supabase.from('user_settings')
+      .upsert({ user_id: userId, prefs: next, updated_at: Date.now() })
+      .then(({ error }) => { if (error) console.warn('user_settings', error.message); });
+  }, [userId]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -821,20 +931,29 @@ function useAccountPrefs(userId){
       if (cancelled) return;
       // Table absente (migration pas encore passée) : on tourne sur les valeurs
       // par défaut plutôt que de bloquer toute l'app sur un réglage d'affichage.
-      setPrefs((!error && data && data.prefs) ? data.prefs : {});
+      const loaded = (!error && data && data.prefs) ? data.prefs : {};
+      const pending = pendingRef.current;
+      pendingRef.current = null;
+      const next = pending ? { ...loaded, ...pending } : loaded;
+      setPrefs(next);
+      if (pending) write(next);
     })();
     return () => { cancelled = true; };
-  }, [userId]);
+  }, [userId, write]);
 
   const savePrefs = useCallback(async (patch) => {
     setPrefs(prev => {
-      const next = { ...(prev || {}), ...patch };
-      supabase.from('user_settings')
-        .upsert({ user_id: userId, prefs: next, updated_at: Date.now() })
-        .then(({ error }) => { if (error) console.warn('user_settings', error.message); });
+      if (prev === null){
+        // Pas encore chargé : on garde le changement de côté, l'effet ci-dessus
+        // le posera sur les valeurs du compte dès qu'elles arriveront.
+        pendingRef.current = { ...(pendingRef.current || {}), ...patch };
+        return prev;
+      }
+      const next = { ...prev, ...patch };
+      write(next);
       return next;
     });
-  }, [userId]);
+  }, [write]);
 
   // L'onglet « Bouffe » s'appelle « Food » depuis, mais sa préférence est déjà
   // enregistrée sous l'ancienne clé sur les comptes existants : on la relit sous
@@ -844,7 +963,49 @@ function useAccountPrefs(userId){
     ? { food: stored.bouffe } : null;
   const tabs = { ...DEFAULT_TABS, ...stored, ...legacy };
   const setTab = (id, on) => savePrefs({ tabs: { ...tabs, [id]: on } });
-  return { ready: prefs !== null, prefs: prefs || {}, savePrefs, tabs, setTab };
+
+  // L'ordre des onglets : les ids connus, dans l'ordre enregistré, suivis de
+  // ceux qui n'y sont pas encore (un onglet ajouté par une mise à jour se range
+  // à sa place par défaut plutôt que de disparaître).
+  const storedOrder = Array.isArray(prefs && prefs.tabOrder) ? prefs.tabOrder : [];
+  const known = NAV_TABS.map(t => t.id);
+  const tabOrder = [...storedOrder.filter(id => known.includes(id)),
+                    ...known.filter(id => !storedOrder.includes(id))];
+  const setTabOrder = (order) => savePrefs({ tabOrder: order });
+
+  return { ready: prefs !== null, prefs: prefs || {}, savePrefs, tabs, setTab, tabOrder, setTabOrder };
+}
+
+/* ---- Un réglage qui suit le compte, avec miroir local ----------------------
+   Le compte fait autorité, mais il arrive après le premier rendu : tant qu'il
+   n'a pas répondu, on affiche la dernière valeur connue sur cet appareil plutôt
+   qu'un défaut arbitraire — sinon chaque ouverture montrerait brièvement le
+   mauvais réglage, ce qui se lit comme un bug plutôt que comme un chargement.
+   Quand la réponse arrive, c'est elle qui gagne, et le miroir se met à jour. */
+function useSyncedPref(accountPrefs, key, storageKey, fallback, isValid = () => true){
+  const read = () => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw === null) return fallback;
+      const v = typeof fallback === 'boolean' ? raw === '1' : raw;
+      return isValid(v) ? v : fallback;
+    } catch { return fallback; }
+  };
+  const [local, setLocal] = useState(read);
+  const remote = accountPrefs.prefs ? accountPrefs.prefs[key] : undefined;
+  const valid = remote !== undefined && typeof remote === typeof fallback && isValid(remote);
+  const value = valid ? remote : local;
+
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, typeof value === 'boolean' ? (value ? '1' : '0') : String(value)); } catch {}
+  }, [value, storageKey]);
+
+  const set = useCallback((v) => {
+    setLocal(v);
+    accountPrefs.savePrefs({ [key]: v });
+  }, [accountPrefs, key]);
+
+  return [value, set];
 }
 
 const FEEDBACK_KINDS = [
@@ -892,38 +1053,20 @@ function App({ session }){
   useEffect(() => {
     try { localStorage.setItem(exclusiveKey, chronoExclusive ? '1' : '0'); } catch {}
   }, [chronoExclusive, exclusiveKey]);
-  // Whether the "i" explainer bubbles show up at all — a per-device preference for
-  // once the app is familiar, not data worth syncing across devices.
-  const infoKey = `tracklog.infoEnabled.${userId}`;
-  const [infoEnabled, setInfoEnabled] = useState(() => {
-    try { const v = localStorage.getItem(infoKey); return v === null ? true : v === '1'; } catch { return true; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem(infoKey, infoEnabled ? '1' : '0'); } catch {}
-  }, [infoEnabled, infoKey]);
-  // Whether the day's title shows its week number — a device preference, same
-  // family as the "i" bubbles: it changes how the screen reads, not what it means.
-  const weekKey = 'tracklog.showWeek';
-  const [showWeek, setShowWeek] = useState(() => {
-    try { const v = localStorage.getItem(weekKey); return v === null ? true : v === '1'; } catch { return true; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem(weekKey, showWeek ? '1' : '0'); } catch {}
-  }, [showWeek]);
-  // Light/dark is read by a tiny inline script in <head>, before this app even loads,
-  // so the page never flashes the wrong theme — that script can't know which account
-  // is signing in yet, so this stays one unscoped key rather than per-user like the
-  // preferences above. `document.documentElement.dataset.theme` is the single source
-  // of truth the CSS reads (:root[data-theme="light"|"dark"]); state here just mirrors
-  // it so the settings toggle re-renders.
-  const [theme, setTheme] = useState(() => {
-    try { const t = document.documentElement.dataset.theme; return isStyle(t) ? t : DEFAULT_STYLE; }
-    catch { return DEFAULT_STYLE; }
-  });
+  // Les explications (bulles « i » et descriptions sous les réglages) et le numéro
+  // de semaine suivent le compte : ils décrivent comment on veut lire l'app, et on
+  // la lit sur plusieurs appareils. Le miroir local sert l'affichage immédiat.
+  const [infoEnabled, setInfoEnabled] = useSyncedPref(accountPrefs, 'help', `tracklog.infoEnabled.${userId}`, true);
+  const [showWeek, setShowWeek] = useSyncedPref(accountPrefs, 'showWeek', 'tracklog.showWeek', true);
+  // Le style est lu par un petit script en tête de page, avant même que l'app
+  // charge, pour que la page ne clignote jamais dans les mauvaises couleurs — ce
+  // script ne peut pas savoir quel compte se connecte, d'où une clé non scopée par
+  // utilisateur. Le compte reste la référence : quand il répond, il corrige
+  // l'appareil. `document.documentElement.dataset.theme` est ce que lit le CSS.
+  const [theme, setTheme] = useSyncedPref(accountPrefs, 'theme', 'tracklog.theme', DEFAULT_STYLE, isStyle);
   useEffect(() => {
     try {
       document.documentElement.dataset.theme = theme;
-      localStorage.setItem('tracklog.theme', theme);
       const meta = document.querySelector('meta[name="theme-color"]');
       const style = STYLES.find(s => s.id === theme);
       if (meta && style) meta.setAttribute('content', style.themeColor);
@@ -1171,6 +1314,7 @@ function App({ session }){
   const activeTab = (tab !== 'log' && tab !== 'parametres' && visibleTabs[tab] === false) ? 'log' : tab;
 
   return (
+    <AccountPrefsContext.Provider value={accountPrefs}>
     <InfoVisibilityContext.Provider value={infoEnabled}>
     <div className="app">
       <header className="topbar">
@@ -1180,12 +1324,13 @@ function App({ session }){
           <span className="by serif">— suivez n'importe quoi.</span>
         </div>
         <div className="topbar-actions">
-          <div className="tabs" role="tablist">
-            <button className={activeTab==='log'?'active':''} onClick={()=>setTab('log')}>Log</button>
-            {visibleTabs.food && <button className={activeTab==='food'?'active':''} onClick={()=>setTab('food')}>Food</button>}
-            {visibleTabs.training && <button className={activeTab==='training'?'active':''} onClick={()=>setTab('training')}>Training</button>}
-            {visibleTabs.vues && <button className={activeTab==='vues'?'active':''} onClick={()=>setTab('vues')}>Vues</button>}
-          </div>
+          <TabBar
+            tabs={NAV_TABS.filter(t => t.id === 'log' || visibleTabs[t.id] !== false)}
+            order={accountPrefs.tabOrder}
+            activeTab={activeTab}
+            onSelect={setTab}
+            onReorder={accountPrefs.setTabOrder}
+          />
           <button
             className={`gear-btn ${activeTab==='parametres'?'active':''}`}
             onClick={()=>setTab('parametres')}
@@ -1249,6 +1394,8 @@ function App({ session }){
         <FoodPage store={food} sub={foodSub} onSub={setFoodSub} aiEnabled={visibleTabs.ia !== false} />
       ) : activeTab === 'training' ? (
         <TrainingView />
+      ) : activeTab === 'analyst' ? (
+        <AnalystView />
       ) : activeTab === 'vues' ? (
         <VuesView
           trackers={activeTrackers}
@@ -1273,6 +1420,8 @@ function App({ session }){
           onSetTheme={setTheme}
           tabs={visibleTabs}
           onSetTabVisible={accountPrefs.setTab}
+          tabOrder={accountPrefs.tabOrder}
+          onSetTabOrder={accountPrefs.setTabOrder}
           prefsReady={accountPrefs.ready}
           archivedTrackers={archivedTrackers}
           onEditTracker={(t)=>setEditTracker(t)}
@@ -1314,6 +1463,7 @@ function App({ session }){
       <DropIndicatorMount />
     </div>
     </InfoVisibilityContext.Provider>
+    </AccountPrefsContext.Provider>
   );
 }
 
@@ -1324,6 +1474,7 @@ function App({ session }){
    ============================================================ */
 function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled, onSetInfoEnabled,
                        showWeek, onSetShowWeek, theme, onSetTheme, tabs, onSetTabVisible, prefsReady,
+                       tabOrder = [], onSetTabOrder = () => {},
                        archivedTrackers = [], onEditTracker }){
   return (
     <div className="settings-view">
@@ -1360,59 +1511,35 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
             ))}
           </div>
         </div>
-        <p className="settings-hint">
-          Le style est propre à cet appareil — un téléphone dehors et un écran de bureau
-          n'appellent pas le même. D'autres viendront s'ajouter à cette liste.
-        </p>
+        <Help>
+          Le style suit le compte : choisi sur le téléphone, il s'applique aussi sur
+          l'ordinateur. D'autres viendront s'ajouter à cette liste.
+        </Help>
       </div>
 
-      <div className="card settings-card">
-        <p className="settings-section-title">Onglets</p>
-        {!prefsReady && <p className="settings-hint" style={{marginTop:0}}>Chargement…</p>}
-        {TOGGLEABLE_TABS.map(t => (
-          <div className="field" key={t.id}>
-            <label>{t.label}</label>
-            <div className="ctl-with-info">
-              <Segmented size="small">
-                <button className={tabs[t.id] !== false ? 'on' : ''} onClick={()=>onSetTabVisible(t.id, true)}>Affiché</button>
-                <button className={tabs[t.id] === false ? 'on' : ''} onClick={()=>onSetTabVisible(t.id, false)}>Masqué</button>
-              </Segmented>
-              <span className="settings-inline-hint">{t.hint}</span>
-            </div>
-          </div>
-        ))}
-        {TOGGLEABLE_FEATURES.map(f => (
-          <div className="field" key={f.id} style={{borderBottom:'none'}}>
-            <label>{f.label}</label>
-            <div className="ctl-with-info">
-              <Segmented size="small">
-                <button className={tabs[f.id] !== false ? 'on' : ''} onClick={()=>onSetTabVisible(f.id, true)}>Affiché</button>
-                <button className={tabs[f.id] === false ? 'on' : ''} onClick={()=>onSetTabVisible(f.id, false)}>Masqué</button>
-              </Segmented>
-              <span className="settings-inline-hint">{f.hint}</span>
-            </div>
-          </div>
-        ))}
-        <p className="settings-hint">
-          Masquer un onglet ne supprime rien : les données restent, l'onglet disparaît de la
-          barre du haut. <span className="k">Log</span> et les paramètres ne se masquent pas —
-          l'un est la raison d'être de l'app, l'autre la seule porte pour rallumer le reste.
-          Ce réglage suit le compte, pas l'appareil.
-        </p>
-      </div>
+      <TabsSettingsCard
+        tabs={tabs}
+        onSetTabVisible={onSetTabVisible}
+        tabOrder={tabOrder}
+        onSetTabOrder={onSetTabOrder}
+        prefsReady={prefsReady}
+      />
 
       <div className="card settings-card">
         <p className="settings-section-title">Affichage</p>
         <div className="field">
-          <label>Bulles d'info</label>
+          <label>Explications</label>
           <Segmented size="small">
-            <button className={infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(true)}>Activées</button>
-            <button className={!infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(false)}>Désactivées</button>
+            <button className={infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(true)}>Affichées</button>
+            <button className={!infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(false)}>Masquées</button>
           </Segmented>
         </div>
+        {/* La seule description qui ne se masque pas : c'est elle qui dit comment
+            rallumer les autres, elle ne peut pas partir avec elles. */}
         <p className="settings-hint">
-          Les petits « i » qui expliquent chaque réglage, un peu partout dans l'app.
-          Désactivez-les une fois l'app bien en main.
+          Les descriptions sous chaque réglage de cette page, et les petits « i » ailleurs
+          dans l'app. Masquez-les une fois l'app bien en main — ce réglage-ci garde son
+          explication dans tous les cas.
         </p>
         <div className="field" style={{borderBottom:'none'}}>
           <label>Numéro de semaine</label>
@@ -1421,9 +1548,7 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
             <button className={!showWeek?'on':''} onClick={()=>onSetShowWeek(false)}>Masqué</button>
           </Segmented>
         </div>
-        <p className="settings-hint">
-          À côté de la date du jour, dans le Log et l'Historique.
-        </p>
+        <Help>À côté de la date du jour, dans le Log et l'Historique.</Help>
       </div>
 
       <div className="card settings-card">
@@ -1447,13 +1572,76 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
           </div>
         )}
         {archivedTrackers.length > 0 && (
-          <p className="settings-hint">
-            Ouvre les réglages du tracker pour le désarchiver ou le supprimer.
-          </p>
+          <Help>Ouvre les réglages du tracker pour le désarchiver ou le supprimer.</Help>
         )}
       </div>
 
       <FeedbackCard userId={userId} />
+    </div>
+  );
+}
+
+/* ---- Paramètres › Onglets -------------------------------------------------
+   La même liste répond aux deux questions qu'on se pose sur un onglet — est-ce
+   que je le veux, et où — plutôt que de ranger l'ordre dans un écran et la
+   visibilité dans un autre. On y réordonne à la poignée (souris) ou en
+   maintenant l'appui (doigt), exactement comme dans la barre du haut, et ce que
+   l'on fait ici se voit là-bas immédiatement.
+   « Log » y figure sans interrupteur : il se déplace mais ne se masque pas. */
+function TabsSettingsCard({ tabs, onSetTabVisible, tabOrder, onSetTabOrder, prefsReady }){
+  const byId = useMemo(() => Object.fromEntries(NAV_TABS.map(t => [t.id, t])), []);
+  const hints = useMemo(() => Object.fromEntries(TOGGLEABLE_TABS.map(t => [t.id, t.hint])), []);
+  const { order, dragId, startDrag, setNodeRef } = useDragReorder(tabOrder, onSetTabOrder);
+
+  return (
+    <div className="card settings-card">
+      <p className="settings-section-title">Onglets</p>
+      {!prefsReady && <p className="settings-hint" style={{marginTop:0}}>Chargement…</p>}
+
+      {order.map(id => {
+        const t = byId[id];
+        if (!t) return null;
+        const lockedOn = id === 'log';
+        return (
+          <div className="setting-block" key={id} ref={setNodeRef(id)}>
+            <div className="field">
+              <label className="label-drag">
+                <DragHandle onPointerDown={startDrag(id)} dragging={dragId===id} />
+                <span>{t.label}</span>
+              </label>
+              {lockedOn ? (
+                <span className="settings-value dim">toujours affiché</span>
+              ) : (
+                <Segmented size="small">
+                  <button className={tabs[id] !== false ? 'on' : ''} onClick={()=>onSetTabVisible(id, true)}>Affiché</button>
+                  <button className={tabs[id] === false ? 'on' : ''} onClick={()=>onSetTabVisible(id, false)}>Masqué</button>
+                </Segmented>
+              )}
+            </div>
+            <Help>{lockedOn ? "La raison d'être de l'app — il ne se masque pas, mais il se déplace comme les autres." : hints[id]}</Help>
+          </div>
+        );
+      })}
+
+      {TOGGLEABLE_FEATURES.map(f => (
+        <div className="setting-block" key={f.id}>
+          <div className="field" style={{borderBottom:'none'}}>
+            <label>{f.label}</label>
+            <Segmented size="small">
+              <button className={tabs[f.id] !== false ? 'on' : ''} onClick={()=>onSetTabVisible(f.id, true)}>Affiché</button>
+              <button className={tabs[f.id] === false ? 'on' : ''} onClick={()=>onSetTabVisible(f.id, false)}>Masqué</button>
+            </Segmented>
+          </div>
+          <Help>{f.hint}</Help>
+        </div>
+      ))}
+
+      <Help>
+        Masquer un onglet ne supprime rien : les données restent, l'onglet disparaît de la
+        barre du haut. Glissez une ligne pour changer l'ordre de cette barre — au doigt,
+        maintenez d'abord l'appui. Visibilité comme ordre suivent le compte, pas l'appareil :
+        la barre est la même sur le téléphone et sur l'ordinateur.
+      </Help>
     </div>
   );
 }
@@ -1556,6 +1744,72 @@ function TrainingView(){
       <span className="training-note serif">
         Masquable depuis les paramètres, section Onglets, tant qu'il est vide.
       </span>
+    </div>
+  );
+}
+
+/* ---- AI analyst -----------------------------------------------------------
+   L'onglet existe avant son contenu, volontairement : c'est lui qui dira ce que
+   les données ont à dire quand on les croise — pas un tracker à la fois, mais
+   l'un contre l'autre. Réservé pour l'instant, et masquable tant qu'il l'est. */
+function AnalystView(){
+  return (
+    <div className="empty training-empty">
+      <span className="em-serif">AI analyst.</span>
+      Cet onglet est réservé — Claude y lira vos trackers ensemble : ce qui monte quand autre
+      chose descend, ce qui revient toujours le même jour de la semaine, ce qu'un master doit
+      surtout à un seul de ses membres. Une lecture croisée, pas un graphe de plus.
+      <span className="training-note serif">
+        Rien n'est encore branché : la page arrive, les données l'attendent déjà.
+        Masquable depuis les paramètres, section Onglets.
+      </span>
+    </div>
+  );
+}
+
+/* ---- La barre d'onglets ---------------------------------------------------
+   Les onglets se réordonnent comme tout le reste de l'app : on maintient, ça
+   s'attrape, on glisse (voir useDragReorder). Le garde-fou du clic est le même
+   que celui des pastilles du rail — relâcher un appui long ne doit pas, en plus,
+   changer d'onglet. L'ordre suit le compte : la barre est la même sur le
+   téléphone et sur le PC. */
+function TabBar({ tabs, order, activeTab, onSelect, onReorder }){
+  const byId = useMemo(() => Object.fromEntries(tabs.map(t => [t.id, t])), [tabs]);
+  // On ne réordonne que ce qui est affiché ; un onglet masqué garde sa place
+  // dans l'ordre enregistré et la retrouve quand on le rallume.
+  const visibleOrder = useMemo(() => order.filter(id => byId[id]), [order, byId]);
+  const { order: dragOrder, dragId, startDrag, setNodeRef, wasArmed } = useDragReorder(visibleOrder, (next) => {
+    // Réordonner ce qu'on voit ne doit pas perdre ce qu'on ne voit pas : les
+    // onglets masqués gardent leur créneau dans l'ordre complet, et les visibles
+    // se répartissent dans les créneaux restants, dans leur nouvel ordre.
+    let vi = 0;
+    onReorder(order.map(id => byId[id] ? next[vi++] : id));
+  });
+  const startRef = useRef(null);
+
+  return (
+    <div className="tabs" role="tablist">
+      {dragOrder.map(id => {
+        const t = byId[id];
+        if (!t) return null;
+        return (
+          <button
+            key={id}
+            ref={setNodeRef(id)}
+            role="tab"
+            aria-selected={activeTab===id}
+            className={`${activeTab===id?'active':''} ${dragId===id?'dragging':''}`}
+            onPointerDown={(e)=>{ startRef.current = { x:e.clientX, y:e.clientY }; startDrag(id)(e); }}
+            onClickCapture={(e)=>{
+              const s = startRef.current;
+              const moved = s && (Math.abs(e.clientX-s.x) > 6 || Math.abs(e.clientY-s.y) > 6);
+              if (wasArmed() || moved){ e.preventDefault(); e.stopPropagation(); }
+            }}
+            onClick={()=>onSelect(id)}
+            title="Cliquer pour ouvrir · maintenir puis glisser pour réordonner"
+          >{t.label}</button>
+        );
+      })}
     </div>
   );
 }
@@ -2715,7 +2969,7 @@ function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, drag
   // Cumulative trackers instead run a total across the tracker's whole history,
   // so the range only decides how many days are drawn, not what's summed.
   const grain = GRAINS.some(g => g.id === tracker.chartGrain) ? tracker.chartGrain : 'day';
-  const curveStyle = tracker.curveStyle === 'smooth' ? 'smooth' : 'line';
+  const curveStyle = isCurveStyle(tracker.curveStyle) ? tracker.curveStyle : 'line';
 
   const dailyPoints = useMemo(() => {
     const jokerKeys = jokerDayKeys(entries);
@@ -2965,35 +3219,43 @@ function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, drag
               {detail.axisLabels && <text className="chart-axis" x={PAD_L-6} y={yAt(v)+3} textAnchor="end">{fmtY(v)}</text>}
             </g>
           ))}
-          {/* Area fill */}
-          {segments.map((seg, si) => {
-            if (seg.length < 2) return null;
-            const d = curvePath(seg, curveStyle);
-            const area = d + ` L${seg[seg.length-1][0]},${PAD_T+innerH} L${seg[0][0]},${PAD_T+innerH} Z`;
-            return (
-              <g key={si}>
-                <path d={area} fill={tracker.color} opacity="0.08" />
-                <path d={d} fill="none" stroke={tracker.color} strokeWidth="1" strokeLinejoin="round" strokeLinecap="round" />
-              </g>
-            );
-          })}
-          {/* Interpolation over days with no data — dashed, so it never passes for a reading */}
-          {bridgesBetween(segments).map((b, i) => (
-            <line key={`b${i}`} x1={b.from[0]} y1={b.from[1]} x2={b.to[0]} y2={b.to[1]}
-              stroke={tracker.color} strokeWidth="1.2" strokeDasharray="3 4" opacity="0.5" />
-          ))}
-          {/* Lone readings would otherwise be invisible: a segment of one draws no path */}
-          {segments.filter(s => s.length === 1).map((s, i) => (
-            <circle key={`l${i}`} cx={s[0][0]} cy={s[0][1]} r="2.5" fill="none"
-              stroke={tracker.color} strokeWidth="1.2" />
-          ))}
-          {/* Points — only where something was actually logged, so a dense range (e.g. 365j)
-              doesn't turn into a solid row of dots along an otherwise-continuous curve. */}
-          {points.map((p,i)=> p.value != null && p.hasEntry && (
-            <circle key={i} cx={xAt(i)} cy={yAt(p.value)} r="2" fill={tracker.color}>
-              <title>{shortDate(p.ts)} · {fmtValue(tracker, +p.value.toFixed(1))}</title>
-            </circle>
-          ))}
+          {curveStyle === 'bars' ? (
+            <ChartBars points={points} xAt={xAt} yAt={yAt} color={tracker.color}
+              baseY={barBaseY(yMin, yMax, yAt, PAD_T + innerH)}
+              spacing={innerW / Math.max(1, points.length - 1)} />
+          ) : (
+            <>
+              {/* Area fill */}
+              {segments.map((seg, si) => {
+                if (seg.length < 2) return null;
+                const d = curvePath(seg, curveStyle);
+                const area = d + ` L${seg[seg.length-1][0]},${PAD_T+innerH} L${seg[0][0]},${PAD_T+innerH} Z`;
+                return (
+                  <g key={si}>
+                    <path d={area} fill={tracker.color} opacity="0.08" />
+                    <path d={d} fill="none" stroke={tracker.color} strokeWidth="1" strokeLinejoin="round" strokeLinecap="round" />
+                  </g>
+                );
+              })}
+              {/* Interpolation over days with no data — dashed, so it never passes for a reading */}
+              {bridgesBetween(segments).map((b, i) => (
+                <line key={`b${i}`} x1={b.from[0]} y1={b.from[1]} x2={b.to[0]} y2={b.to[1]}
+                  stroke={tracker.color} strokeWidth="1.2" strokeDasharray="3 4" opacity="0.5" />
+              ))}
+              {/* Lone readings would otherwise be invisible: a segment of one draws no path */}
+              {segments.filter(s => s.length === 1).map((s, i) => (
+                <circle key={`l${i}`} cx={s[0][0]} cy={s[0][1]} r="2.5" fill="none"
+                  stroke={tracker.color} strokeWidth="1.2" />
+              ))}
+              {/* Points — only where something was actually logged, so a dense range (e.g. 365j)
+                  doesn't turn into a solid row of dots along an otherwise-continuous curve. */}
+              {points.map((p,i)=> p.value != null && p.hasEntry && (
+                <circle key={i} cx={xAt(i)} cy={yAt(p.value)} r="2" fill={tracker.color}>
+                  <title>{shortDate(p.ts)} · {fmtValue(tracker, +p.value.toFixed(1))}</title>
+                </circle>
+              ))}
+            </>
+          )}
           {/* X ticks */}
           {detail.axisLabels && xTicks.map((t,i)=>(
             <text key={i} className="chart-axis" x={xAt(t.i)} y={H-6} textAnchor={i===0?'start':i===xTicks.length-1?'end':'middle'}>{t.label}</text>
@@ -3510,7 +3772,7 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, perRow = 1
   const compact = perRow >= 2;
   const members = masterMembers(master, trackerById);
   const grain = GRAINS.some(g => g.id === master.chartGrain) ? master.chartGrain : 'day';
-  const curveStyle = master.curveStyle === 'smooth' ? 'smooth' : 'line';
+  const curveStyle = isCurveStyle(master.curveStyle) ? master.curveStyle : 'line';
 
   // Per-member normalized+filled series, then the master's own active window.
   // The index is already 0–1, so its axis stays 0–100 whatever the grain —
@@ -3590,24 +3852,32 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, perRow = 1
               {detail.axisLabels && <text className="chart-axis" x={PAD_L-6} y={yAt(v)+3} textAnchor="end">{Math.round(v*100)}</text>}
             </g>
           ))}
-          {/* Days where no member recorded anything are bridged dashed, not drawn solid */}
-          {bridgesBetween(segments).map((b, i) => (
-            <line key={`b${i}`} x1={b.from[0]} y1={b.from[1]} x2={b.to[0]} y2={b.to[1]}
-              stroke={master.color} strokeWidth="1.4" strokeDasharray="3 4" opacity="0.5" />
-          ))}
-          {segments.map((seg, si) => {
-            if (seg.length < 2) return seg.length === 1
-              ? <circle key={si} cx={seg[0][0]} cy={seg[0][1]} r="2.5" fill={master.color} />
-              : null;
-            const d = curvePath(seg, curveStyle);
-            const area = d + ` L${seg[seg.length-1][0]},${PAD_T+innerH} L${seg[0][0]},${PAD_T+innerH} Z`;
-            return (
-              <g key={si}>
-                <path d={area} fill={master.color} opacity="0.08" />
-                <path d={d} fill="none" stroke={master.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-              </g>
-            );
-          })}
+          {curveStyle === 'bars' ? (
+            // L'indice est déjà borné 0–1 : les bâtons partent toujours du bas du cadre.
+            <ChartBars points={avgSeries} xAt={xAt} yAt={yAt} color={master.color}
+              baseY={PAD_T + innerH} spacing={innerW / Math.max(1, avgSeries.length - 1)} />
+          ) : (
+            <>
+              {/* Days where no member recorded anything are bridged dashed, not drawn solid */}
+              {bridgesBetween(segments).map((b, i) => (
+                <line key={`b${i}`} x1={b.from[0]} y1={b.from[1]} x2={b.to[0]} y2={b.to[1]}
+                  stroke={master.color} strokeWidth="1.4" strokeDasharray="3 4" opacity="0.5" />
+              ))}
+              {segments.map((seg, si) => {
+                if (seg.length < 2) return seg.length === 1
+                  ? <circle key={si} cx={seg[0][0]} cy={seg[0][1]} r="2.5" fill={master.color} />
+                  : null;
+                const d = curvePath(seg, curveStyle);
+                const area = d + ` L${seg[seg.length-1][0]},${PAD_T+innerH} L${seg[0][0]},${PAD_T+innerH} Z`;
+                return (
+                  <g key={si}>
+                    <path d={area} fill={master.color} opacity="0.08" />
+                    <path d={d} fill="none" stroke={master.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                  </g>
+                );
+              })}
+            </>
+          )}
           {detail.axisLabels && xTicks.map((t,i)=>(
             <text key={i} className="chart-axis" x={xAt(t.i)} y={H-6} textAnchor={i===0?'start':i===xTicks.length-1?'end':'middle'}>{t.label}</text>
           ))}
@@ -4011,7 +4281,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
     GRAINS.some(g => g.id === tracker?.chartGrain) ? tracker.chartGrain : 'day');
   const [startDate, setStartDate] = useState(tracker?.startDate || dayKey(tracker?.createdAt || Date.now()));
   const [endDate, setEndDate] = useState(tracker?.endDate || '');
-  const [color, setColor] = useState(tracker?.color || COLORS[1]);
+  const [color, setColor] = useState(tracker?.color || DEFAULT_COLOR);
   const nameRef = useRef();
 
   useEffect(() => { nameRef.current?.focus(); }, []);
@@ -4282,7 +4552,9 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
             <InfoBubble>
               <span className="k">Polyligne</span> : les points reliés par des segments droits.<br/>
               <span className="k">Lissée</span> : une courbe arrondie qui passe quand même exactement par
-              chaque point — c’est le tracé qui change, jamais les valeurs.
+              chaque point.<br/>
+              <span className="k">Bâtons</span> : un bâton par point, rien entre les deux — le tracé
+              n’affirme plus rien sur les jours non notés. C’est le tracé qui change, jamais les valeurs.
             </InfoBubble>
           </div>
         </div>
@@ -4343,11 +4615,27 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           </div>
         )}
 
-        <div className="field" style={{borderBottom:'none'}}>
-          <label>Couleur</label>
-          <div className="swatches">
-            {COLORS.map(c => (
-              <button key={c} className={color===c?'on':''} style={{background:c}} onClick={()=>setColor(c)} />
+        <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:10,borderBottom:'none'}}>
+          <label style={{width:'auto'}}>Couleur</label>
+          <div className="swatch-grid">
+            <div className="swatch-row">
+              {COLOR_NEUTRALS.map(c => (
+                <button key={c} type="button" className={`swatch ${color===c?'on':''}`} style={{background:c}}
+                        onClick={()=>setColor(c)} aria-label={`Couleur ${c}`} />
+              ))}
+              {/* Une couleur venue d'ailleurs (ancienne version, import) reste
+                  sélectionnée et cliquable plutôt que d'être ignorée. */}
+              {!COLORS.includes(color) && (
+                <button type="button" className="swatch on" style={{background:color}} title="Couleur actuelle" aria-label="Couleur actuelle" />
+              )}
+            </div>
+            {COLOR_ROWS.map((row, i) => (
+              <div className="swatch-row" key={i}>
+                {row.map(c => (
+                  <button key={c} type="button" className={`swatch ${color===c?'on':''}`} style={{background:c}}
+                          onClick={()=>setColor(c)} aria-label={`Couleur ${c}`} />
+                ))}
+              </div>
             ))}
           </div>
         </div>

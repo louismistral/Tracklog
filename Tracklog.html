@@ -133,6 +133,10 @@
   .tabs button:hover{color:var(--ink)}
   .tabs button.active{color:var(--ink)}
   .tabs button.active::after{right:0}
+  /* Les onglets se réordonnent en maintenant l'appui : comme partout ailleurs,
+     `pan-y` laisse la page défiler tant que le glisser n'est pas armé. */
+  .tabs button{touch-action:pan-y}
+  .tabs button.dragging{color:var(--ink);opacity:.9;z-index:5;cursor:grabbing}
   .topbar-actions{display:flex;align-items:center;gap:22px}
   .account-btn{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.14em;transition:color .4s var(--ease)}
   .account-btn:hover{color:var(--accent)}
@@ -147,7 +151,20 @@
   .settings-card{margin-bottom:20px}
   .settings-section-title{font-family:"Instrument Serif",serif;font-style:italic;font-size:19px;margin:0 0 6px}
   .settings-value{font-size:13px;color:var(--ink-2)}
+  .settings-value.dim{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.1em}
   .settings-hint{font-size:12px;color:var(--ink-3);line-height:1.6;margin:12px 0 0}
+  /* Un réglage et son explication forment un bloc : la description est écrite
+     sous la ligne du contrôle, dans le corps de la page, plutôt que rangée
+     derrière une bulle à ouvrir. Le trait de séparation passe donc du .field au
+     bloc entier, sinon il couperait le réglage de sa propre description. */
+  .setting-block{border-bottom:1px solid var(--line);padding-bottom:12px}
+  .setting-block:last-of-type{border-bottom:none}
+  .setting-block .field{border-bottom:none;padding-bottom:0}
+  .setting-block .settings-hint{margin-top:8px}
+  /* Une ligne réordonnable : la poignée fait partie du libellé, elle ne pousse
+     pas le contrôle plus loin que sur les lignes qui n'en ont pas. */
+  .field label.label-drag{display:flex;align-items:center;gap:6px;margin-left:-24px;width:106px}
+  @media (max-width:520px){ .field label.label-drag{margin-left:0;width:auto;gap:8px} }
   /* Archived trackers have no card anywhere else to carry a gear icon — this list,
      opening the same TrackerModal as everything else, is their only way back. */
   .archive-list{display:flex;flex-direction:column;gap:2px}
@@ -329,7 +346,13 @@
   .seg-track button.on{color:var(--bg);border-color:transparent}
   .seg-track button:disabled{opacity:0.4;cursor:not-allowed}
 
+  /* La hauteur d'une barre d'onglets compacte, en un seul endroit : c'est elle
+     que le bouton « + » du Log doit égaler, en hauteur comme en largeur quand il
+     est réduit à son rond. Un `min-height` plutôt qu'un `height` — si une police
+     rend plus haut que prévu, la piste grandit au lieu de rogner son texte. */
+  :root{--ctl-h:33px}
   .seg-track.compact,.seg-track.small{gap:2px;background:var(--bg-2);padding:3px;border-radius:999px;border:1px solid var(--line);flex-wrap:nowrap}
+  .seg-track.compact{min-height:var(--ctl-h)}
   .seg-track.compact button,.seg-track.small button{border:none;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.1em;white-space:nowrap}
   .seg-track.compact button{padding:6px 14px;font-size:11px}
   .seg-track.small button{padding:5px 11px;font-size:10.5px;display:inline-flex;align-items:center;gap:6px}
@@ -496,10 +519,19 @@
   .typegrid button .desc{font-size:10.5px;color:var(--ink-3);text-transform:none;letter-spacing:0}
   .typegrid button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
   .typegrid button.on .ty,.typegrid button.on .desc{color:#fff}
+  /* Nuancier : une ligne de neutres puis une ligne par palier de luminosité, les
+     teintes toujours dans le même ordre d'une ligne à l'autre — on lit la grille
+     comme une roue chromatique posée à plat, et on descend d'une ligne pour la
+     même couleur en plus clair. Les pastilles se partagent leur mise en forme
+     avec l'ancienne classe .swatches, qui reste utilisée ailleurs. */
   .swatches{display:flex;gap:8px;flex-wrap:wrap}
-  .swatches button{width:26px;height:26px;border-radius:50%;border:1px solid var(--line-2);position:relative;transition:transform .3s var(--ease)}
-  .swatches button:hover{transform:scale(1.12)}
-  .swatches button.on{outline:2px solid var(--ink);outline-offset:2px}
+  .swatch-grid{display:flex;flex-direction:column;gap:6px}
+  .swatch-row{display:grid;grid-template-columns:repeat(12,1fr);gap:6px}
+  .swatches button,.swatch{border-radius:50%;border:1px solid var(--line-2);position:relative;transition:transform .3s var(--ease)}
+  .swatches button{width:26px;height:26px}
+  .swatch{width:100%;aspect-ratio:1;min-width:0}
+  .swatches button:hover,.swatch:hover{transform:scale(1.12)}
+  .swatches button.on,.swatch.on{outline:2px solid var(--ink);outline-offset:2px}
   .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:24px;border-top:1px solid var(--line);padding-top:18px}
   .modal-actions .ghost{font-size:11px;padding:10px 16px;border-radius:999px;color:var(--ink-2);text-transform:uppercase;letter-spacing:0.12em;transition:color .3s,background .3s}
   .modal-actions .ghost:hover{background:var(--bg-3);color:var(--ink)}
@@ -597,7 +629,9 @@
   .field-hint{font-size:12px;color:var(--ink-3);line-height:1.5;padding:0 0 14px;border-bottom:1px solid var(--line);margin-bottom:2px}
 
   .today-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
-  .today-progress{font-size:11px;color:var(--ink-2);font-family:"Geist Mono",monospace;background:transparent;border:1px solid var(--line-2);padding:5px 12px;border-radius:999px;letter-spacing:0.05em}
+  /* Le compteur de quotidiens partage sa géométrie avec le numéro de semaine :
+     la règle commune est posée avec .week-tag (section Historique), ici ne
+     restent que la police et le ton qui lui sont propres. */
   /* Appears only while several cards hold unsaved input, so it never sits there inert. */
   .submit-all-bar{display:flex;justify-content:flex-end;margin-bottom:-4px}
   .submit-all{display:inline-flex;align-items:center;gap:9px;transition:background .3s var(--ease),transform .3s var(--ease)}
@@ -745,17 +779,25 @@
   .log-subnav{display:flex;align-items:center;gap:22px;margin-bottom:26px;flex-wrap:nowrap}
   .log-subhint{font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.08em;
     min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  /* Sized to match the Jour/Historique/Chrono pill group exactly, never taller
-     than that one line; the label shrinks in two steps before anything wraps. */
-  .subnav-add{white-space:nowrap;flex:0 0 auto;padding:6px 14px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em}
+  /* La hauteur n'est pas un nombre à tenir à jour : `align-self:stretch` la prend
+     sur la ligne, dont la hauteur est celle du groupe Jour/Historique/Chrono. Le
+     jour où ce groupe change de taille, le bouton suit sans qu'on y touche.
+     Le label, lui, rétrécit en deux crans avant que quoi que ce soit passe à la ligne. */
+  .subnav-add{white-space:nowrap;flex:0 0 auto;align-self:stretch;justify-content:center;
+    padding:6px 14px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em}
   .subnav-add .add-mid,.subnav-add .add-min{display:none}
   @media (max-width:620px){
     .log-subnav{gap:12px}
     .subnav-add .add-full{display:none} .subnav-add .add-mid{display:inline}
   }
+  /* Dernier cran : réduit au seul « ＋ », le bouton n'est plus une pastille étirée
+     mais un rond — un bouton qui ne porte qu'un signe n'a pas de mot à cadrer.
+     La largeur vient du même jeton que la hauteur de la barre (--ctl-h), pas d'un
+     `aspect-ratio` : une hauteur héritée d'un `stretch` n'est pas assez définie
+     pour qu'un ratio en déduise la largeur, et le rond restait un rectangle. */
   @media (max-width:440px){
     .log-subnav{gap:8px}
-    .subnav-add{padding:6px 11px}
+    .subnav-add{padding:0;width:var(--ctl-h);font-size:14px}
     .subnav-add .add-mid{display:none} .subnav-add .add-min{display:inline}
   }
   /* Last resort on the narrowest phones: tighten the sub-tabs themselves rather
@@ -841,10 +883,14 @@
   .de-title{font-family:"Instrument Serif",serif;font-style:italic;font-weight:400;font-size:28px;color:var(--ink);text-transform:capitalize;line-height:1;letter-spacing:0}
   .de-sub{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.08em;font-family:"Geist Mono",monospace}
   /* Week number, next to a day's title — plain metadata, not a status, so it stays
-     neutral rather than borrowing the accent the way a master's tag does. */
-  .week-tag{display:inline-flex;align-items:center;vertical-align:middle;margin-left:10px;
-    font-size:11px;font-style:normal;text-transform:none;letter-spacing:0.02em;
+     neutral rather than borrowing the accent the way a master's tag does.
+     Géométrie partagée avec .today-progress : les deux étiquettes de la ligne du
+     Log ont la même hauteur, quelle que soit la police de chacune. */
+  .week-tag,.today-progress{display:inline-flex;align-items:center;background:transparent;
+    font-size:11px;line-height:1.45;font-style:normal;text-transform:none;letter-spacing:0.02em;
     color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:2px 9px}
+  .week-tag{vertical-align:middle;margin-left:10px}
+  .today-progress{font-family:"Geist Mono",monospace;color:var(--ink-2);letter-spacing:0.05em;padding:2px 12px}
   .de-today{margin-left:auto}
   .day-entries{margin-top:4px}
 
@@ -1239,7 +1285,7 @@
     ring.style.transform='translate('+rx+'px,'+ry+'px)';
     requestAnimationFrame(loop);
   })();
-  var hot='a,button,input,textarea,select,.pill,.cal-cell:not(.blank),.tk-card,.gv-card,.today-card,.swatches button';
+  var hot='a,button,input,textarea,select,.pill,.cal-cell:not(.blank),.tk-card,.gv-card,.today-card,.swatches button,.swatch';
   var root=document.documentElement;
   document.addEventListener('mouseover',function(e){ if(e.target.closest && e.target.closest(hot)) root.classList.add('cursor-hot'); });
   document.addEventListener('mouseout',function(e){ if(e.target.closest && e.target.closest(hot)) root.classList.remove('cursor-hot'); });
@@ -1251,8 +1297,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=42"></script>
-<script type="text/babel" src="app.food.jsx?v=12"></script>
+<script type="text/babel" src="app.jsx?v=43"></script>
+<script type="text/babel" src="app.food.jsx?v=13"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>

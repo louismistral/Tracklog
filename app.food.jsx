@@ -696,13 +696,12 @@ function cameraErrorMessage(e){
 
 // La caméra est un interrupteur, pas un effet de bord de l'ouverture de l'onglet :
 // tant qu'il est éteint, aucun flux n'est demandé (donc aucune pastille
-// « enregistrement » ni aucune consommation de batterie). Le choix est retenu par
-// appareil, si bien qu'une fois allumé le scanner démarre seul à chaque ouverture,
-// avec une autorisation déjà accordée — plus rien à confirmer.
+// « enregistrement » ni aucune consommation de batterie). Le choix suit le compte
+// (useSyncedPref, app.jsx) avec un miroir local : allumé une fois, le scanner
+// démarre seul à chaque ouverture, sur cet appareil comme sur l'autre.
+// L'autorisation du navigateur, elle, reste évidemment propre à chaque appareil :
+// ce qu'on synchronise est l'intention « je veux la caméra », pas la permission.
 const CAMERA_KEY = 'tracklog.cameraOn';
-function readCameraPref(){
-  try { return localStorage.getItem(CAMERA_KEY) === '1'; } catch { return false; }
-}
 
 function FoodScanner({ onCode }){
   const videoRef = useRef(null);
@@ -710,7 +709,8 @@ function FoodScanner({ onCode }){
   const streamRef = useRef(null);
   const stopRef = useRef(null);
   const doneRef = useRef(false);
-  const [camOn, setCamOn] = useState(readCameraPref);
+  const accountPrefs = useContext(AccountPrefsContext) || LOCAL_ONLY_PREFS;
+  const [camOn, setCamOn] = useSyncedPref(accountPrefs, 'cameraOn', CAMERA_KEY, false);
   const [status, setStatus] = useState('init'); // init | live | error
   const [err, setErr] = useState('');
   const [engine, setEngine] = useState('');
@@ -738,12 +738,9 @@ function FoodScanner({ onCode }){
   }, []);
 
   const toggleCamera = () => {
-    setCamOn(v => {
-      const next = !v;
-      try { localStorage.setItem(CAMERA_KEY, next ? '1' : '0'); } catch {}
-      if (!next){ setStatus('init'); setErr(''); setAttempts(0); }
-      return next;
-    });
+    const next = !camOn;
+    if (!next){ setStatus('init'); setErr(''); setAttempts(0); }
+    setCamOn(next);
   };
 
   useEffect(() => {
@@ -1036,8 +1033,13 @@ function useFoodStore(userId){
       // Les repas sont arrivés après les autres tables : si la migration n'a pas
       // encore été passée, l'erreur est ignorée et le reste de la page marche.
       if (!m.error && m.data) setMeals(m.data.map(mealFromRow));
+      // Les colonnes sont sur g.data, pas sur g (qui est la réponse { data, error }).
+      // Les lire sur g rendait quatre null : les objectifs étaient bien enregistrés
+      // en base, mais revenaient vides à chaque ouverture — et comme l'objet était
+      // quand même là, `goalsSet` répondait « oui, ils sont réglés ».
       if (!g.error && g.data){
-        setGoals({ kcal:g.kcal ?? null, protein:g.protein_g ?? null, carbs:g.carbs_g ?? null, fat:g.fat_g ?? null });
+        const row = g.data;
+        setGoals({ kcal:row.kcal ?? null, protein:row.protein_g ?? null, carbs:row.carbs_g ?? null, fat:row.fat_g ?? null });
       }
       setReady(true);
     })();
@@ -1133,7 +1135,11 @@ function useFoodStore(userId){
 
   const totalsForDay = useCallback((dk) => sumNutriments((logsByDay[dk] || []).map(l => l.nutriments)), [logsByDay]);
 
-  return { ready, foods, logs, logsByDay, meals, goals, effectiveGoals: goals || DEFAULT_GOALS, goalsSet: !!goals,
+  // Un objectif laissé vide retombe sur sa valeur par défaut plutôt que sur zéro :
+  // régler ses calories sans toucher aux macros ne doit pas effacer les trois autres cibles.
+  const setGoalValues = Object.fromEntries(Object.entries(goals || {}).filter(([, v]) => v != null));
+  const effectiveGoals = { ...DEFAULT_GOALS, ...setGoalValues };
+  return { ready, foods, logs, logsByDay, meals, goals, effectiveGoals, goalsSet: Object.keys(setGoalValues).length > 0,
            refFoods, refByBarcode,
            saveFood, updateFood, removeFood, toggleFavorite,
            saveMeal, removeMeal, addMealToDay,
