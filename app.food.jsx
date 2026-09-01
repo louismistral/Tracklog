@@ -119,6 +119,25 @@ function PlusIcon({ size = 15 }){
     </svg>
   );
 }
+// « Modifier cette chose » quand ce n'est pas un réglage mais un contenu : un
+// crayon, là où l'engrenage dirait « réglages ».
+function PencilIcon({ size = 12 }){
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke="currentColor"
+         strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M9.1 2.3l2.6 2.6M2 12l.5-2.4 7-7 2.6 2.6-7 7L2 12z" />
+    </svg>
+  );
+}
+// La flèche « ça sort de l'app » — fiche Ciqual, fiche Open Food Facts.
+function ExternalIcon({ size = 12 }){
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke="currentColor"
+         strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M4.6 9.4L9.4 4.6"/><path d="M5.4 4.6h4v4"/>
+    </svg>
+  );
+}
 
 // Une ligne de champ numérique — label à gauche, saisie et unité à droite —
 // la même rangée dense que tout `.field` de l'app. Trois formulaires posaient
@@ -249,16 +268,46 @@ function stepsFromRows(raw){
     : mkStep({ ...s, text: String(s.text || ''), done: !!s.done }));
 }
 
+/* Combien de portions la recette produit. La recette entière reste la vérité —
+   les ingrédients sont pesés pour elle — et une portion s'en déduit par
+   division. L'inverse (tout stocker par portion) obligerait à remultiplier
+   partout, et à retoucher chaque ingrédient dès qu'on change le nombre. */
+const mealPortions = (m) => { const n = Number(m && m.portions); return n > 0 ? n : 1; };
+
 function mealFromRow(r){
   return { id:r.id, name:r.name, source:r.source || 'custom', items:Array.isArray(r.items) ? r.items : [],
-           steps:stepsFromRows(r.steps), favorite:!!r.favorite,
+           steps:stepsFromRows(r.steps), favorite:!!r.favorite, portions:mealPortions(r),
            createdAt:Number(r.created_at), lastUsedAt:r.last_used_at ? Number(r.last_used_at) : null };
 }
 function mealToRow(m, userId){
   return { id:m.id, user_id:userId, name:m.name, source:m.source || 'custom',
            items:m.items || [], steps:stepsFromRows(m.steps), favorite:!!m.favorite,
+           portions:mealPortions(m),
            created_at:m.createdAt, last_used_at:m.lastUsedAt ?? null };
 }
+
+/* Un objectif et sa date de prise d'effet. `fromDay` fait partie de la clé :
+   deux consignes ne peuvent pas se disputer le même jour, et l'ordre des dates
+   est celui des chaînes 'AAAA-MM-JJ', donc trier et comparer se font sans rien
+   convertir. Les lignes d'avant la datation portent la date plancher — elles
+   valaient « depuis toujours », et continuent. */
+function goalFromRow(r){
+  return { fromDay: r.from_day || '1970-01-01',
+           kcal:r.kcal ?? null, protein:r.protein_g ?? null, carbs:r.carbs_g ?? null, fat:r.fat_g ?? null,
+           weightKg:r.weight_kg ?? null,
+           proteinMode:r.protein_mode || 'grams', proteinRatio:r.protein_ratio ?? null,
+           carbsMode:r.carbs_mode || 'grams', carbsRatio:r.carbs_ratio ?? null,
+           fatMode:r.fat_mode || 'grams', fatRatio:r.fat_ratio ?? null };
+}
+function goalToRow(g, userId, fromDay){
+  return { user_id:userId, from_day:fromDay, kcal:g.kcal ?? null, protein_g:g.protein ?? null,
+           carbs_g:g.carbs ?? null, fat_g:g.fat ?? null, weight_kg:g.weightKg ?? null,
+           protein_mode:g.proteinMode || 'grams', protein_ratio:g.proteinRatio ?? null,
+           carbs_mode:g.carbsMode || 'grams', carbs_ratio:g.carbsRatio ?? null,
+           fat_mode:g.fatMode || 'grams', fat_ratio:g.fatRatio ?? null,
+           updated_at:Date.now() };
+}
+const sortGoals = (rows) => [...rows].sort((a, b) => a.fromDay < b.fromDay ? -1 : a.fromDay > b.fromDay ? 1 : 0);
 
 function foodLogFromRow(r){
   return { id:r.id, day:r.day, meal:r.meal || 'autre', foodId:r.food_id || null, name:r.name,
@@ -1081,7 +1130,13 @@ function useFoodStore(userId){
   const [foods, setFoods] = useState([]);
   const [logs, setLogs] = useState([]);
   const [meals, setMeals] = useState([]);     // presets d'ingrédients
-  const [goals, setGoals] = useState(null);   // null tant que rien n'est réglé
+  // Les objectifs sont datés : une ligne par date de prise d'effet, triées du
+  // plus ancien au plus récent. Un jour lit la dernière consigne posée à cette
+  // date ou avant — changer d'objectif vaut donc pour ce jour-là et les
+  // suivants, et l'histoire d'avant garde la sienne. C'est la seule façon
+  // qu'un graphe sur 90 jours dise la vérité : la cible d'il y a deux mois
+  // n'était pas celle d'aujourd'hui.
+  const [goalRows, setGoalRows] = useState([]);
   const [ready, setReady] = useState(false);
   // La table des aliments simples : un fichier statique, chargé une fois, jamais
   // bloquant — si elle manque, tout le reste marche pareil.
@@ -1100,7 +1155,7 @@ function useFoodStore(userId){
       const [f, l, g, m] = await Promise.all([
         supabase.from('foods').select('*'),
         supabase.from('food_logs').select('*').order('ts', { ascending:false }),
-        supabase.from('nutrition_goals').select('*').maybeSingle(),
+        supabase.from('nutrition_goals').select('*'),
         supabase.from('meals').select('*'),
       ]);
       if (cancelled) return;
@@ -1113,16 +1168,7 @@ function useFoodStore(userId){
       // Les lire sur g rendait quatre null : les objectifs étaient bien enregistrés
       // en base, mais revenaient vides à chaque ouverture — et comme l'objet était
       // quand même là, `goalsSet` répondait « oui, ils sont réglés ».
-      if (!g.error && g.data){
-        const row = g.data;
-        setGoals({
-          kcal:row.kcal ?? null, protein:row.protein_g ?? null, carbs:row.carbs_g ?? null, fat:row.fat_g ?? null,
-          weightKg:row.weight_kg ?? null,
-          proteinMode:row.protein_mode || 'grams', proteinRatio:row.protein_ratio ?? null,
-          carbsMode:row.carbs_mode || 'grams', carbsRatio:row.carbs_ratio ?? null,
-          fatMode:row.fat_mode || 'grams', fatRatio:row.fat_ratio ?? null,
-        });
-      }
+      if (!g.error && g.data) setGoalRows(sortGoals(g.data.map(goalFromRow)));
       setReady(true);
     })();
     return () => { cancelled = true; };
@@ -1178,7 +1224,8 @@ function useFoodStore(userId){
 
   /* ---- Repas enregistrés ---- */
   const saveMeal = async (meal) => {
-    const m = { steps:[], items:[], source:'custom', favorite:false, createdAt:Date.now(), lastUsedAt:null, ...meal,
+    const m = { steps:[], items:[], source:'custom', favorite:false, portions:1,
+                createdAt:Date.now(), lastUsedAt:null, ...meal,
                 id: meal.id || uid('m_') };
     const { error } = await supabase.from('meals').upsert(mealToRow(m, userId));
     if (error) return null;
@@ -1197,9 +1244,12 @@ function useFoodStore(userId){
   };
   // Verser un repas au journal : une ligne par ingrédient, comme si on les avait
   // ajoutés un à un — chacune reste corrigeable et supprimable seule ensuite.
-  const addMealToDay = async (mealObj, day, mealSlot) => {
+  // `share` est la fraction de la recette réellement mangée (une demi-portion
+  // d'une recette qui en fait quatre = 0.125) : elle pèse chaque ingrédient,
+  // plutôt que d'ajouter une ligne « ×0,5 » que personne ne saurait relire.
+  const addMealToDay = async (mealObj, day, mealSlot, share = 1) => {
     for (const it of (mealObj.items || [])){
-      const grams = Number(it.grams) || 0;
+      const grams = (Number(it.grams) || 0) * share;
       if (grams <= 0) continue;
       await addLog({ day, meal: mealSlot, foodId: it.foodId || null, name: it.name,
                      brand:'', qty: grams, unit:'g', grams, nutriments: itemNutriments(it) });
@@ -1207,15 +1257,15 @@ function useFoodStore(userId){
     if (mealObj.id) saveMeal({ ...mealObj, lastUsedAt: Date.now() });
   };
 
-  const saveGoals = async (g) => {
-    const row = { user_id:userId, kcal:g.kcal ?? null, protein_g:g.protein ?? null,
-                  carbs_g:g.carbs ?? null, fat_g:g.fat ?? null, weight_kg:g.weightKg ?? null,
-                  protein_mode:g.proteinMode || 'grams', protein_ratio:g.proteinRatio ?? null,
-                  carbs_mode:g.carbsMode || 'grams', carbs_ratio:g.carbsRatio ?? null,
-                  fat_mode:g.fatMode || 'grams', fat_ratio:g.fatRatio ?? null,
-                  updated_at:Date.now() };
-    const { error } = await supabase.from('nutrition_goals').upsert(row);
-    if (!error) setGoals(g);
+  // Régler un objectif, c'est le poser À PARTIR d'un jour — celui qu'on
+  // regardait en ouvrant la fenêtre. Les jours d'avant ne bougent pas ; ceux
+  // d'après suivent, jusqu'à la prochaine consigne.
+  const saveGoals = async (g, fromDay) => {
+    const day = fromDay || dayKey(Date.now());
+    const { error } = await supabase.from('nutrition_goals')
+      .upsert(goalToRow(g, userId, day), { onConflict: 'user_id,from_day' });
+    if (error) return;
+    setGoalRows(rows => sortGoals([...rows.filter(r => r.fromDay !== day), { ...g, fromDay: day }]));
   };
 
   // Index jour → lignes, refait une seule fois par changement de log.
@@ -1227,14 +1277,29 @@ function useFoodStore(userId){
 
   const totalsForDay = useCallback((dk) => sumNutriments((logsByDay[dk] || []).map(l => l.nutriments)), [logsByDay]);
 
+  // La consigne qui s'applique à un jour : la dernière posée à cette date ou
+  // avant. Rien avant elle → rien, et c'est aux valeurs par défaut de répondre.
+  const goalsAt = useCallback((dk) => {
+    let found = null;
+    for (const g of goalRows){ if (g.fromDay <= dk) found = g; else break; }
+    return found;
+  }, [goalRows]);
+
   // Un objectif laissé vide retombe sur sa valeur par défaut plutôt que sur zéro :
   // régler ses calories sans toucher aux macros ne doit pas effacer les trois autres cibles.
   // Seules les 4 macros comptent pour « un objectif est réglé » — le poids et
   // les modes/ratios ne sont que la manière dont ces grammes ont été obtenus.
-  const setGoalValues = Object.fromEntries(
-    FOOD_MACROS.map(m => m.key).filter(k => goals && goals[k] != null).map(k => [k, goals[k]]));
-  const effectiveGoals = { ...DEFAULT_GOALS, ...setGoalValues };
-  return { ready, foods, logs, logsByDay, meals, goals, effectiveGoals, goalsSet: Object.keys(setGoalValues).length > 0,
+  const effectiveGoalsAt = useCallback((dk) => {
+    const g = goalsAt(dk);
+    const set = Object.fromEntries(
+      FOOD_MACROS.map(m => m.key).filter(k => g && g[k] != null).map(k => [k, g[k]]));
+    return { ...DEFAULT_GOALS, ...set };
+  }, [goalsAt]);
+
+  const goalsSetAt = useCallback(
+    (dk) => { const g = goalsAt(dk); return !!g && FOOD_MACROS.some(m => g[m.key] != null); }, [goalsAt]);
+
+  return { ready, foods, logs, logsByDay, meals, goalRows, goalsAt, effectiveGoalsAt, goalsSetAt,
            refFoods, refByBarcode,
            saveFood, updateFood, removeFood, toggleFavorite,
            saveMeal, removeMeal, addMealToDay, toggleMealFavorite,
@@ -1299,11 +1364,14 @@ async function analyseRepas(description, { signal, image } = {}){
 /* ============================================================
    Page Food
    ============================================================ */
-function FoodPage({ store, sub, onSub, aiEnabled = true }){
+function FoodPage({ store, sub, onSub }){
   const [addOpen, setAddOpen] = useState(null);      // { meal, day } | null
   const [editFood, setEditFood] = useState(null);    // aliment en cours d'édition
   const [newFood, setNewFood] = useState(null);      // brouillon d'aliment (création)
-  const [goalsOpen, setGoalsOpen] = useState(false);
+  // Régler des objectifs se fait toujours DEPUIS un jour : celui qu'on
+  // regardait. C'est cette date qui devient la prise d'effet, donc on la garde
+  // plutôt qu'un simple booléen ouvert/fermé.
+  const [goalsDay, setGoalsDay] = useState(null);
   const [mealDraft, setMealDraft] = useState(null);   // repas en cours de création/édition
   const [day, setDay] = useState(() => dayKey(Date.now()));
 
@@ -1328,7 +1396,7 @@ function FoodPage({ store, sub, onSub, aiEnabled = true }){
         <FoodDayView
           store={store} day={day} onDay={setDay}
           onAdd={(meal)=>setAddOpen({ meal, day })}
-          onGoals={()=>setGoalsOpen(true)}
+          onGoals={(d)=>setGoalsDay(d || dayKey(Date.now()))}
         />
       ) : sub === 'aliments' ? (
         <FoodLibraryView
@@ -1343,7 +1411,7 @@ function FoodPage({ store, sub, onSub, aiEnabled = true }){
           onEditMeal={setMealDraft}
         />
       ) : (
-        <FoodVuesView store={store} onGoals={()=>setGoalsOpen(true)} />
+        <FoodVuesView store={store} onGoals={()=>setGoalsDay(dayKey(Date.now()))} />
       )}
 
       <FoodSources />
@@ -1351,7 +1419,6 @@ function FoodPage({ store, sub, onSub, aiEnabled = true }){
       {addOpen && (
         <AddFoodModal
           store={store}
-          aiEnabled={aiEnabled}
           day={addOpen.day}
           meal={addOpen.meal}
           onClose={()=>setAddOpen(null)}
@@ -1367,24 +1434,24 @@ function FoodPage({ store, sub, onSub, aiEnabled = true }){
           onDelete={editFood ? async ()=>{ await store.removeFood(editFood.id); setEditFood(null); } : null}
         />
       )}
-      {goalsOpen && (
+      {goalsDay && (
         <GoalsModal
-          // effectiveGoals ne porte que les 4 grammes (avec repli sur les
+          // effectiveGoalsAt ne porte que les 4 grammes (avec repli sur les
           // valeurs par défaut) ; le mode/ratio/poids qui ont produit ces
-          // grammes ne vivent que sur goals — la modale a besoin des deux :
-          // les grammes pour afficher quelque chose de sensé la première fois,
-          // et le mode/ratio pour se rouvrir tel qu'on l'a laissé.
-          goals={{ ...store.effectiveGoals, ...(store.goals || {}) }}
-          isSet={store.goalsSet}
-          onClose={()=>setGoalsOpen(false)}
-          onSave={async (g)=>{ await store.saveGoals(g); setGoalsOpen(false); }}
+          // grammes ne vivent que sur la consigne — la modale a besoin des
+          // deux : les grammes pour afficher quelque chose de sensé la
+          // première fois, et le mode/ratio pour se rouvrir tel qu'on l'a laissé.
+          goals={{ ...store.effectiveGoalsAt(goalsDay), ...(store.goalsAt(goalsDay) || {}) }}
+          isSet={store.goalsSetAt(goalsDay)}
+          fromDay={goalsDay}
+          onClose={()=>setGoalsDay(null)}
+          onSave={async (g)=>{ await store.saveGoals(g, goalsDay); setGoalsDay(null); }}
         />
       )}
       {mealDraft && (
         <MealEditModal
           meal={mealDraft.id ? mealDraft : null}
           store={store}
-          aiEnabled={aiEnabled}
           onClose={()=>setMealDraft(null)}
           onSave={async (m)=>{ await store.saveMeal({ ...mealDraft, ...m }); setMealDraft(null); }}
           onDelete={mealDraft.id ? async ()=>{ await store.removeMeal(mealDraft.id); setMealDraft(null); } : null}
@@ -1434,7 +1501,7 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
   const [editLog, setEditLog] = useState(null);
   const dayLogs = store.logsByDay[day] || [];
   const totals = useMemo(() => sumNutriments(dayLogs.map(l => l.nutriments)), [dayLogs]);
-  const goals = store.effectiveGoals;
+  const goals = store.effectiveGoalsAt(day);
   const today = dayKey(Date.now());
   const isToday = day === today;
 
@@ -1476,7 +1543,7 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
               <span className="fd-total-head">
                 <span className="fd-total-label">{m.label}</span>
                 {lead && (
-                  <button className="icon-btn chart-edit-btn" onClick={onGoals}
+                  <button className="icon-btn chart-edit-btn" onClick={()=>onGoals(day)}
                           aria-label="Régler les objectifs" title="Régler les objectifs">
                     <GearIcon />
                   </button>
@@ -1495,9 +1562,9 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
         })}
       </div>
 
-      {!store.goalsSet && (
+      {!store.goalsSetAt(day) && (
         <p className="fd-note serif">
-          Objectifs par défaut, à ajuster : <button className="fd-link" onClick={onGoals}>régler mes objectifs</button>.
+          Objectifs par défaut, à ajuster : <button className="fd-link" onClick={()=>onGoals(day)}>régler mes objectifs</button>.
         </p>
       )}
 
@@ -1968,8 +2035,85 @@ function AiAnalyseTab({ store, day, initialMeal, pickMode, onPickItems, onDone, 
    la même pastille que sur une ligne d'aliment. La bascule Aliments/Repas et
    le filtre vivent au-dessus, dans la barre à icône : cette liste ne fait que
    les appliquer.                                                             */
+/* ---- Combien on en a mangé -------------------------------------------------
+   Deux nombres différents, souvent confondus : ce que la recette PRODUIT (elle
+   fait quatre portions) et ce qu'on en A PRIS (une demie). Le premier est une
+   propriété du repas, écrite une fois dans son éditeur ; le second se demande
+   à chaque fois qu'on le verse dans une journée, et c'est tout ce que cette
+   étape fait.
+
+   Le facteur pèse chaque ingrédient plutôt que de poser une ligne « ×0,5 » :
+   le journal garde une ligne par ingrédient, chacune juste, chacune
+   corrigeable seule — la règle ne change pas parce qu'on a mangé une demie. */
+function MealPortionModal({ meal, initialMeal, pickMode, onClose, onSubmit }){
+  const portions = mealPortions(meal);
+  const [eaten, setEaten] = useState('1');
+  const [slot, setSlot] = useState(initialMeal || defaultMealForNow());
+
+  const n = parseFloat(String(eaten).replace(',', '.'));
+  const eatenPortions = isNaN(n) ? 0 : n;
+  const share = eatenPortions / portions;          // fraction de la recette entière
+  const scaled = useMemo(
+    () => (meal.items || []).map(it => ({ ...it, grams: (Number(it.grams) || 0) * share })),
+    [meal, share]);
+  const nutriments = itemsTotals(scaled);
+  const canSave = share > 0;
+
+  return (
+    <div className="scrim" onClick={onClose}>
+      <div className="modal fd-modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420}}>
+        <h2>Combien de portions ?</h2>
+        <div className="modal-sub">
+          {meal.name} · la recette en fait {fmtNum(portions, portions % 1 ? 1 : 0)}
+        </div>
+
+        <div className="fd-qty">
+          <input type="number" step="any" min="0" inputMode="decimal" value={eaten}
+                 onChange={e=>setEaten(e.target.value)}
+                 onKeyDown={e=>{ if (e.key === 'Enter' && canSave) onSubmit({ items: scaled, meal: slot, share }); }} />
+          <span className="fd-qty-unit">portion{eatenPortions > 1 ? 's' : ''}</span>
+        </div>
+
+        <div className="fd-chips">
+          {['0.5', '1', '2'].map(v => (
+            <button key={v} onClick={()=>setEaten(v)}>{v.replace('.', ',')} portion{v === '0.5' ? '' : 's'}</button>
+          ))}
+          <button onClick={()=>setEaten(String(portions))}>toute la recette</button>
+        </div>
+
+        <div className="fd-preview">
+          {FOOD_MACROS.map(m => (
+            <div key={m.key}>
+              <span className="l">{m.short}</span>
+              <span className="v">{m.key==='kcal' ? fmtNum(nutriments.kcal,0) : fmtMacro(nutriments[m.key])}</span>
+            </div>
+          ))}
+        </div>
+
+        {!pickMode && (
+          <div className="field" style={{borderBottom:'none'}}>
+            <label>Repas</label>
+            <Segmented scrollx>
+              {MEALS.map(m => (
+                <button key={m.id} className={slot===m.id?'on':''} onClick={()=>setSlot(m.id)}>{m.label}</button>
+              ))}
+            </Segmented>
+          </div>
+        )}
+
+        <div className="modal-actions">
+          <button className="ghost" onClick={onClose}>Annuler</button>
+          <button className="primary" disabled={!canSave}
+                  onClick={()=>onSubmit({ items: scaled, meal: slot, share })}>Ajouter</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MealsTab({ store, day, initialMeal, favOnly, query, pickMode, onPick, onDone, onNew, onEdit }){
   const [mealSlot, setMealSlot] = useState(initialMeal || defaultMealForNow());
+  const [portioning, setPortioning] = useState(null);   // le repas dont on choisit la part
   const list = useMemo(() => {
     const needle = (query || '').trim().toLowerCase();
     let arr = favOnly ? store.meals.filter(m => m.favorite) : store.meals;
@@ -2017,16 +2161,14 @@ function MealsTab({ store, day, initialMeal, favOnly, query, pickMode, onPick, o
                           aria-pressed={!!m.favorite} title={m.favorite ? 'Retirer des favoris' : 'Mettre en favori'}>
                     <StarIcon filled={m.favorite} />
                   </button>
-                  <button className="fd-item" onClick={async ()=>{
-                    if (onPick){ onPick(m); return; }
-                    await store.addMealToDay(m, day, mealSlot); onDone();
-                  }}>
+                  <button className="fd-item" onClick={()=>setPortioning(m)}>
                     <span className="fd-item-txt">
                       <span className="n">{m.name}</span>
                       <span className="fd-item-tags">
                         <OriginTag item={m} />
                         <span className="fd-item-sub">
                           {m.items.length} ingrédient{m.items.length>1?'s':''}
+                          {mealPortions(m) > 1 ? ` · ${fmtNum(mealPortions(m), 0)} portions` : ''}
                           {m.steps && m.steps.length ? ` · ${m.steps.length} étape${m.steps.length>1?'s':''}` : ''}
                         </span>
                       </span>
@@ -2036,14 +2178,35 @@ function MealsTab({ store, day, initialMeal, favOnly, query, pickMode, onPick, o
                     </span>
                   </button>
                   {onEdit && (
-                    <button className="fd-item-src" title="Modifier ce repas"
-                            onClick={()=>onEdit(m)}>✎</button>
+                    <span className="fd-item-act">
+                      <button className="icon-btn fd-edit-btn" title="Modifier ce repas"
+                              aria-label="Modifier ce repas" onClick={()=>onEdit(m)}><PencilIcon /></button>
+                    </span>
                   )}
                 </div>
               );
             })}
           </div>
         </>
+      )}
+
+      {portioning && (
+        <MealPortionModal
+          meal={portioning}
+          initialMeal={mealSlot}
+          pickMode={pickMode}
+          onClose={()=>setPortioning(null)}
+          onSubmit={async ({ items, meal:slot, share })=>{
+            const m = portioning;
+            setPortioning(null);
+            // Verser dans une recette : ce sont les ingrédients pesés qui
+            // partent. Verser dans une journée : le magasin en fait une ligne
+            // par ingrédient, et note le repas comme récemment utilisé.
+            if (onPick){ onPick({ ...m, items }); return; }
+            await store.addMealToDay(m, day, slot, share);
+            onDone();
+          }}
+        />
       )}
     </>
   );
@@ -2130,12 +2293,18 @@ function RecipeSteps({ steps, onChange }){
    un repas peut donc se composer d'un produit scanné, d'un aliment de la table
    Ciqual, d'une analyse IA ou même d'un autre repas entier, sans qu'aucun de
    ces chemins n'ait à être réécrit ici.                                       */
-function MealEditModal({ meal, store, aiEnabled = true, onClose, onSave, onDelete }){
+function MealEditModal({ meal, store, onClose, onSave, onDelete }){
   const [name, setName] = useState(meal?.name || '');
   const [items, setItems] = useState(() => (meal?.items || []).map(it => ({ ...mkItem(), ...it })));
   const [steps, setSteps] = useState(() => stepsFromRows(meal?.steps));
+  const [portionsStr, setPortionsStr] = useState(() => String(mealPortions(meal)));
   const [adding, setAdding] = useState(false);
   const totals = itemsTotals(items);
+  // Les ingrédients pèsent la recette entière ; le nombre de portions dit
+  // seulement en combien elle se coupe. Une portion est donc une division,
+  // jamais une saisie de plus à tenir à jour.
+  const portions = (() => { const n = parseFloat(String(portionsStr).replace(',', '.')); return n > 0 ? n : 1; })();
+  const perPortion = itemsTotals(items.map(it => ({ ...it, grams: (Number(it.grams) || 0) / portions })));
   const canSave = name.trim().length > 0 && items.length > 0;
 
   const submit = () => {
@@ -2143,6 +2312,7 @@ function MealEditModal({ meal, store, aiEnabled = true, onClose, onSave, onDelet
     onSave({
       ...(meal || {}),
       name: name.trim(),
+      portions,
       items: items.map(({ id, name:n, grams, per100, foodId, note }) =>
         ({ id, name:n, grams: Number(grams) || 0, per100, foodId: foodId || null, note: note || '' })),
       steps: steps.filter(s => s.text.trim()).map(s => ({ ...s, text: s.text.trim() })),
@@ -2162,17 +2332,34 @@ function MealEditModal({ meal, store, aiEnabled = true, onClose, onSave, onDelet
       <div className="fd-add-body">
         <div className="card fd-card">
           <p className="section-label">Titre</p>
-          <div className="field" style={{borderBottom:'none'}}>
+          <div className="field">
             <label>Nom</label>
             <input value={name} onChange={e=>setName(e.target.value)}
                    placeholder="Poke bowl du dimanche, porridge, salade César…" />
           </div>
+          <NumField label="Portions" unit={portions > 1 ? 'parts' : 'part'} placeholder="1"
+                    value={portionsStr} onChange={setPortionsStr} />
+          <Help>
+            Ce que la recette produit, pas ce qu'on en mange : les ingrédients ci-dessous
+            pèsent le plat entier, et une portion en est la division. Au moment de l'ajouter
+            à une journée, on dira combien de portions on a prises — une demie comprise.
+          </Help>
         </div>
 
         <div className="card fd-card">
           <p className="section-label">Ingrédients</p>
           <IngredientEditor items={items} onChange={setItems} store={store}
-                            onAdd={()=>setAdding(true)} />
+                            onAdd={()=>setAdding(true)}>
+            {items.length > 0 && portions > 1 && (
+              <div className="fd-ing-total fd-per-portion">
+                <span className="fd-ing-total-l">Une portion</span>
+                <span className="mono">{fmtNum(perPortion.kcal, 0)}<i>kcal</i></span>
+                <span className="mono">{fmtMacro(perPortion.protein)}<i>P</i></span>
+                <span className="mono">{fmtMacro(perPortion.carbs)}<i>G</i></span>
+                <span className="mono">{fmtMacro(perPortion.fat)}<i>L</i></span>
+              </div>
+            )}
+          </IngredientEditor>
         </div>
 
         <div className="card fd-card">
@@ -2194,7 +2381,6 @@ function MealEditModal({ meal, store, aiEnabled = true, onClose, onSave, onDelet
           store={store}
           day={dayKey(Date.now())}
           meal={null}
-          aiEnabled={aiEnabled}
           onClose={()=>setAdding(false)}
           onPickItems={(picked)=>{
             // Les identifiants sont refaits : verser deux fois le même repas
@@ -2235,7 +2421,7 @@ function MealEditModal({ meal, store, aiEnabled = true, onClose, onSave, onDelet
    pièce. `.fd-add-head` (titre + fermeture) et `.fd-add-tabs` restent fixes
    en haut pendant que `.fd-add-body` défile en dessous — le choix
    d'onglet reste à portée, quoi qu'on ait déjà descendu.                     */
-function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems, aiEnabled = true }){
+function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
   // Mode « choisir » : la page ne verse rien dans une journée, elle rend des
   // ingrédients à qui l'a ouverte (l'éditeur de repas). Les quatre onglets
   // restent les mêmes — on peut donc composer une recette avec un produit
@@ -2460,7 +2646,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems, aiE
         <Segmented size="small" scrollx>
           <button className={tab==='recherche'?'on':''} onClick={()=>setTab('recherche')}>Recherche</button>
           <button className={tab==='mesitems'?'on':''} onClick={()=>setTab('mesitems')}>Mes items</button>
-          {aiEnabled && <button className={tab==='ia'?'on':''} onClick={()=>setTab('ia')}>IA</button>}
+          <button className={tab==='ia'?'on':''} onClick={()=>setTab('ia')}>IA</button>
           <button className={tab==='rapide'?'on':''} onClick={()=>{ if (tab !== 'rapide') openQuick({ name: q }); }}>À la main</button>
         </Segmented>
       </div>
@@ -2591,7 +2777,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems, aiE
           </div>
         )}
 
-        {aiEnabled && tab === 'ia' && (
+        {tab === 'ia' && (
           <AiAnalyseTab
             store={store} day={day} initialMeal={meal}
             pickMode={pick}
@@ -2620,7 +2806,6 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems, aiE
         <MealEditModal
           meal={mealDraft.id ? mealDraft : null}
           store={store}
-          aiEnabled={aiEnabled}
           onClose={()=>setMealDraft(null)}
           onSave={async (m)=>{ await store.saveMeal({ ...mealDraft, ...m }); setMealDraft(null); setTab('mesitems'); setMine('repas'); }}
           onDelete={mealDraft.id ? async ()=>{ await store.removeMeal(mealDraft.id); setMealDraft(null); } : null}
@@ -2672,9 +2857,12 @@ function FoodPickRow({ food, onPick, showImage = false, favorite, onToggleFavori
         </span>
       </button>
       {src && (
-        <a className="fd-item-src" href={src} target="_blank" rel="noopener noreferrer"
-           title={food.source === 'ref' ? `Table Ciqual — ${food.sub || food.group}` : 'Voir la fiche sur Open Food Facts'}
-           onClick={e=>e.stopPropagation()}>↗</a>
+        <span className="fd-item-act">
+          <a className="icon-btn fd-src-btn" href={src} target="_blank" rel="noopener noreferrer"
+             aria-label="Voir la fiche d'origine"
+             title={food.source === 'ref' ? `Table Ciqual — ${food.sub || food.group}` : 'Voir la fiche sur Open Food Facts'}
+             onClick={e=>e.stopPropagation()}><ExternalIcon /></a>
+        </span>
       )}
     </div>
   );
@@ -3022,11 +3210,15 @@ function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, on
                     <div className="tk-meta">
                       <OriginTag item={m} />
                       <span className="tk-chip">{m.items.length} ingrédient{m.items.length>1?'s':''}</span>
+                      {mealPortions(m) > 1 && <span className="tk-chip">{fmtNum(mealPortions(m), 0)} portions</span>}
                       {m.steps && m.steps.length > 0 && <span className="tk-type">recette · {m.steps.length} étapes</span>}
                     </div>
                     <div className="fd-food-nums mono">
                       {fmtNum(t.kcal,0)} kcal · P {fmtMacro(t.protein)} · G {fmtMacro(t.carbs)} · L {fmtMacro(t.fat)}
                       <span className="fd-per"> au total</span>
+                      {mealPortions(m) > 1 && (
+                        <span className="fd-per"> · {fmtNum(t.kcal / mealPortions(m), 0)} kcal par portion</span>
+                      )}
                     </div>
                   </div>
                   {/* Un repas est un item : il porte la même étoile qu'un aliment. */}
@@ -3106,10 +3298,7 @@ function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, on
                     <a className="icon-btn fd-src-btn" href={foodSourceUrl(f, store.refByBarcode)}
                        target="_blank" rel="noopener noreferrer"
                        aria-label="Voir la fiche d'origine" title="Voir la fiche d'origine">
-                      <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor"
-                           strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M4.6 9.4L9.4 4.6"/><path d="M5.4 4.6h4v4"/>
-                      </svg>
+                      <ExternalIcon />
                     </a>
                   )}
                 </div>
@@ -3226,7 +3415,7 @@ function FoodEditModal({ food, isNew, onClose, onSave, onDelete }){
 /* ---- Objectifs ------------------------------------------------------------ */
 const MACRO_GOAL_KEYS = ['protein', 'carbs', 'fat'];
 
-function GoalsModal({ goals, isSet, onClose, onSave }){
+function GoalsModal({ goals, isSet, fromDay, onClose, onSave }){
   const [kcalStr, setKcalStr] = useState(goals.kcal != null ? String(goals.kcal) : '');
   const [weightStr, setWeightStr] = useState(goals.weightKg != null ? String(goals.weightKg) : '');
   // Un objectif de macro se retape sous la forme où il a été réglé : un
@@ -3268,9 +3457,19 @@ function GoalsModal({ goals, isSet, onClose, onSave }){
     <div className="scrim" onClick={onClose}>
       <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:380}}>
         <h2>Objectifs du jour</h2>
+        {/* Un objectif n'est pas un réglage global mais une consigne datée :
+            dire depuis quand elle vaut est ce qui rend lisible le fait que les
+            jours d'avant, eux, gardent la leur. */}
         <div className="modal-sub">
-          {isSet ? 'Ce que vous visez chaque jour.' : 'Valeurs par défaut — remplacez-les par les vôtres.'}
+          {fromDay === dayKey(Date.now())
+            ? "À partir d'aujourd'hui"
+            : `À partir du ${dayLabel(dayKeyToTs(fromDay)).toLowerCase()}`}
         </div>
+        <p className="fd-note serif">
+          {isSet
+            ? 'Ce que vous visez à partir de ce jour-là. Les jours précédents gardent l’objectif qui était le leur.'
+            : 'Valeurs par défaut — remplacez-les par les vôtres. Elles vaudront à partir de ce jour-là, et pour les suivants.'}
+        </p>
 
         <div className="field">
           <label>{MACRO_BY_KEY.kcal.label}</label>
@@ -3344,10 +3543,11 @@ const FOOD_RANGES = [7, 14, 30, 90];
 function FoodVuesView({ store, onGoals }){
   const [rangeDays, setRangeDays] = useState(14);
   const [metric, setMetric] = useState('kcal');
-  const goals = store.effectiveGoals;
 
   // Une barre par jour, y compris les jours vides : un trou dans le suivi est
-  // une information, pas un jour à sauter.
+  // une information, pas un jour à sauter. Chaque jour porte AUSSI l'objectif
+  // qui était le sien : sur 90 jours, la cible a pu changer en route, et une
+  // seule ligne d'objectif mentirait sur les deux tiers du graphe.
   const series = useMemo(() => {
     const out = [];
     const today = startOfDay(Date.now());
@@ -3355,19 +3555,25 @@ function FoodVuesView({ store, onGoals }){
       const ts = today - i * 86400000;
       const dk = dayKey(ts);
       const rows = store.logsByDay[dk] || [];
-      out.push({ dk, ts, logged: rows.length > 0, totals: sumNutriments(rows.map(l => l.nutriments)) });
+      out.push({ dk, ts, logged: rows.length > 0, totals: sumNutriments(rows.map(l => l.nutriments)),
+                 goals: store.effectiveGoalsAt(dk) });
     }
     return out;
-  }, [store.logsByDay, rangeDays]);
+  }, [store.logsByDay, store.effectiveGoalsAt, rangeDays]);
 
   const loggedDays = series.filter(d => d.logged);
   const avg = loggedDays.length
     ? loggedDays.reduce((s,d) => s + (d.totals[metric] || 0), 0) / loggedDays.length
     : null;
-  const goal = goals[metric] || 0;
-  const inRange = goal > 0
-    ? loggedDays.filter(d => Math.abs((d.totals[metric] || 0) - goal) <= goal * 0.1).length
-    : null;
+  // L'objectif affiché en statistique est celui de la fin de période — celui
+  // qui court aujourd'hui. « Dans la cible », lui, compare chaque jour à SON
+  // objectif du moment, pas au dernier en date.
+  const goal = (series.length ? series[series.length-1].goals[metric] : 0) || 0;
+  const goalsVaried = series.some(d => (d.goals[metric] || 0) !== goal);
+  const inRange = loggedDays.filter(d => {
+    const g = d.goals[metric] || 0;
+    return g > 0 && Math.abs((d.totals[metric] || 0) - g) <= g * 0.1;
+  }).length;
 
   // Répartition calorique moyenne sur les jours notés.
   const split = useMemo(() => {
@@ -3403,16 +3609,24 @@ function FoodVuesView({ store, onGoals }){
           <div className="chart-head-right">
             <div className="stats">
               <div>moyenne <span className="v">{avg != null ? `${fmtNum(avg,0)} ${m.unit}` : '—'}</span></div>
-              <div>objectif <span className="v">{goal > 0 ? `${fmtNum(goal,0)} ${m.unit}` : '—'}</span></div>
+              <div>objectif <span className="v">
+                {goal > 0 ? `${fmtNum(goal,0)} ${m.unit}` : '—'}{goalsVaried ? ' *' : ''}
+              </span></div>
               <div>jours notés <span className="v">{loggedDays.length}</span></div>
-              {inRange != null && <div>dans la cible <span className="v">{inRange}</span></div>}
+              <div>dans la cible <span className="v">{inRange}</span></div>
             </div>
             <button className="icon-btn chart-edit-btn" onClick={onGoals} title="Objectifs" aria-label="Objectifs">
               <GearIcon />
             </button>
           </div>
         </div>
-        <NutritionBars series={series} metric={metric} color={m.color} goal={goal} />
+        <NutritionBars series={series} metric={metric} color={m.color} />
+        {goalsVaried && (
+          <p className="fd-note serif" style={{margin:'10px 0 0'}}>
+            * l'objectif a changé sur la période — la ligne en pointillés suit celui de chaque
+            jour, et « dans la cible » compare chaque jour au sien.
+          </p>
+        )}
       </div>
 
       {split && (
@@ -3442,15 +3656,31 @@ function FoodVuesView({ store, onGoals }){
   );
 }
 
-function NutritionBars({ series, metric, color, goal }){
+function NutritionBars({ series, metric, color }){
   const W = 680, H = 170, PAD_L = 38, PAD_R = 8, PAD_T = 10, PAD_B = 20;
   const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
   const values = series.map(d => d.totals[metric] || 0);
-  const max = Math.max(goal || 0, ...values, 1);
+  const goalOf = (d) => d.goals ? (d.goals[metric] || 0) : 0;
+  const max = Math.max(...series.map(goalOf), ...values, 1);
   const dom = niceDomain(0, max, 4, 'number');
   const yAt = (v) => PAD_T + innerH - ((v - dom.min) / (dom.max - dom.min)) * innerH;
   const slot = innerW / series.length;
   const barW = Math.max(2, Math.min(26, slot * 0.62));
+
+  // Une marche par jour, reliée verticalement quand la consigne change. Le
+  // stylo termine chaque jour au bord droit de son créneau, donc la marche
+  // suivante n'a qu'à monter ou descendre sur place.
+  let goalPath = '', prevY = null;
+  series.forEach((d, i) => {
+    const g = goalOf(d);
+    const x0 = PAD_L + slot * i, x1 = x0 + slot;
+    if (g <= 0){ prevY = null; return; }
+    const y = yAt(g);
+    if (prevY == null) goalPath += `M${x0} ${y}`;
+    else if (prevY !== y) goalPath += `L${x0} ${y}`;
+    goalPath += `L${x1} ${y}`;
+    prevY = y;
+  });
 
   if (!series.some(d => d.logged)){
     return <div style={{padding:'30px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucun repas noté sur la période</div>;
@@ -3472,12 +3702,15 @@ function NutritionBars({ series, metric, color, goal }){
           <rect key={d.dk} x={x} y={Math.min(y, PAD_T+innerH-1)} width={barW}
             height={Math.max(d.logged ? 1 : 0, PAD_T + innerH - y)}
             fill={color} opacity={d.logged ? 0.85 : 0.15} rx="1">
-            <title>{shortDate(d.ts)} · {fmtNum(v,0)}</title>
+            <title>{shortDate(d.ts)} · {fmtNum(v,0)}{goalOf(d) > 0 ? ` / ${fmtNum(goalOf(d),0)}` : ''}</title>
           </rect>
         );
       })}
-      {goal > 0 && (
-        <line x1={PAD_L} x2={W-PAD_R} y1={yAt(goal)} y2={yAt(goal)}
+      {/* L'objectif est une marche, pas un trait : il a pu changer en cours de
+          période, et une ligne droite d'un bout à l'autre dirait que la cible
+          d'il y a deux mois était celle d'aujourd'hui. */}
+      {goalPath && (
+        <path d={goalPath} fill="none"
           stroke="var(--ink-2)" strokeWidth="1" strokeDasharray="4 4" opacity="0.7" />
       )}
       {series.map((d,i) => (i === 0 || i === series.length-1 || i === Math.floor(series.length/2)) && (
@@ -3498,7 +3731,7 @@ function FoodDaySummary({ store, onOpen }){
   const dk = dayKey(Date.now());
   const rows = store.logsByDay[dk] || [];
   const totals = useMemo(() => sumNutriments(rows.map(l => l.nutriments)), [rows]);
-  const goals = store.effectiveGoals;
+  const goals = store.effectiveGoalsAt(dk);
 
   return (
     <div className="day-group fd-log-group">

@@ -106,20 +106,22 @@ const isStyle = (id) => STYLES.some(s => s.id === id);
 
 /* ---- Onglets --------------------------------------------------------------
    Log et Paramètres ne se désactivent pas : l'un est la raison d'être de
-   l'app, l'autre est la seule porte pour rallumer le reste. Le reste se coupe,
-   y compris l'analyse IA — qui n'est pas un onglet du haut mais une section de
-   la page Food, et se cache donc à part. Pas d'entrée « Trackers » : cette
-   page a disparu, remplacée par le bouton du Log et l'engrenage par tracker. */
+   l'app, l'autre est la seule porte pour rallumer le reste. Pas d'entrée
+   « Trackers » : cette page a disparu, remplacée par le bouton du Log et
+   l'engrenage par tracker.
+
+   Cette liste ne dit QUE des onglets de la barre du haut. L'analyse IA de la
+   page Food y a figuré un temps : c'était une erreur de rangement — ce n'est
+   pas un onglet du haut mais une des quatre façons d'ajouter à manger, au même
+   titre que la recherche ou le scan. On ne masque pas l'une sans les autres,
+   donc elle est toujours là et n'a plus d'interrupteur. */
 const TOGGLEABLE_TABS = [
   { id:'food',     label:'Food',     hint:'suivi nutritionnel, scanner, aliments et repas' },
   { id:'vues',     label:'Vues',     hint:'graphes, calendrier, grille de KPI' },
   { id:'training', label:'Training', hint:'à venir' },
   { id:'analyst',  label:'AI analyst', hint:'lecture des données par Claude — corrélations entre trackers ; à venir' },
 ];
-const TOGGLEABLE_FEATURES = [
-  { id:'ia', label:'Analyse IA', hint:'l’onglet IA de la page Food, qui décompose un repas décrit en texte' },
-];
-const DEFAULT_TABS = { food:true, vues:true, training:true, analyst:true, ia:true };
+const DEFAULT_TABS = { food:true, vues:true, training:true, analyst:true };
 
 /* Les onglets de la barre du haut, dans leur ordre par défaut. L'ordre affiché
    vient du compte (prefs.tabOrder) : il se réarrange en maintenant un onglet,
@@ -1433,7 +1435,7 @@ function App({ session }){
           showWeek={showWeek}
         />
       ) : activeTab === 'food' ? (
-        <FoodPage store={food} sub={foodSub} onSub={setFoodSub} aiEnabled={visibleTabs.ia !== false} />
+        <FoodPage store={food} sub={foodSub} onSub={setFoodSub} />
       ) : activeTab === 'training' ? (
         <TrainingView />
       ) : activeTab === 'analyst' ? (
@@ -1664,19 +1666,6 @@ function TabsSettingsCard({ tabs, onSetTabVisible, tabOrder, onSetTabOrder, pref
           </div>
         );
       })}
-
-      {TOGGLEABLE_FEATURES.map(f => (
-        <div className="setting-block" key={f.id}>
-          <div className="field" style={{borderBottom:'none'}}>
-            <label>{f.label}</label>
-            <Segmented size="small">
-              <button className={tabs[f.id] !== false ? 'on' : ''} onClick={()=>onSetTabVisible(f.id, true)}>Affiché</button>
-              <button className={tabs[f.id] === false ? 'on' : ''} onClick={()=>onSetTabVisible(f.id, false)}>Masqué</button>
-            </Segmented>
-          </div>
-          <Help>{f.hint}</Help>
-        </div>
-      ))}
 
       <Help>
         Masquer un onglet ne supprime rien : les données restent, l'onglet disparaît de la
