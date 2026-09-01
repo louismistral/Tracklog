@@ -624,18 +624,26 @@ function BoolPill({ value, onChange, onLabel = 'Oui', offLabel = 'Non', disabled
 //             star that narrows either one to favourites).
 // Sizing and the round button come from `.icon-btn`, like every other lone
 // glyph in the app; only the bar shell is new.
-function IconBar({ detached = false, className = '', children,
+function IconBar({ detached = false, className = '', children, buttons,
                    icon, onIcon, iconLabel, iconTitle, iconOn = false, iconDisabled = false }){
+  // Un bouton reste le cas courant, et `icon`/`onIcon`… le disent le plus
+  // simplement. Mais une barre `detached` peut légitimement en porter deux —
+  // ils agissent tous sur ce qu'elle montre (l'étoile réduit aux favoris, le
+  // second montre ou cache les vignettes) — d'où la liste, dont le cas à un
+  // bouton n'est que le raccourci.
+  const list = buttons || (icon
+    ? [{ icon, onClick:onIcon, label:iconLabel, title:iconTitle, on:iconOn, disabled:iconDisabled }]
+    : []);
   return (
     <div className={`icon-bar ${detached ? 'detached' : 'inset'} ${className}`}>
       <div className="icon-bar-field">{children}</div>
-      {icon && (
-        <button type="button" className={`icon-btn icon-bar-btn ${iconOn ? 'on' : ''}`}
-                onClick={onIcon} disabled={iconDisabled} aria-pressed={iconOn}
-                aria-label={iconLabel} title={iconTitle || iconLabel}>
-          {icon}
+      {list.map((b, i) => (
+        <button key={i} type="button" className={`icon-btn icon-bar-btn ${b.on ? 'on' : ''}`}
+                onClick={b.onClick} disabled={b.disabled} aria-pressed={!!b.on}
+                aria-label={b.label} title={b.title || b.label}>
+          {b.icon}
         </button>
-      )}
+      ))}
     </div>
   );
 }
