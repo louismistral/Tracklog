@@ -120,6 +120,24 @@ function PlusIcon({ size = 15 }){
   );
 }
 
+// Une ligne de champ numérique — label à gauche, saisie et unité à droite —
+// la même rangée dense que tout `.field` de l'app. Trois formulaires posaient
+// chacun leur propre variante (une grille 4 colonnes ici, un style en ligne
+// là) pour dire la même chose ; ils partagent maintenant celle-ci plutôt que
+// de continuer à dériver chacun de son côté.
+function NumField({ label, unit, value, onChange, onKeyDown, placeholder = '—' }){
+  return (
+    <div className="field">
+      <label>{label}</label>
+      <div className="field-num">
+        <input type="number" step="any" min="0" inputMode="decimal" placeholder={placeholder}
+               value={value ?? ''} onChange={e=>onChange(e.target.value)} onKeyDown={onKeyDown} />
+        <span className="unit">{unit}</span>
+      </div>
+    </div>
+  );
+}
+
 /* ---- Ce qu'on compte -----------------------------------------------------
    Les 4 macros sont les compteurs de tête : ce sont elles qui remontent dans
    la page Log, elles qui ont un objectif, elles qui ont un graphe.
@@ -1661,16 +1679,10 @@ function IngredientRow({ item, onPatch, onRemove }){
       {open && (
         <div className="fd-ing-edit">
           <p className="fd-list-label">Valeurs pour 100 g</p>
-          <div className="fd-mini-grid">
-            {FOOD_MACROS.map(m => (
-              <label className="fd-mini-field" key={m.key}>
-                <span>{m.short}</span>
-                <input type="number" step="any" min="0" inputMode="decimal" placeholder="—"
-                       value={per[m.key] ?? ''} onChange={e=>setPer(m.key, e.target.value)} />
-                <i>{m.unit}</i>
-              </label>
-            ))}
-          </div>
+          {FOOD_MACROS.map(m => (
+            <NumField key={m.key} label={m.short} unit={m.unit}
+                      value={per[m.key]} onChange={v=>setPer(m.key, v)} />
+          ))}
           {item.note && <p className="fd-note serif" style={{margin:'8px 0 0'}}>{item.note}</p>}
         </div>
       )}
@@ -1887,7 +1899,7 @@ function AiAnalyseTab({ store, day, initialMeal, onDone, onEditAsMeal }){
 
           <div className="field" style={{borderBottom:'none'}}>
             <label>Repas</label>
-            <Segmented wrap>
+            <Segmented scrollx>
               {MEALS.map(m => (
                 <button key={m.id} className={mealSlot===m.id?'on':''} onClick={()=>setMealSlot(m.id)}>{m.label}</button>
               ))}
@@ -1954,7 +1966,7 @@ function MealsTab({ store, day, initialMeal, favOnly, query, onDone, onNew, onEd
         <>
           <div className="field" style={{borderBottom:'none'}}>
             <label>Repas</label>
-            <Segmented wrap>
+            <Segmented scrollx>
               {MEALS.map(m => (
                 <button key={m.id} className={mealSlot===m.id?'on':''} onClick={()=>setMealSlot(m.id)}>{m.label}</button>
               ))}
@@ -2027,7 +2039,7 @@ function MealEditModal({ meal, store, onClose, onSave, onDelete }){
 
         <div className="field">
           <label>Nom</label>
-          <input autoFocus value={name} onChange={e=>setName(e.target.value)}
+          <input value={name} onChange={e=>setName(e.target.value)}
                  placeholder="Poke bowl du dimanche, porridge, salade César…" />
         </div>
 
@@ -2070,19 +2082,27 @@ function MealEditModal({ meal, store, onClose, onSave, onDelete }){
    l'ajout, et le scan n'est plus qu'une des façons d'y arriver. Quatre
    onglets, parce que ce sont quatre gestes distincts :
 
-     Recherche     chercher dehors — table Ciqual, Open Food Facts — dans une
-                   seule barre qui accepte aussi bien un nom qu'un code-barres,
-                   et dont le bouton rond sort la caméra.
-     Mes items     reprendre ce qui est déjà à soi : aliments ou repas, avec
-                   l'étoile pour ne garder que les favoris des deux.
-     IA            décrire, photographier, ou les deux, et laisser décomposer.
-     Ajout rapide  poser soi-même les chiffres.
+     Recherche   chercher dehors — table Ciqual, Open Food Facts — dans une
+                 seule barre qui accepte aussi bien un nom qu'un code-barres,
+                 et dont le bouton rond sort la caméra.
+     Mes items   reprendre ce qui est déjà à soi : aliments ou repas, avec
+                 l'étoile pour ne garder que les favoris des deux.
+     IA          décrire, photographier, ou les deux, et laisser décomposer.
+     À la main   poser soi-même les chiffres (`QuickAddTab`, voir plus bas).
 
    L'ancienne modale en avait sept, sur deux rangées, qui mélangeaient « où je
    cherche » et « quoi je cherche » — le scan était un onglet à lui seul alors
    que c'est une façon de remplir la recherche, et « à la main » ne disait pas
    ce qu'il fabriquait. Rien n'a disparu : les sept sont devenues les
-   sous-bascules de ces quatre.                                               */
+   sous-bascules de ces quatre.
+
+   Une page entière, pas une fenêtre : les quatre onglets ont besoin d'assez de
+   place pour respirer (des cartes empilées dans l'ajout à la main, une liste
+   qui défile dans la recherche) — une modale au centre de l'écran, avec sa
+   propre limite de hauteur, revenait à mettre un couloir là où il faut une
+   pièce. `.fd-add-head` (titre + fermeture) et `.fd-add-tabs` restent fixes
+   en haut pendant que `.fd-add-body` défile en dessous — le choix
+   d'onglet reste à portée, quoi qu'on ait déjà descendu.                     */
 function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true }){
   // recherche | mesitems | ia | rapide
   const [tab, setTab] = useState('recherche');
@@ -2267,23 +2287,30 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
   const isCode = /^\d{8,14}$/.test(q);
 
   return (
-    <div className="scrim" onClick={onClose}>
-      <div className="modal fd-modal" onClick={e=>e.stopPropagation()}>
-        <h2>Ajouter</h2>
-        <div className="modal-sub">
-          {meal ? MEAL_LABEL[meal] : 'Bibliothèque'} · {dayLabel(dayKeyToTs(day)).toLowerCase()}
+    <div className="fd-add-page">
+      <div className="fd-add-head">
+        <div className="fd-add-head-txt">
+          <h2>Ajouter</h2>
+          <div className="modal-sub">
+            {meal ? MEAL_LABEL[meal] : 'Bibliothèque'} · {dayLabel(dayKeyToTs(day)).toLowerCase()}
+          </div>
         </div>
+        <button className="icon-btn fd-add-close" onClick={onClose} aria-label="Fermer">✕</button>
+      </div>
 
-        {/* Une seule rangée : les quatre façons d'ajouter quelque chose. */}
-        <div className="fd-tabs">
-          <Segmented size="small" wrap>
-            <button className={tab==='recherche'?'on':''} onClick={()=>setTab('recherche')}>Recherche</button>
-            <button className={tab==='mesitems'?'on':''} onClick={()=>setTab('mesitems')}>Mes items</button>
-            {aiEnabled && <button className={tab==='ia'?'on':''} onClick={()=>setTab('ia')}>IA</button>}
-            <button className={tab==='rapide'?'on':''} onClick={()=>{ if (tab !== 'rapide') openQuick({ name: q }); }}>Ajout rapide</button>
-          </Segmented>
-        </div>
+      {/* Une seule rangée : les quatre façons d'ajouter quelque chose. Reste
+          fixe pendant que le contenu en dessous défile — changer d'onglet ne
+          demande jamais de remonter la page. */}
+      <div className="fd-tabs fd-add-tabs">
+        <Segmented size="small" scrollx>
+          <button className={tab==='recherche'?'on':''} onClick={()=>setTab('recherche')}>Recherche</button>
+          <button className={tab==='mesitems'?'on':''} onClick={()=>setTab('mesitems')}>Mes items</button>
+          {aiEnabled && <button className={tab==='ia'?'on':''} onClick={()=>setTab('ia')}>IA</button>}
+          <button className={tab==='rapide'?'on':''} onClick={()=>{ if (tab !== 'rapide') openQuick({ name: q }); }}>À la main</button>
+        </Segmented>
+      </div>
 
+      <div className="fd-add-body">
         {tab === 'recherche' && (
           <div className="fd-search">
             {/* Barre à icône, forme intégrée : le bouton rond est dans la barre
@@ -2294,8 +2321,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
               icon={<ScanIcon />} onIcon={()=>setScanOpen(v=>!v)} iconOn={scanOpen}
               iconLabel={scanOpen ? 'Fermer le scanner' : 'Scanner un code-barres'}
               className="fd-search-bar">
-              <input
-                autoFocus placeholder="skyr, pain de mie, poulet, ou un code-barres…" value={query}
+              <input placeholder="skyr, pain de mie, poulet, ou un code-barres…" value={query}
                 onChange={e=>setQuery(e.target.value)}
                 onKeyDown={e=>{ if(e.key==='Enter') runSearch(query); }}
               />
@@ -2428,13 +2454,6 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
 
         {busy && <p className="fd-note serif">Recherche…</p>}
         {msg && <p className="fd-note warn serif">{msg}</p>}
-
-        {/* L'ajout rapide et l'IA ont leurs propres boutons de validation. */}
-        {tab !== 'rapide' && tab !== 'ia' && (
-          <div className="modal-actions">
-            <button className="ghost" onClick={onClose}>Fermer</button>
-          </div>
-        )}
       </div>
 
       {mealDraft && (
@@ -2578,21 +2597,12 @@ function QuickAddTab({ seed, initialMeal, onSubmit, onCancel }){
     });
   };
 
-  const numField = (key, label, u) => (
-    <label className="fd-mini-field" key={key}>
-      <span>{label}</span>
-      <input type="number" step="any" min="0" placeholder="—" inputMode="decimal"
-        value={vals[key] ?? ''}
-        onChange={e=>setVals(s => ({ ...s, [key]: e.target.value }))}
-        onKeyDown={e=>{ if (e.key === 'Enter') submit(); }} />
-      <i>{u}</i>
-    </label>
-  );
+  const enterSubmits = e=>{ if (e.key === 'Enter') submit(); };
 
   return (
     <div className="fd-manual-entry">
       <div className="fd-tabs">
-        <Segmented size="small" wrap>
+        <Segmented size="small" scrollx>
           {QUICK_MODES.map(m => (
             <button key={m.id} className={mode===m.id?'on':''} onClick={()=>setMode(m.id)}>{m.label}</button>
           ))}
@@ -2607,21 +2617,26 @@ function QuickAddTab({ seed, initialMeal, onSubmit, onCancel }){
           : "Un aliment personnel avec son code-barres : le scanner le reconnaîtra tout seul la prochaine fois."}
       </p>
 
-      {/* Section 1 — la base, identique dans les trois modes. */}
-      <p className="modal-section first">Nom et macros</p>
-      <div className="field">
-        <label>Nom</label>
-        <input autoFocus value={name} onChange={e=>setName(e.target.value)}
-               placeholder={mode==='rapide' ? 'Sandwich du midi (facultatif)' : 'Poulet rôti, gâteau de mamie…'} />
-      </div>
-      <div className="fd-mini-grid">
-        {FOOD_MACROS.map(m => numField(m.key, m.short, m.unit))}
+      {/* Chaque section vit dans son propre cadre — la même carte que partout
+          ailleurs dans l'app — plutôt qu'un simple filet horizontal : le
+          regard sait où une question finit et où la suivante commence. */}
+      <div className="card fd-card">
+        <p className="section-label">Nom et macros</p>
+        <div className="field">
+          <label>Nom</label>
+          <input value={name} onChange={e=>setName(e.target.value)}
+                 placeholder={mode==='rapide' ? 'Sandwich du midi (facultatif)' : 'Poulet rôti, gâteau de mamie…'} />
+        </div>
+        {FOOD_MACROS.map(m => (
+          <NumField key={m.key} label={m.short} unit={m.unit} value={vals[m.key]}
+                    onChange={v=>setVals(s => ({ ...s, [m.key]: v }))} onKeyDown={enterSubmits} />
+        ))}
       </div>
 
       {/* Section 2 — le poids, et ce que les macros au-dessus décrivent. */}
       {isItem && (
-        <>
-          <p className="modal-section">Quantité et valeurs</p>
+        <div className="card fd-card">
+          <p className="section-label">Quantité et valeurs</p>
           <div className="field">
             <label>Mangé</label>
             <div className="fd-qty-inline">
@@ -2634,9 +2649,9 @@ function QuickAddTab({ seed, initialMeal, onSubmit, onCancel }){
               </Segmented>
             </div>
           </div>
-          <div className="field">
+          <div className="field" style={{borderBottom:'none'}}>
             <label>Les macros</label>
-            <Segmented>
+            <Segmented scrollx>
               <button className={per100?'on':''} onClick={()=>setPer100(true)}>valent pour 100 {basis}</button>
               <button className={!per100?'on':''} onClick={()=>setPer100(false)}>valent pour tout</button>
             </Segmented>
@@ -2651,16 +2666,17 @@ function QuickAddTab({ seed, initialMeal, onSubmit, onCancel }){
               ))}
             </div>
           )}
-        </>
+        </div>
       )}
 
       {/* Section 3 — le code, tapé ou scanné : les deux remplissent le même champ. */}
       {mode === 'codebarre' && (
-        <>
-          <p className="modal-section">Code-barres</p>
-          {/* Barre à icône, forme séparée : le champ porte le code, le bouton
-              sort la caméra pour l'y écrire à ta place. */}
-          <IconBar detached className="fd-code-bar"
+        <div className="card fd-card">
+          <p className="section-label">Code-barres</p>
+          {/* Barre à icône, forme intégrée : le champ EST la barre, le bouton
+              rond qui sort la caméra n'y ajoute qu'une seconde façon de
+              l'écrire — comme la recherche et son scanner. */}
+          <IconBar className="fd-code-bar"
             icon={<ScanIcon />} onIcon={()=>setScanOpen(v=>!v)} iconOn={scanOpen}
             iconLabel={scanOpen ? 'Fermer le scanner' : 'Scanner le code'}>
             <input inputMode="numeric" placeholder="3017620422003" value={barcode}
@@ -2671,18 +2687,17 @@ function QuickAddTab({ seed, initialMeal, onSubmit, onCancel }){
               <FoodScanner key={scanNonce} onCode={(code)=>{ setBarcode(code); setScanOpen(false); setScanNonce(n=>n+1); }} />
             </div>
           )}
-          <p className="fd-note serif">
+          <p className="fd-note serif fd-card-note">
             {cleanCode(barcode).length >= 8
               ? <>Code <span className="mono">{cleanCode(barcode)}</span> — cet aliment sortira tout seul au prochain scan.</>
               : 'Sans code, ça reste un aliment normal : simplement, aucun scan ne le retrouvera.'}
           </p>
-        </>
+        </div>
       )}
 
-      <p className="modal-section">Où</p>
-      <div className="field" style={{borderBottom:'none'}}>
-        <label>Repas</label>
-        <Segmented wrap>
+      <div className="card fd-card">
+        <p className="section-label">Repas</p>
+        <Segmented scrollx>
           {MEALS.map(m => (
             <button key={m.id} className={meal===m.id?'on':''} onClick={()=>setMeal(m.id)}>{m.label}</button>
           ))}
@@ -2729,7 +2744,7 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, onCl
 
         <div className="fd-qty">
           <input
-            type="number" step="any" min="0" autoFocus value={qty}
+            type="number" step="any" min="0" value={qty}
             onChange={e=>setQty(e.target.value)}
             onKeyDown={e=>{ if(e.key==='Enter' && canSave) onSubmit({ qty:Number(qty), unit, grams, meal, nutriments }); }}
           />
@@ -2760,7 +2775,7 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, onCl
 
         <div className="field" style={{borderBottom:'none'}}>
           <label>Repas</label>
-          <Segmented wrap>
+          <Segmented scrollx>
             {MEALS.map(m => (
               <button key={m.id} className={meal===m.id?'on':''} onClick={()=>setMeal(m.id)}>{m.label}</button>
             ))}
@@ -2969,14 +2984,7 @@ function FoodEditModal({ food, isNew, onClose, onSave, onDelete }){
   };
 
   const numField = (key, label, unit) => (
-    <div className="field" key={key}>
-      <label>{label}</label>
-      <div style={{display:'flex',alignItems:'baseline',flex:1}}>
-        <input type="number" step="any" min="0" placeholder="—" style={{width:'100%'}}
-          value={vals[key] ?? ''} onChange={e=>setVal(key, e.target.value)} />
-        <span className="unit">{unit}</span>
-      </div>
-    </div>
+    <NumField key={key} label={label} unit={unit} value={vals[key]} onChange={v=>setVal(key, v)} />
   );
 
   return (
@@ -2990,7 +2998,7 @@ function FoodEditModal({ food, isNew, onClose, onSave, onDelete }){
 
         <div className="field">
           <label>Nom</label>
-          <input autoFocus value={name} onChange={e=>setName(e.target.value)} placeholder="Riz basmati cuit" />
+          <input value={name} onChange={e=>setName(e.target.value)} placeholder="Riz basmati cuit" />
         </div>
         <div className="field">
           <label>Marque</label>
@@ -3005,8 +3013,8 @@ function FoodEditModal({ food, isNew, onClose, onSave, onDelete }){
         </div>
         <div className="field">
           <label>Portion</label>
-          <div style={{display:'flex',alignItems:'baseline',flex:1}}>
-            <input type="number" step="any" min="0" placeholder="optionnel" style={{width:'100%'}}
+          <div className="field-num">
+            <input type="number" step="any" min="0" placeholder="optionnel"
               value={serving} onChange={e=>setServing(e.target.value)} />
             <span className="unit">{basis}</span>
           </div>
@@ -3090,8 +3098,8 @@ function GoalsModal({ goals, isSet, onClose, onSave }){
 
         <div className="field">
           <label>{MACRO_BY_KEY.kcal.label}</label>
-          <div style={{display:'flex',alignItems:'baseline',flex:1}}>
-            <input type="number" step="any" min="0" style={{width:'100%'}}
+          <div className="field-num">
+            <input type="number" step="any" min="0"
               value={kcalStr} onChange={e=>setKcalStr(e.target.value)} />
             <span className="unit">{MACRO_BY_KEY.kcal.unit}</span>
           </div>
@@ -3102,8 +3110,8 @@ function GoalsModal({ goals, isSet, onClose, onSave }){
             réapparaître à chaque bascule de Segmented. */}
         <div className="field" style={{opacity: usesWeight ? 1 : 0.55}}>
           <label>Poids</label>
-          <div style={{display:'flex',alignItems:'baseline',flex:1}}>
-            <input type="number" step="any" min="0" style={{width:'100%'}}
+          <div className="field-num">
+            <input type="number" step="any" min="0"
               value={weightStr} onChange={e=>setWeightStr(e.target.value)}
               placeholder={usesWeight ? 'requis pour g/kg' : 'optionnel'} />
             <span className="unit">kg</span>
