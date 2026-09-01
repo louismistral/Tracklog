@@ -238,14 +238,25 @@ function foodToRow(f, userId){
    d'un coup, plus une recette facultative (juste des étapes, pas un objet à
    part). Les ingrédients portent leurs valeurs POUR 100 g et leur poids
    séparément — corriger un poids recalcule les macros sans rien redemander. */
+/* Une étape de recette : un texte, un état coché, et un identifiant stable —
+   le glisser-déposer désigne une ligne, pas son rang, et le rang change
+   justement à chaque réordonnancement. Les repas enregistrés avant portaient
+   de simples chaînes : elles sont relues telles quelles plutôt que perdues. */
+function mkStep(partial = {}){ return { id: uid('st_'), text:'', done:false, ...partial }; }
+function stepsFromRows(raw){
+  return (Array.isArray(raw) ? raw : []).map(s => typeof s === 'string'
+    ? mkStep({ text: s })
+    : mkStep({ ...s, text: String(s.text || ''), done: !!s.done }));
+}
+
 function mealFromRow(r){
   return { id:r.id, name:r.name, source:r.source || 'custom', items:Array.isArray(r.items) ? r.items : [],
-           steps:Array.isArray(r.steps) ? r.steps : [], favorite:!!r.favorite,
+           steps:stepsFromRows(r.steps), favorite:!!r.favorite,
            createdAt:Number(r.created_at), lastUsedAt:r.last_used_at ? Number(r.last_used_at) : null };
 }
 function mealToRow(m, userId){
   return { id:m.id, user_id:userId, name:m.name, source:m.source || 'custom',
-           items:m.items || [], steps:m.steps || [], favorite:!!m.favorite,
+           items:m.items || [], steps:stepsFromRows(m.steps), favorite:!!m.favorite,
            created_at:m.createdAt, last_used_at:m.lastUsedAt ?? null };
 }
 
@@ -1373,6 +1384,7 @@ function FoodPage({ store, sub, onSub, aiEnabled = true }){
         <MealEditModal
           meal={mealDraft.id ? mealDraft : null}
           store={store}
+          aiEnabled={aiEnabled}
           onClose={()=>setMealDraft(null)}
           onSave={async (m)=>{ await store.saveMeal({ ...mealDraft, ...m }); setMealDraft(null); }}
           onDelete={mealDraft.id ? async ()=>{ await store.removeMeal(mealDraft.id); setMealDraft(null); } : null}
@@ -1726,7 +1738,13 @@ function IngredientPicker({ store, onPick, onBlank }){
   );
 }
 
-function IngredientEditor({ items, onChange, store, children }){
+/* `onAdd` décide de la façon d'ajouter une ligne, parce que les deux endroits
+   qui utilisent cet éditeur ne demandent pas la même chose. Un repas envoie
+   vers la page d'ajout entière (on peut y verser un aliment, une analyse IA,
+   un autre repas) : une ligne pleine largeur suffit à y aller. L'analyse IA,
+   elle, est déjà DANS cette page — la renvoyer sur elle-même n'aurait pas de
+   sens, donc elle garde la recherche en ligne. */
+function IngredientEditor({ items, onChange, store, onAdd, children }){
   const totals = itemsTotals(items);
   const patch = (id, p) => onChange(items.map(it => it.id === id ? { ...it, ...p } : it));
   return (
@@ -1739,11 +1757,13 @@ function IngredientEditor({ items, onChange, store, children }){
               onRemove={()=>onChange(items.filter(x => x.id !== it.id))} />
           ))}
 
-      <IngredientPicker
-        store={store}
-        onPick={f=>onChange([...items, itemFromFood(f)])}
-        onBlank={name=>onChange([...items, mkItem({ name: name || 'Ingrédient' })])}
-      />
+      {onAdd
+        ? <button className="fd-add full" onClick={onAdd}>＋ Ajouter un ingrédient</button>
+        : <IngredientPicker
+            store={store}
+            onPick={f=>onChange([...items, itemFromFood(f)])}
+            onBlank={name=>onChange([...items, mkItem({ name: name || 'Ingrédient' })])}
+          />}
 
       {items.length > 0 && (
         <div className="fd-ing-total">
@@ -1771,7 +1791,7 @@ function IngredientEditor({ items, onChange, store, children }){
    ============================================================ */
 const AI_PHOTO_MAX_BYTES = 5 * 1024 * 1024; // 5 Mo — large marge avant l'encodage base64
 
-function AiAnalyseTab({ store, day, initialMeal, onDone, onEditAsMeal }){
+function AiAnalyseTab({ store, day, initialMeal, pickMode, onPickItems, onDone, onEditAsMeal }){
   const [description, setDescription] = useState('');
   const [photo, setPhoto] = useState(null);   // { dataUrl, base64, mediaType }
   const [photoErr, setPhotoErr] = useState('');
@@ -1829,6 +1849,10 @@ function AiAnalyseTab({ store, day, initialMeal, onDone, onEditAsMeal }){
   // dans Mes items › Repas avec sa pastille. Sans ça, une analyse qu'on refait
   // deux fois par semaine serait à redemander au modèle deux fois par semaine.
   const addToJournal = async () => {
+    // Ouverte depuis un repas en cours d'écriture, l'analyse ne note rien et
+    // n'enregistre pas un second item : elle rend ses ingrédients à la recette
+    // qui les a demandés.
+    if (onPickItems){ onPickItems(items); return; }
     const saved = { name: aiName(), items, steps: [], source: 'ai' };
     await store.saveMeal(saved);
     await store.addMealToDay({ items }, day, mealSlot);
@@ -1897,24 +1921,30 @@ function AiAnalyseTab({ store, day, initialMeal, onDone, onEditAsMeal }){
 
           <IngredientEditor items={items} onChange={setItems} store={store} />
 
-          <div className="field" style={{borderBottom:'none'}}>
-            <label>Repas</label>
-            <Segmented scrollx>
-              {MEALS.map(m => (
-                <button key={m.id} className={mealSlot===m.id?'on':''} onClick={()=>setMealSlot(m.id)}>{m.label}</button>
-              ))}
-            </Segmented>
-          </div>
+          {!pickMode && (
+            <div className="field" style={{borderBottom:'none'}}>
+              <label>Repas</label>
+              <Segmented scrollx>
+                {MEALS.map(m => (
+                  <button key={m.id} className={mealSlot===m.id?'on':''} onClick={()=>setMealSlot(m.id)}>{m.label}</button>
+                ))}
+              </Segmented>
+            </div>
+          )}
 
           <p className="fd-note serif">
-            Ajouter note la journée <b>et</b> range l'analyse dans Mes items › Repas, marquée IA —
-            de quoi la remettre en un geste sans redemander au modèle.
+            {pickMode
+              ? <>Les {items.length} ingrédient{items.length>1?'s':''} rejoignent la recette en cours, où ils restent corrigeables un par un.</>
+              : <>Ajouter note la journée <b>et</b> range l'analyse dans Mes items › Repas, marquée IA —
+                 de quoi la remettre en un geste sans redemander au modèle.</>}
           </p>
 
           <div className="modal-actions">
-            <button className="ghost" onClick={()=>onEditAsMeal({
-              name: aiName(), items, steps: [], source: 'ai',
-            })}>Nommer / ajouter une recette</button>
+            {!pickMode && (
+              <button className="ghost" onClick={()=>onEditAsMeal({
+                name: aiName(), items, steps: [], source: 'ai',
+              })}>Nommer / ajouter une recette</button>
+            )}
             <button className="primary" disabled={!canAdd} onClick={addToJournal}>
               Ajouter {fmtNum(totals.kcal, 0)} kcal
             </button>
@@ -1938,7 +1968,7 @@ function AiAnalyseTab({ store, day, initialMeal, onDone, onEditAsMeal }){
    la même pastille que sur une ligne d'aliment. La bascule Aliments/Repas et
    le filtre vivent au-dessus, dans la barre à icône : cette liste ne fait que
    les appliquer.                                                             */
-function MealsTab({ store, day, initialMeal, favOnly, query, onDone, onNew, onEdit }){
+function MealsTab({ store, day, initialMeal, favOnly, query, pickMode, onPick, onDone, onNew, onEdit }){
   const [mealSlot, setMealSlot] = useState(initialMeal || defaultMealForNow());
   const list = useMemo(() => {
     const needle = (query || '').trim().toLowerCase();
@@ -1951,9 +1981,13 @@ function MealsTab({ store, day, initialMeal, favOnly, query, onDone, onNew, onEd
     <>
       <div className="fd-mine-head">
         <span className="fd-ai-hint serif">
-          Un repas ajoute tous ses ingrédients d'un coup, chacun sur sa propre ligne.
+          {pickMode
+            ? "Reprendre un repas entier : tous ses ingrédients rejoignent la recette d'un coup."
+            : "Un repas ajoute tous ses ingrédients d'un coup, chacun sur sa propre ligne."}
         </span>
-        <button className="pill add" onClick={onNew}>+ Repas</button>
+        {/* Créer un repas depuis l'intérieur d'un repas empilerait un éditeur
+            sur l'autre pour rien : ici on ne fait que piocher. */}
+        {onNew && <button className="pill add" onClick={onNew}>+ Repas</button>}
       </div>
 
       {!list.length ? (
@@ -1964,14 +1998,16 @@ function MealsTab({ store, day, initialMeal, favOnly, query, onDone, onNew, onEd
         </p>
       ) : (
         <>
-          <div className="field" style={{borderBottom:'none'}}>
-            <label>Repas</label>
-            <Segmented scrollx>
-              {MEALS.map(m => (
-                <button key={m.id} className={mealSlot===m.id?'on':''} onClick={()=>setMealSlot(m.id)}>{m.label}</button>
-              ))}
-            </Segmented>
-          </div>
+          {!pickMode && (
+            <div className="field" style={{borderBottom:'none'}}>
+              <label>Repas</label>
+              <Segmented scrollx>
+                {MEALS.map(m => (
+                  <button key={m.id} className={mealSlot===m.id?'on':''} onClick={()=>setMealSlot(m.id)}>{m.label}</button>
+                ))}
+              </Segmented>
+            </div>
+          )}
           <div className="fd-list">
             {list.map(m => {
               const t = itemsTotals(m.items);
@@ -1981,7 +2017,10 @@ function MealsTab({ store, day, initialMeal, favOnly, query, onDone, onNew, onEd
                           aria-pressed={!!m.favorite} title={m.favorite ? 'Retirer des favoris' : 'Mettre en favori'}>
                     <StarIcon filled={m.favorite} />
                   </button>
-                  <button className="fd-item" onClick={async ()=>{ await store.addMealToDay(m, day, mealSlot); onDone(); }}>
+                  <button className="fd-item" onClick={async ()=>{
+                    if (onPick){ onPick(m); return; }
+                    await store.addMealToDay(m, day, mealSlot); onDone();
+                  }}>
                     <span className="fd-item-txt">
                       <span className="n">{m.name}</span>
                       <span className="fd-item-tags">
@@ -1996,8 +2035,10 @@ function MealsTab({ store, day, initialMeal, favOnly, query, onDone, onNew, onEd
                       </span>
                     </span>
                   </button>
-                  <button className="fd-item-src" title="Modifier ce repas"
-                          onClick={()=>onEdit(m)}>✎</button>
+                  {onEdit && (
+                    <button className="fd-item-src" title="Modifier ce repas"
+                            onClick={()=>onEdit(m)}>✎</button>
+                  )}
                 </div>
               );
             })}
@@ -2008,13 +2049,92 @@ function MealsTab({ store, day, initialMeal, favOnly, query, onDone, onNew, onEd
   );
 }
 
-/* ---- Créer / modifier un repas -------------------------------------------- */
-function MealEditModal({ meal, store, onClose, onSave, onDelete }){
+/* ---- Les étapes d'une recette ----------------------------------------------
+   Une liste de lignes qu'on écrit, coche et réordonne. Trois choix qui se
+   tiennent :
+
+     · Le texte s'enroule. Une étape est une phrase, pas un mot : un champ
+       d'une seule ligne qui défile latéralement cache ce qu'on vient d'écrire.
+       D'où un `textarea` qui prend la hauteur de son contenu.
+     · Le rond numéroté fait trois choses à la fois — il dit le rang, il se
+       coche d'un tap, et il s'attrape d'un appui maintenu pour réordonner.
+       C'est exactement le double geste des pastilles du rail, garde-fou
+       `wasArmed()` compris : maintenir pour glisser ne doit pas cocher au
+       relâchement, mais un simple clic, si.
+     · Les numéros sont lus de l'ordre affiché, jamais stockés. Réordonner
+       renumérote donc tout seul, sans rien à recalculer.
+
+   Cocher n'est enregistré que si on enregistre le repas : cocher en cuisinant
+   puis fermer ne laisse aucune trace, cocher puis « Enregistrer » garde l'état.
+   Les deux usages tombent juste sans réglage à part.                          */
+const autoGrowStep = (el) => {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+};
+
+function RecipeSteps({ steps, onChange }){
+  const ids = useMemo(() => steps.map(s => s.id), [steps]);
+  const byId = useMemo(() => Object.fromEntries(steps.map(s => [s.id, s])), [steps]);
+  const { order, dragId, startDrag, setNodeRef, wasArmed } = useDragReorder(
+    ids, (next) => onChange(next.map(id => byId[id]).filter(Boolean)));
+  const downRef = useRef(null);
+
+  const patch = (id, p) => onChange(steps.map(s => s.id === id ? { ...s, ...p } : s));
+
+  return (
+    <div className="fd-steps">
+      {order.map((id, i) => {
+        const st = byId[id];
+        if (!st) return null;
+        return (
+          <div className={`fd-step ${st.done?'done':''} ${dragId===id?'dragging':''}`}
+               key={id} ref={setNodeRef(id)}>
+            <button
+              type="button"
+              className={`icon-btn fd-step-n ${st.done?'on':''}`}
+              onPointerDown={(e)=>{ downRef.current = { x:e.clientX, y:e.clientY }; startDrag(id)(e); }}
+              onClickCapture={(e)=>{
+                const d = downRef.current;
+                const moved = d && (Math.abs(e.clientX-d.x) > 6 || Math.abs(e.clientY-d.y) > 6);
+                if (wasArmed() || moved){ e.preventDefault(); e.stopPropagation(); }
+              }}
+              onClick={()=>patch(id, { done: !st.done })}
+              aria-pressed={st.done}
+              title="Cliquer pour cocher · maintenir puis glisser pour réordonner">
+              {i + 1}
+            </button>
+            <textarea
+              className="fd-step-txt" rows={1} value={st.text} placeholder={`Étape ${i + 1}`}
+              ref={el => { autoGrowStep(el); }}
+              onInput={e=>autoGrowStep(e.target)}
+              onChange={e=>patch(id, { text: e.target.value })} />
+            <button className="icon-btn fd-ing-btn del" title="Retirer l'étape"
+                    onClick={()=>onChange(steps.filter(s => s.id !== id))}>−</button>
+          </div>
+        );
+      })}
+      <button className="fd-add full" onClick={()=>onChange([...steps, mkStep()])}>
+        ＋ Ajouter une étape
+      </button>
+    </div>
+  );
+}
+
+/* ---- Créer / modifier un repas ---------------------------------------------
+   Trois sections, trois cadres : le titre, les ingrédients, la recette. Comme
+   la page d'ajout, c'est une page entière et non une fenêtre — une liste
+   d'ingrédients et une liste d'étapes ne tiennent pas dans une boîte centrée.
+
+   Ajouter un ingrédient rouvre la page d'ajout elle-même, en mode « choisir » :
+   un repas peut donc se composer d'un produit scanné, d'un aliment de la table
+   Ciqual, d'une analyse IA ou même d'un autre repas entier, sans qu'aucun de
+   ces chemins n'ait à être réécrit ici.                                       */
+function MealEditModal({ meal, store, aiEnabled = true, onClose, onSave, onDelete }){
   const [name, setName] = useState(meal?.name || '');
   const [items, setItems] = useState(() => (meal?.items || []).map(it => ({ ...mkItem(), ...it })));
-  // La recette est facultative et volontairement pauvre : une liste d'étapes,
-  // pas un objet à part avec ses propres champs. Ce qui compte reste les macros.
-  const [steps, setSteps] = useState(() => (meal?.steps || []).length ? [...meal.steps] : ['']);
+  const [steps, setSteps] = useState(() => stepsFromRows(meal?.steps));
+  const [adding, setAdding] = useState(false);
   const totals = itemsTotals(items);
   const canSave = name.trim().length > 0 && items.length > 0;
 
@@ -2025,44 +2145,39 @@ function MealEditModal({ meal, store, onClose, onSave, onDelete }){
       name: name.trim(),
       items: items.map(({ id, name:n, grams, per100, foodId, note }) =>
         ({ id, name:n, grams: Number(grams) || 0, per100, foodId: foodId || null, note: note || '' })),
-      steps: steps.map(s => s.trim()).filter(Boolean),
+      steps: steps.filter(s => s.text.trim()).map(s => ({ ...s, text: s.text.trim() })),
     });
   };
 
   return (
-    <div className="scrim" onClick={onClose}>
-      <div className="modal fd-modal" onClick={e=>e.stopPropagation()}>
-        <h2>{meal ? 'Modifier le repas' : 'Nouveau repas'}</h2>
-        <div className="modal-sub">
-          Un ensemble d'ingrédients à ajouter d'un coup. La recette est facultative.
+    <div className="fd-add-page">
+      <div className="fd-add-head">
+        <div className="fd-add-head-txt">
+          <h2>{meal ? 'Modifier le repas' : 'Nouveau repas'}</h2>
+          <div className="modal-sub">Un ensemble d'ingrédients à ajouter d'un coup</div>
         </div>
+        <button className="icon-btn fd-add-close" onClick={onClose} aria-label="Fermer">✕</button>
+      </div>
 
-        <div className="field">
-          <label>Nom</label>
-          <input value={name} onChange={e=>setName(e.target.value)}
-                 placeholder="Poke bowl du dimanche, porridge, salade César…" />
-        </div>
-
-        <div className="modal-section">
-          <p className="section-label">Ingrédients</p>
-          <IngredientEditor items={items} onChange={setItems} store={store} />
-        </div>
-
-        <div className="modal-section">
-          <p className="section-label">Recette — facultatif</p>
-          <div className="fd-steps">
-            {steps.map((s, i) => (
-              <div className="fd-step" key={i}>
-                <span className="fd-step-n mono">{i+1}</span>
-                <input value={s} placeholder={`Étape ${i+1}`}
-                  onChange={e=>setSteps(arr => arr.map((x,j) => j===i ? e.target.value : x))}
-                  onKeyDown={e=>{ if (e.key === 'Enter'){ e.preventDefault(); setSteps(a => [...a, '']); } }} />
-                <button className="icon-btn fd-ing-btn del" title="Retirer l'étape"
-                        onClick={()=>setSteps(a => a.length > 1 ? a.filter((_,j)=>j!==i) : [''])}>−</button>
-              </div>
-            ))}
-            <button className="choice-add" onClick={()=>setSteps(a => [...a, ''])}>＋ Ajouter une étape</button>
+      <div className="fd-add-body">
+        <div className="card fd-card">
+          <p className="section-label">Titre</p>
+          <div className="field" style={{borderBottom:'none'}}>
+            <label>Nom</label>
+            <input value={name} onChange={e=>setName(e.target.value)}
+                   placeholder="Poke bowl du dimanche, porridge, salade César…" />
           </div>
+        </div>
+
+        <div className="card fd-card">
+          <p className="section-label">Ingrédients</p>
+          <IngredientEditor items={items} onChange={setItems} store={store}
+                            onAdd={()=>setAdding(true)} />
+        </div>
+
+        <div className="card fd-card">
+          <p className="section-label">Recette — facultatif</p>
+          <RecipeSteps steps={steps} onChange={setSteps} />
         </div>
 
         <div className="modal-actions">
@@ -2073,6 +2188,23 @@ function MealEditModal({ meal, store, onClose, onSave, onDelete }){
           </button>
         </div>
       </div>
+
+      {adding && (
+        <AddFoodModal
+          store={store}
+          day={dayKey(Date.now())}
+          meal={null}
+          aiEnabled={aiEnabled}
+          onClose={()=>setAdding(false)}
+          onPickItems={(picked)=>{
+            // Les identifiants sont refaits : verser deux fois le même repas
+            // dans une recette ne doit pas produire deux lignes qui se croient
+            // la même.
+            setItems(list => [...list, ...picked.map(it => ({ ...mkItem(), ...it, id: uid('it_') }))]);
+            setAdding(false);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -2103,7 +2235,13 @@ function MealEditModal({ meal, store, onClose, onSave, onDelete }){
    pièce. `.fd-add-head` (titre + fermeture) et `.fd-add-tabs` restent fixes
    en haut pendant que `.fd-add-body` défile en dessous — le choix
    d'onglet reste à portée, quoi qu'on ait déjà descendu.                     */
-function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true }){
+function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems, aiEnabled = true }){
+  // Mode « choisir » : la page ne verse rien dans une journée, elle rend des
+  // ingrédients à qui l'a ouverte (l'éditeur de repas). Les quatre onglets
+  // restent les mêmes — on peut donc composer une recette avec un produit
+  // scanné, un aliment de la table, une analyse IA ou un autre repas, sans
+  // qu'aucun d'eux n'ait besoin d'un chemin à part.
+  const pick = !!onPickItems;
   // recherche | mesitems | ia | rapide
   const [tab, setTab] = useState('recherche');
   const [scanOpen, setScanOpen] = useState(false);      // la caméra de l'onglet Recherche
@@ -2140,6 +2278,15 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
     setTab('rapide');
   }, []);
 
+  // Un produit référencé mais vide de valeurs : normalement on ouvre sa fiche
+  // pour la compléter. Ouverte depuis un repas, la page n'a pas cette porte —
+  // elle bascule alors sur la saisie à la main, déjà amorcée avec ce qu'on sait.
+  const needsFood = useCallback((f) => {
+    if (onNeedsFood){ onNeedsFood(f); return; }
+    openQuick({ name: f.name, barcode: f.barcode || null,
+                mode: f.barcode ? 'codebarre' : 'ingredient' });
+  }, [onNeedsFood, openQuick]);
+
   // Un code scanné : d'abord la bibliothèque locale (instantané, marche hors ligne),
   // ensuite seulement le réseau.
   const handleCode = useCallback(async (code) => {
@@ -2159,7 +2306,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
       if (!foodIsUsable(found)){
         setMsg(`« ${found.name} » est référencé mais sans valeurs nutritionnelles. Complète-les une fois, et le produit sera reconnu ensuite.`);
         setBusy(false);
-        onNeedsFood(found);
+        needsFood(found);
         return;
       }
       const saved = await store.saveFood(found);
@@ -2170,7 +2317,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
       setScanNonce(n => n + 1);
     }
     setBusy(false);
-  }, [store, openQuick]);
+  }, [store, openQuick, needsFood]);
 
   // Recherche : une requête en vol à la fois, la plus récente gagne.
   const seqRef = useRef(0);
@@ -2224,12 +2371,16 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
       });
       if (saved) foodId = saved.id;
     }
+    // Le mode « choisir » garde la moitié qui fabrique un item (c'est tout
+    // l'intérêt d'« ingrédient » et « à code-barres ») et remplace seulement
+    // la ligne de journal par une ligne de recette.
+    if (pick){ onPickItems([mkItem({ name, grams, per100, foodId })]); return; }
     await store.addLog({ day, meal:m, foodId, name, brand:'', qty, unit, grams, nutriments });
     onClose();
   };
 
   const pickFromSearch = async (f) => {
-    if (!foodIsUsable(f)){ onNeedsFood(f); return; }
+    if (!foodIsUsable(f)){ needsFood(f); return; }
     const saved = await store.saveFood(f);
     setPicked(saved || f);
   };
@@ -2269,9 +2420,11 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
         title="Quelle quantité ?"
         food={picked}
         initialMeal={meal || defaultMealForNow()}
+        pickMode={pick}
         onClose={onClose}
         onBack={()=>{ setPicked(null); setScanNonce(n => n + 1); }}
         onSubmit={({ qty, unit, grams, meal:m, nutriments })=>{
+          if (pick){ onPickItems([itemFromFood(picked, grams)]); return; }
           // Si l'aliment n'a pas pu être enregistré (réseau, conflit), on note quand
           // même le repas : le snapshot suffit à le lire, seul le lien est perdu.
           const linked = store.foods.some(f => f.id === picked.id) ? picked.id : null;
@@ -2290,9 +2443,11 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
     <div className="fd-add-page">
       <div className="fd-add-head">
         <div className="fd-add-head-txt">
-          <h2>Ajouter</h2>
+          <h2>{pick ? 'Ajouter un ingrédient' : 'Ajouter'}</h2>
           <div className="modal-sub">
-            {meal ? MEAL_LABEL[meal] : 'Bibliothèque'} · {dayLabel(dayKeyToTs(day)).toLowerCase()}
+            {pick
+              ? 'À la recette en cours'
+              : <>{meal ? MEAL_LABEL[meal] : 'Bibliothèque'} · {dayLabel(dayKeyToTs(day)).toLowerCase()}</>}
           </div>
         </div>
         <button className="icon-btn fd-add-close" onClick={onClose} aria-label="Fermer">✕</button>
@@ -2426,9 +2581,11 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
               <MealsTab
                 store={store} day={day} initialMeal={meal}
                 favOnly={favOnly} query={libQuery}
+                pickMode={pick}
+                onPick={pick ? (m)=>onPickItems(m.items) : null}
                 onDone={onClose}
-                onNew={()=>setMealDraft({ name:'', items:[], steps:[], source:'custom' })}
-                onEdit={(m)=>setMealDraft(m)}
+                onNew={pick ? null : ()=>setMealDraft({ name:'', items:[], steps:[], source:'custom' })}
+                onEdit={pick ? null : (m)=>setMealDraft(m)}
               />
             )}
           </div>
@@ -2437,6 +2594,8 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
         {aiEnabled && tab === 'ia' && (
           <AiAnalyseTab
             store={store} day={day} initialMeal={meal}
+            pickMode={pick}
+            onPickItems={pick ? onPickItems : null}
             onDone={onClose}
             onEditAsMeal={(draft)=>setMealDraft(draft)}
           />
@@ -2447,6 +2606,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
             key={quickKey}
             seed={quickSeed}
             initialMeal={meal || defaultMealForNow()}
+            pickMode={pick}
             onSubmit={submitQuickAdd}
             onCancel={onClose}
           />
@@ -2460,6 +2620,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
         <MealEditModal
           meal={mealDraft.id ? mealDraft : null}
           store={store}
+          aiEnabled={aiEnabled}
           onClose={()=>setMealDraft(null)}
           onSave={async (m)=>{ await store.saveMeal({ ...mealDraft, ...m }); setMealDraft(null); setTab('mesitems'); setMine('repas'); }}
           onDelete={mealDraft.id ? async ()=>{ await store.removeMeal(mealDraft.id); setMealDraft(null); } : null}
@@ -2546,7 +2707,7 @@ const QUICK_MODES = [
   { id:'codebarre',  label:'À code-barres' },
 ];
 
-function QuickAddTab({ seed, initialMeal, onSubmit, onCancel }){
+function QuickAddTab({ seed, initialMeal, pickMode, onSubmit, onCancel }){
   // Un code déjà en main (scanné, inconnu de la base) ouvre directement le
   // troisième mode : c'est le seul qui sache quoi en faire.
   const [mode, setMode] = useState(seed?.mode || (seed?.barcode ? 'codebarre' : 'rapide'));
@@ -2611,9 +2772,13 @@ function QuickAddTab({ seed, initialMeal, onSubmit, onCancel }){
 
       <p className="fd-note serif">
         {mode === 'rapide'
-          ? "Des calories et trois macros, versées dans la journée. Rien n'est enregistré comme aliment : c'est un correctif de journée, pas un item."
+          ? (pickMode
+              ? "Des calories et trois macros, posées telles quelles dans la recette. Rien n'est enregistré comme aliment à part."
+              : "Des calories et trois macros, versées dans la journée. Rien n'est enregistré comme aliment : c'est un correctif de journée, pas un item.")
           : mode === 'ingredient'
-          ? "Un aliment personnel, gardé dans tes items — réutilisable, corrigeable, et déjà noté pour aujourd'hui."
+          ? (pickMode
+              ? "Un aliment personnel, gardé dans tes items — réutilisable ailleurs, et ajouté ici tout de suite."
+              : "Un aliment personnel, gardé dans tes items — réutilisable, corrigeable, et déjà noté pour aujourd'hui.")
           : "Un aliment personnel avec son code-barres : le scanner le reconnaîtra tout seul la prochaine fois."}
       </p>
 
@@ -2695,19 +2860,24 @@ function QuickAddTab({ seed, initialMeal, onSubmit, onCancel }){
         </div>
       )}
 
-      <div className="card fd-card">
-        <p className="section-label">Repas</p>
-        <Segmented scrollx>
-          {MEALS.map(m => (
-            <button key={m.id} className={meal===m.id?'on':''} onClick={()=>setMeal(m.id)}>{m.label}</button>
-          ))}
-        </Segmented>
-      </div>
+      {/* Ce qu'on fabrique ici rejoint une recette, pas une journée, quand la
+          page est ouverte depuis un repas : plus de repas à choisir. */}
+      {!pickMode && (
+        <div className="card fd-card">
+          <p className="section-label">Repas</p>
+          <Segmented scrollx>
+            {MEALS.map(m => (
+              <button key={m.id} className={meal===m.id?'on':''} onClick={()=>setMeal(m.id)}>{m.label}</button>
+            ))}
+          </Segmented>
+        </div>
+      )}
 
       <div className="modal-actions">
         <button className="ghost" onClick={onCancel}>Annuler</button>
         <button className="primary" disabled={!canSave} onClick={submit}>
-          {isItem ? 'Créer et noter' : 'Noter'}
+          {pickMode ? (isItem ? 'Créer et ajouter' : 'Ajouter')
+                    : (isItem ? 'Créer et noter' : 'Noter')}
         </button>
       </div>
     </div>
@@ -2715,7 +2885,7 @@ function QuickAddTab({ seed, initialMeal, onSubmit, onCancel }){
 }
 
 /* ---- Quantité ------------------------------------------------------------- */
-function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, onClose, onBack, onSubmit }){
+function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pickMode, onClose, onBack, onSubmit }){
   const hasServing = !!(food.servingG && food.servingG > 0);
   const [unit, setUnit] = useState(initialUnit || (hasServing ? 'portion' : (food.basis || 'g')));
   const [qty, setQty] = useState(initialQty != null ? String(initialQty) : (hasServing ? '1' : '100'));
@@ -2773,20 +2943,26 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, onCl
           ))}
         </div>
 
-        <div className="field" style={{borderBottom:'none'}}>
-          <label>Repas</label>
-          <Segmented scrollx>
-            {MEALS.map(m => (
-              <button key={m.id} className={meal===m.id?'on':''} onClick={()=>setMeal(m.id)}>{m.label}</button>
-            ))}
-          </Segmented>
-        </div>
+        {/* En mode « choisir un ingrédient », l'aliment ne rejoint pas une
+            journée mais une recette : demander à quel repas n'aurait aucun sens. */}
+        {!pickMode && (
+          <div className="field" style={{borderBottom:'none'}}>
+            <label>Repas</label>
+            <Segmented scrollx>
+              {MEALS.map(m => (
+                <button key={m.id} className={meal===m.id?'on':''} onClick={()=>setMeal(m.id)}>{m.label}</button>
+              ))}
+            </Segmented>
+          </div>
+        )}
 
         <div className="modal-actions">
           {onBack && <button className="ghost" onClick={onBack}>Retour</button>}
           <button className="ghost" onClick={onClose}>Annuler</button>
           <button className="primary" disabled={!canSave}
-            onClick={()=>onSubmit({ qty:Number(qty), unit, grams, meal, nutriments })}>Enregistrer</button>
+            onClick={()=>onSubmit({ qty:Number(qty), unit, grams, meal, nutriments })}>
+            {pickMode ? 'Ajouter' : 'Enregistrer'}
+          </button>
         </div>
       </div>
     </div>

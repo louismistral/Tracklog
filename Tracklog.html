@@ -1023,6 +1023,9 @@
   .fd-row-actions button.del:hover{color:var(--warn)}
   .fd-add{margin-top:8px;font-size:11px;color:var(--ink-3);background:none;border:1px dashed var(--line-2);border-radius:999px;padding:7px 14px;transition:all .35s var(--ease)}
   .fd-add:hover{color:var(--ink);border-color:var(--ink-3)}
+  /* La même pastille pointillée, mais pleine largeur : « il y a une ligne de
+     plus à écrire ici », dans l'éditeur de repas comme dans sa recette. */
+  .fd-add.full{display:block;width:100%;text-align:center;padding:10px 14px}
 
   .fd-micros-block{margin-top:26px;padding-top:18px;border-top:1px solid var(--line)}
   .fd-micros{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:2px 22px;margin-top:14px}
@@ -1138,10 +1141,22 @@
   .fd-ai-photo-del:hover{background:var(--warn)}
 
   /* Recette d'un repas — une simple liste d'étapes numérotées */
+  /* Étapes de recette — le rond numéroté est à la fois le rang, la case à
+     cocher et la poignée de glisser ; le texte s'enroule sur autant de lignes
+     qu'il en faut (hauteur pilotée en JS, voir autoGrowStep). */
   .fd-steps{display:flex;flex-direction:column;gap:8px}
-  .fd-step{display:flex;align-items:center;gap:8px}
-  .fd-step-n{flex-shrink:0;width:20px;font-size:11px;color:var(--ink-3);text-align:right}
-  .fd-step input{flex:1}
+  .fd-step{display:flex;align-items:flex-start;gap:10px}
+  .fd-step-n{font-family:"Geist Mono",monospace;font-size:11px;color:var(--ink-2);
+    touch-action:pan-y;margin-top:1px}
+  .fd-step-n:hover{color:var(--accent);border-color:var(--accent)}
+  .fd-step-n.on{color:#fff;background:var(--accent);border-color:var(--accent)}
+  .fd-step-txt{flex:1;min-width:0;font-size:13px;line-height:1.5;resize:none;overflow:hidden;
+    padding:5px 0;border:none;border-bottom:1px solid transparent;background:none}
+  .fd-step-txt:focus{border-bottom-color:var(--line-2);outline:none}
+  /* Cochée, l'étape s'efface sans disparaître : elle reste lisible, elle ne
+     réclame juste plus l'attention. */
+  .fd-step.done .fd-step-txt{color:var(--ink-3)}
+  .fd-step .fd-ing-btn{margin-top:3px}
   .fd-scan-hint{font-size:12px;color:var(--ink-3);margin:10px 0 0;line-height:1.6}
 
   /* Recherche et listes de résultats */
@@ -1197,8 +1212,8 @@
      plutôt qu'une seule pleine largeur. `:last-of-type` retire déjà la
      bordure du dernier `.field` de chaque carte — nul besoin de la remettre
      à la main comme quand les sections n'étaient que des filets à la suite. */
-  .fd-manual-entry .card.fd-card{padding:16px 18px;margin-bottom:14px}
-  .fd-manual-entry .card.fd-card .section-label{margin-bottom:12px}
+  .card.fd-card{padding:16px 18px;margin-bottom:14px}
+  .card.fd-card .section-label{margin-bottom:12px}
   .fd-card-note{margin-top:10px;margin-bottom:0}
   .fd-code-bar{margin:2px 0 10px}
   .fd-code-bar input{font-family:"Geist Mono",monospace;letter-spacing:0.06em}
@@ -1413,8 +1428,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=45"></script>
-<script type="text/babel" src="app.food.jsx?v=16"></script>
+<script type="text/babel" src="app.jsx?v=46"></script>
+<script type="text/babel" src="app.food.jsx?v=17"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>
