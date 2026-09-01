@@ -280,6 +280,32 @@
   .scale-val{font-family:"Geist Mono",monospace;font-feature-settings:"tnum";font-size:15px;font-weight:500;flex-shrink:0;min-width:34px;text-align:right}
   .scale-val.unset{color:var(--ink-3)}
   .scale-val .scale-max{font-size:11px;color:var(--ink-3);font-weight:400}
+  /* Barre à icône (IconBar) — une barre pleine largeur et un seul bouton rond.
+     `inset` : le bouton est DANS la barre, sous le même contour — c'est une
+     seconde façon de remplir le même champ (la recherche et son scanner).
+     `detached` : le bouton est À CÔTÉ — la barre montre, le bouton agit sur ce
+     qu'elle montre (la bascule Aliments/Repas et l'étoile qui la filtre).
+     Le rond lui-même reste un .icon-btn comme partout ailleurs. */
+  .icon-bar{display:flex;align-items:center;width:100%;min-width:0}
+  .icon-bar-field{flex:1;min-width:0;display:flex;align-items:center;gap:8px}
+  .icon-bar-field>input,.icon-bar-field>select{flex:1;min-width:0;font-size:14px}
+  .icon-bar.inset{gap:6px;background:var(--bg-3);border:1px solid var(--line);
+    border-radius:999px;padding:5px 5px 5px 16px;transition:border-color .35s var(--ease)}
+  .icon-bar.inset:focus-within{border-color:var(--line-2)}
+  .icon-bar.detached{gap:10px;flex-wrap:wrap}
+  .icon-bar.detached>.icon-bar-field{flex:1 1 auto}
+  /* Forme séparée : quand le champ est une saisie nue, c'est à lui de porter
+     la barre — sinon il flotterait comme du texte à côté d'un bouton. Un
+     contenu qui a déjà son contour (une bascule Segmented) n'en reçoit pas. */
+  .icon-bar.detached>.icon-bar-field>input{background:var(--bg-3);border:1px solid var(--line);
+    border-radius:999px;padding:9px 16px;transition:border-color .35s var(--ease)}
+  .icon-bar.detached>.icon-bar-field>input:focus{border-color:var(--line-2)}
+  .icon-bar-btn{width:30px;height:30px}
+  .icon-bar-btn:hover:not(:disabled){color:var(--accent);border-color:var(--accent)}
+  .icon-bar-btn.on{color:#fff;background:var(--accent);border-color:var(--accent)}
+  .icon-bar.inset .icon-bar-btn{border-color:var(--line-2)}
+  .icon-bar.inset .icon-bar-btn.on{border-color:var(--accent)}
+
   .bool{display:flex;gap:8px}
   .bool button{padding:7px 15px;border-radius:999px;border:1px solid var(--line-2);font-size:12px;color:var(--ink-2);transition:all .35s var(--ease)}
   .bool button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
@@ -287,6 +313,14 @@
   .btn-primary,.save button.primary,.modal-actions .primary,.submit-all,.chrono-add-big,.fd-primary{
     background:var(--accent);color:#fff;border-radius:999px;padding:12px 22px;
     font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em}
+  /* Le même bouton d'accent, un cran plus petit : celui qui vit DANS un panneau
+     (Analyser, dans l'onglet IA) plutôt qu'au pied d'une modale. Il n'avait
+     jusqu'ici aucune règle du tout et se rendait en texte nu. */
+  button.primary.sm{background:var(--accent);color:#fff;border-radius:999px;padding:8px 16px;
+    font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em;
+    transition:background .35s var(--ease)}
+  button.primary.sm:hover:not(:disabled){background:#f0613b}
+  button.primary.sm:disabled{opacity:0.3;cursor:not-allowed}
   .save button.primary{transition:transform .35s var(--ease),background .35s var(--ease)}
   .save button.primary:hover{background:#f0613b}
   .save button.primary:active{transform:scale(.97)}
@@ -356,6 +390,11 @@
      rend plus haut que prévu, la piste grandit au lieu de rogner son texte. */
   :root{--ctl-h:33px}
   .seg-track.compact,.seg-track.small{gap:2px;background:var(--bg-2);padding:3px;border-radius:999px;border:1px solid var(--line);flex-wrap:nowrap}
+  /* `wrap` doit gagner sur le `nowrap` de la piste compacte : à égalité de
+     spécificité (.seg-track.wrap vs .seg-track.small) c'est la dernière règle
+     écrite qui l'emportait, et une piste de quatre options débordait de son
+     propre contour sur téléphone au lieu de passer à la ligne. */
+  .seg-track.compact.wrap,.seg-track.small.wrap{flex-wrap:wrap}
   .seg-track.compact{min-height:var(--ctl-h)}
   .seg-track.compact button,.seg-track.small button{border:none;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.1em;white-space:nowrap}
   .seg-track.compact button{padding:6px 14px;font-size:11px}
@@ -984,8 +1023,24 @@
   .fd-scan-view.off .fd-cam-toggle{color:var(--ink);background:var(--bg-2);border-color:var(--line-2)}
   .fd-scan-view.off .fd-cam-toggle:hover{border-color:var(--accent);color:var(--accent)}
 
-  /* Deux rangées d'onglets dans la modale d'ajout : trouver / ce qui est à soi */
+  /* Les onglets de la modale d'ajout — une seule rangée : les quatre façons
+     d'ajouter quelque chose à une journée. */
   .fd-tabs{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+
+  /* Pastille d'origine d'un item — quatre origines, quatre teintes, et un
+     contour plutôt qu'un aplat : c'est une étiquette de provenance, pas un
+     état à défendre. Elle se lit sur une ligne de résultat comme sur une
+     carte de bibliothèque, donc la taille est la même partout. */
+  .item-tag{display:inline-block;flex-shrink:0;font-size:9px;line-height:1;padding:4px 8px;border-radius:999px;
+    text-transform:uppercase;letter-spacing:0.12em;border:1px solid currentColor;
+    background:transparent;white-space:nowrap;cursor:default}
+  .item-tag.o-ref{color:oklch(0.62 0.10 150)}
+  .item-tag.o-off{color:oklch(0.62 0.10 250)}
+  .item-tag.o-ai{color:var(--accent)}
+  .item-tag.o-custom{color:var(--ink-3)}
+  .fd-item-tags{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .fd-item-sub{font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.1em;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 
   /* Étoile favori */
   .fd-fav{display:flex;align-items:center;padding:0 8px;color:var(--ink-3);flex-shrink:0;cursor:pointer;
@@ -1020,18 +1075,33 @@
   .fd-ing-total-l{flex:1;font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3)}
   .fd-ing-total>span>i{font-size:9px;color:var(--ink-3);font-style:normal;margin-left:2px}
 
-  /* Analyse IA */
-  .fd-ai-input textarea{width:100%;resize:vertical;min-height:70px}
-  .fd-ai-actions{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;margin-top:8px}
+  /* Analyse IA — deux rectangles pleine largeur l'un sur l'autre : la photo,
+     puis le texte. Ce sont deux façons de décrire la même assiette, pas deux
+     champs d'un formulaire, d'où la même largeur et le même contour. */
+  .fd-ai-input{display:flex;flex-direction:column;gap:10px}
+  .fd-ai-drop{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+    width:100%;min-height:120px;border:1px dashed var(--line-2);border-radius:var(--radius);
+    background:var(--bg-3);color:var(--ink-3);cursor:pointer;overflow:hidden;
+    transition:color .35s var(--ease),border-color .35s var(--ease)}
+  .fd-ai-drop:hover{color:var(--accent);border-color:var(--accent)}
+  .fd-ai-drop input[type=file]{display:none}
+  .fd-ai-drop-plus{display:flex;align-items:center;justify-content:center;width:38px;height:38px;
+    border-radius:50%;border:1px solid currentColor}
+  .fd-ai-drop-label{font-size:10px;text-transform:uppercase;letter-spacing:0.12em}
+  .fd-ai-drop.filled{min-height:0;border-style:solid;cursor:default;padding:0;aspect-ratio:16/10;background:#000}
+  .fd-ai-drop.filled img{width:100%;height:100%;object-fit:contain;display:block}
+  .fd-ai-text{width:100%;resize:vertical;min-height:88px;padding:12px 14px;
+    border:1px solid var(--line);border-radius:var(--radius);background:var(--bg-3);
+    transition:border-color .35s var(--ease)}
+  .fd-ai-text:focus{border-color:var(--line-2)}
+  .fd-ai-actions{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;margin-top:2px}
   .fd-ai-actions-end{justify-content:flex-end}
   .fd-ai-hint{font-size:12px;color:var(--ink-3);flex:1}
   .fd-ai-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:16px 0 4px}
   .fd-ai-plat{font-size:18px}
+  .fd-ai-tags{display:flex;align-items:center;gap:8px;flex-shrink:0}
   .fd-ai-marge{font-size:11px;color:var(--ink-3);text-align:right}
-  .fd-ai-photo-row{display:flex;gap:12px;align-items:center;margin-top:10px}
-  .fd-ai-photo{position:relative;flex-shrink:0;width:52px;height:52px;border-radius:12px;overflow:hidden;border:1px solid var(--line-2)}
-  .fd-ai-photo img{width:100%;height:100%;object-fit:cover;display:block}
-  .fd-ai-photo-del{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.55);color:#fff;border:none}
+  .fd-ai-photo-del{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.55);color:#fff;border:none}
   .fd-ai-photo-del:hover{background:var(--warn)}
 
   /* Recette d'un repas — une simple liste d'étapes numérotées */
@@ -1040,13 +1110,17 @@
   .fd-step-n{flex-shrink:0;width:20px;font-size:11px;color:var(--ink-3);text-align:right}
   .fd-step input{flex:1}
   .fd-scan-hint{font-size:12px;color:var(--ink-3);margin:10px 0 0;line-height:1.6}
-  .fd-manual{display:flex;align-items:center;gap:10px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line);flex-wrap:wrap}
-  .fd-manual label{font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.12em}
-  .fd-manual input{flex:1;min-width:120px}
 
   /* Recherche et listes de résultats */
-  .fd-search-bar{display:flex;gap:10px;align-items:center;margin-bottom:12px}
-  .fd-search-bar input{flex:1}
+  .fd-search-bar{margin-bottom:12px}
+  /* Le scanner, sorti par le bouton rond de la barre — un panneau qui s'ouvre
+     sous elle, pas un onglet à lui. */
+  .fd-scan-panel{margin-bottom:14px}
+  /* « Mes items » : la bascule et l'étoile occupent la barre, le filtre se
+     range en dessous, discret — il sert quand la liste est longue, pas avant. */
+  .fd-mine-filter{margin:10px 0 4px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .fd-mine-filter input{width:100%;font-size:13px}
+  .fd-mine-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0 4px}
   .fd-list{max-height:46vh;overflow-y:auto;margin:0 -4px}
   .fd-item{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:10px 4px;border:none;border-bottom:1px solid var(--line);background:none;transition:background .3s var(--ease)}
   .fd-item:hover{background:var(--bg-3)}
@@ -1058,7 +1132,6 @@
   .fd-item{border-bottom:none;flex:1;min-width:0}
   .fd-item-row{display:flex;align-items:stretch;gap:2px;border-bottom:1px solid var(--line)}
   .fd-item-row:hover{background:var(--bg-3)}
-  .fd-item-txt .b{font-size:10px;color:var(--ink-2);text-transform:uppercase;letter-spacing:0.1em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fd-item-txt .m b{color:var(--ink-2);font-weight:500}
   .fd-item-src{display:flex;align-items:center;padding:0 10px;color:var(--ink-3);font-size:13px;text-decoration:none;flex-shrink:0;transition:color .3s var(--ease)}
   .fd-item-src:hover{color:var(--accent)}
@@ -1085,15 +1158,11 @@
   .fd-zoom label{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3)}
   .fd-zoom input[type=range]{flex:1;accent-color:var(--accent)}
   .fd-scan-diag{color:var(--ink-3);opacity:.65;font-size:10px;white-space:nowrap}
-  .fd-scan-alt{display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}
-  .fd-photo{font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-2);border:1px solid var(--line-2);border-radius:999px;padding:8px 16px;cursor:pointer;transition:color .3s var(--ease),border-color .3s var(--ease)}
-  .fd-photo:hover{color:var(--accent);border-color:var(--accent)}
-  .fd-photo.busy{opacity:.6}
-  .fd-photo input{display:none}
-  .fd-scan-alt-note{font-size:12px;color:var(--ink-3)}
 
-  /* Saisie à la main */
+  /* Ajout rapide */
   .fd-manual-entry .field{border-bottom:1px solid var(--line)}
+  .fd-code-bar{margin:10px 0}
+  .fd-code-bar input{font-family:"Geist Mono",monospace;letter-spacing:0.06em}
   .fd-qty-inline{display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap}
   .fd-qty-inline input{width:84px;font-family:"Geist Mono",monospace;text-align:right}
   .fd-mini-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0}
@@ -1101,10 +1170,6 @@
   .fd-mini-field>span{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3)}
   .fd-mini-field input{width:100%;font-family:"Geist Mono",monospace;font-size:17px;text-align:center;padding:8px 4px}
   .fd-mini-field>i{font-size:9px;color:var(--ink-3);text-align:center;font-style:normal;letter-spacing:0.08em}
-  .fd-keep{display:flex;align-items:flex-start;gap:10px;margin:14px 0 2px;font-size:12px;color:var(--ink-2);cursor:pointer}
-  .fd-keep input{accent-color:var(--accent);margin-top:1px}
-  .fd-keep.off{color:var(--ink-3);cursor:default}
-  .fd-keep i{font-style:italic;font-family:"Instrument Serif",serif;color:var(--ink-3)}
 
   /* Quantité */
   .fd-qty{display:flex;align-items:center;gap:12px;margin:6px 0 12px;flex-wrap:wrap}
@@ -1230,6 +1295,12 @@
     .fd-mini-grid{grid-template-columns:repeat(2,1fr);gap:12px}
     .fd-preview .v{font-size:15px}
     .fd-primary{width:100%;justify-content:center}
+    /* Barre à icône : la forme intégrée reste une barre (le rond doit tenir
+       dedans), la forme séparée passe à la ligne plutôt que d'écraser sa
+       bascule — l'étoile ne perd rien à être en dessous. */
+    .icon-bar.detached{gap:8px;flex-wrap:nowrap}
+    .icon-bar.detached>.icon-bar-field{min-width:0}
+    .fd-ai-drop{min-height:100px}
   }
 </style>
 </head>
@@ -1301,8 +1372,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=43"></script>
-<script type="text/babel" src="app.food.jsx?v=14"></script>
+<script type="text/babel" src="app.jsx?v=44"></script>
+<script type="text/babel" src="app.food.jsx?v=15"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>

@@ -596,6 +596,34 @@ function BoolPill({ value, onChange, onLabel = 'Oui', offLabel = 'Non', disabled
     </Segmented>
   );
 }
+// Barre à icône — the other shared control shape, next to Segmented: one
+// full-width bar carrying the main input, and exactly one round icon button
+// for the second way of filling it. Two forms, and the difference is meaning,
+// not decoration:
+//   inset     the button sits INSIDE the bar, sharing its outline — the button
+//             is another way to fill the same field (a search bar and its
+//             scanner: both end up putting a product in that field).
+//   detached  the button sits BESIDE the bar — the bar shows something, the
+//             button acts on what it shows (a Aliments/Repas toggle and the
+//             star that narrows either one to favourites).
+// Sizing and the round button come from `.icon-btn`, like every other lone
+// glyph in the app; only the bar shell is new.
+function IconBar({ detached = false, className = '', children,
+                   icon, onIcon, iconLabel, iconTitle, iconOn = false, iconDisabled = false }){
+  return (
+    <div className={`icon-bar ${detached ? 'detached' : 'inset'} ${className}`}>
+      <div className="icon-bar-field">{children}</div>
+      {icon && (
+        <button type="button" className={`icon-btn icon-bar-btn ${iconOn ? 'on' : ''}`}
+                onClick={onIcon} disabled={iconDisabled} aria-pressed={iconOn}
+                aria-label={iconLabel} title={iconTitle || iconLabel}>
+          {icon}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function startOfMonth(ts){ const d = new Date(ts); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); }
 function addMonths(ts, n){ const d = new Date(ts); return new Date(d.getFullYear(), d.getMonth()+n, 1).getTime(); }
 
