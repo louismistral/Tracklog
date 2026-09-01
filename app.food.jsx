@@ -129,6 +129,26 @@ function PencilIcon({ size = 12 }){
     </svg>
   );
 }
+// Oublier un item : le retirer de ce qui est à soi, comme si on ne l'avait
+// jamais utilisé. Une corbeille, parce que ce n'est pas « masquer ».
+function TrashIcon({ size = 12 }){
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke="currentColor"
+         strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M2.5 3.6h9M5.6 3.6V2.4h2.8v1.2M3.6 3.6l.5 7.4h5.8l.5-7.4M5.9 5.9v3M8.1 5.9v3" />
+    </svg>
+  );
+}
+// Montrer ou cacher les vignettes d'une liste.
+function ImageIcon({ size = 12 }){
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke="currentColor"
+         strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <rect x="1.8" y="2.8" width="10.4" height="8.4" rx="1.4" />
+      <circle cx="5" cy="5.9" r="0.9" /><path d="M2.4 9.6l2.9-2.5 3 2.4 1.6-1.3 1.7 1.5" />
+    </svg>
+  );
+}
 // La flèche « ça sort de l'app » — fiche Ciqual, fiche Open Food Facts.
 function ExternalIcon({ size = 12 }){
   return (
@@ -2142,25 +2162,29 @@ function MealsTab({ store, day, initialMeal, favOnly, query, pickMode, onPick, o
         </p>
       ) : (
         <>
-          {!pickMode && (
-            <div className="field" style={{borderBottom:'none'}}>
-              <label>Repas</label>
-              <Segmented scrollx>
-                {MEALS.map(m => (
-                  <button key={m.id} className={mealSlot===m.id?'on':''} onClick={()=>setMealSlot(m.id)}>{m.label}</button>
-                ))}
-              </Segmented>
-            </div>
-          )}
+          {/* Pas de sélecteur de repas ici : la fenêtre qui suit demande déjà
+              à quel repas et en quelle quantité — le poser deux fois ferait
+              douter de celui qui compte. */}
           <div className="fd-list">
             {list.map(m => {
               const t = itemsTotals(m.items);
               return (
                 <div className="fd-item-row" key={m.id}>
-                  <button className={`fd-fav ${m.favorite?'on':''}`} onClick={()=>store.toggleMealFavorite(m.id)}
-                          aria-pressed={!!m.favorite} title={m.favorite ? 'Retirer des favoris' : 'Mettre en favori'}>
-                    <StarIcon filled={m.favorite} />
-                  </button>
+                  {/* Même rangée que pour un aliment : à gauche ce qui touche à
+                      l'item — un repas s'ouvre plutôt qu'il ne s'oublie, son
+                      éditeur porte déjà la suppression — puis l'étoile. */}
+                  {onEdit && (
+                    <span className="fd-item-act">
+                      <button className="icon-btn fd-edit-btn" title="Modifier ce repas"
+                              aria-label="Modifier ce repas" onClick={()=>onEdit(m)}><PencilIcon /></button>
+                    </span>
+                  )}
+                  <span className="fd-item-act">
+                    <button className={`icon-btn fd-fav ${m.favorite?'on':''}`} onClick={()=>store.toggleMealFavorite(m.id)}
+                            aria-pressed={!!m.favorite} title={m.favorite ? 'Retirer des favoris' : 'Mettre en favori'}>
+                      <StarIcon filled={m.favorite} />
+                    </button>
+                  </span>
                   <button className="fd-item" onClick={()=>setPortioning(m)}>
                     <span className="fd-item-txt">
                       <span className="n">{m.name}</span>
@@ -2177,12 +2201,6 @@ function MealsTab({ store, day, initialMeal, favOnly, query, pickMode, onPick, o
                       </span>
                     </span>
                   </button>
-                  {onEdit && (
-                    <span className="fd-item-act">
-                      <button className="icon-btn fd-edit-btn" title="Modifier ce repas"
-                              aria-label="Modifier ce repas" onClick={()=>onEdit(m)}><PencilIcon /></button>
-                    </span>
-                  )}
                 </div>
               );
             })}
@@ -2579,19 +2597,58 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
     setPicked(saved || f);
   };
 
-  const refMatches = useMemo(
-    () => searchRefFoods(store.refFoods, query.trim(), 10), [store.refFoods, query]);
+  /* Les trois provenances en une seule liste. Ce qui les distingue est déjà
+     écrit sur chaque ligne (la pastille d'origine), donc les séparer en trois
+     colonnes qui défilent chacune de leur côté ne rangeait rien — ça obligeait
+     juste à chercher trois fois.
 
-  // Ce qui est déjà dans la bibliothèque remonte en premier : c'est instantané,
-  // c'est déjà validé, et c'est presque toujours ce qu'on cherche.
-  const localMatches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (q.length < 2) return [];
-    return store.foods
-      .filter(f => foodLabel(f).toLowerCase().includes(q))
+     L'ordre, lui, porte une intention : ce qui s'appelle EXACTEMENT comme ce
+     qu'on tape passe devant (« riz » ne doit pas se faire doubler par « riz au
+     lait de coco »), puis ce qu'on a mis en favori, puis ce qu'on a déjà
+     enregistré — le référentiel vient après, il est là pour ce qu'on n'a pas
+     encore. À rang égal, l'ordre d'arrivée décide. */
+  const hits = useMemo(() => {
+    const raw = query.trim();
+    if (raw.length < 2) return [];
+    const needle = deburr(raw);
+    const lower = raw.toLowerCase();
+
+    const mine = store.foods
+      .filter(f => foodLabel(f).toLowerCase().includes(lower))
       .sort((a,b) => (b.lastUsedAt || b.createdAt) - (a.lastUsedAt || a.createdAt))
-      .slice(0, 6);
-  }, [store.foods, query]);
+      .slice(0, 12);
+    const mineIds = new Set(mine.map(f => f.id));
+    // Un aliment déjà à soi et sa fiche d'origine sont le même produit : on
+    // garde le sien, corrigé et déjà utilisé, pas la fiche brute par-dessus.
+    const known = new Set(store.foods.map(f => f.barcode).filter(Boolean));
+
+    const outside = [...searchRefFoods(store.refFoods, raw, 10), ...(results || [])]
+      .filter(f => !f.barcode || !known.has(f.barcode));
+
+    const rank = (f) => (deburr(f.name || '') === needle ? 8 : 0)
+                      + (f.favorite ? 4 : 0)
+                      + (mineIds.has(f.id) ? 2 : 0);
+    return [...mine, ...outside]
+      .map((f, i) => ({ f, i, r: rank(f) }))
+      .sort((a, b) => b.r - a.r || a.i - b.i)
+      .map(x => x.f);
+  }, [store.foods, store.refFoods, query, results]);
+
+  // Oublier un item : le retirer de ce qui est à soi, comme s'il n'avait jamais
+  // servi. Les journées déjà notées ne bougent pas — chaque ligne garde son
+  // instantané de valeurs, seul le lien vers la fiche disparaît.
+  const forgetFood = (f) => {
+    if (confirm(`Oublier « ${f.name} » ? Il quitte tes items, comme si tu ne l'avais jamais utilisé. Les repas déjà notés gardent leurs valeurs.`))
+      store.removeFood(f.id);
+  };
+
+  // Choisir une ligne : ce qui est déjà à soi s'ouvre tel quel, une fiche de la
+  // table ou d'Open Food Facts rejoint d'abord la bibliothèque.
+  const pickAny = (f) => {
+    if (store.foods.some(x => x.id === f.id)) return setPicked(f);
+    if (f.source === 'ref') return pickFromRef(f);
+    return pickFromSearch(f);
+  };
 
   const myFoods = useMemo(() => {
     const q = libQuery.trim().toLowerCase();
@@ -2664,7 +2721,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
               className="fd-search-bar">
               <input placeholder="skyr, pain de mie, poulet, ou un code-barres…" value={query}
                 onChange={e=>setQuery(e.target.value)}
-                onKeyDown={e=>{ if(e.key==='Enter') runSearch(query); }}
+                onKeyDown={e=>{ if(e.key==='Enter'){ runSearch(query); e.target.blur(); } }}
               />
             </IconBar>
 
@@ -2679,42 +2736,27 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
                 {isCode ? 'Un code-barres — Entrée pour aller chercher le produit.'
                   : q.length < 3 ? 'Trois lettres suffisent — les résultats arrivent à la frappe.'
                   : searching ? 'Recherche…'
-                  : results ? `${results.length} résultat${results.length>1?'s':''}${via ? ` · ${via}` : ''}`
-                  : ''}
+                  : `${hits.length} résultat${hits.length>1?'s':''}${via ? ` · ${via}` : ''}`}
               </span>
-              <button className={`fd-thumb-toggle ${thumbs?'on':''}`} onClick={()=>setThumbs(v=>!v)}>
-                {thumbs ? 'sans images' : 'avec images'}
+              <button className={`icon-btn fd-thumb-toggle ${thumbs?'on':''}`} onClick={()=>setThumbs(v=>!v)}
+                      aria-pressed={thumbs} title={thumbs ? 'Masquer les images' : 'Afficher les images'}
+                      aria-label={thumbs ? 'Masquer les images' : 'Afficher les images'}>
+                <ImageIcon />
               </button>
             </div>
 
-            {localMatches.length > 0 && (
-              <div className="fd-list">
-                <p className="fd-list-label">Déjà à toi</p>
-                {localMatches.map(f => (
-                  <FoodPickRow key={'lib_'+f.id} food={f} showImage={thumbs} onPick={()=>setPicked(f)} refByBarcode={store.refByBarcode} />
-                ))}
-              </div>
-            )}
+            {/* Une seule liste. Les pastilles d'origine disent déjà d'où vient
+                chaque ligne, donc trois listes qui défilaient chacune de leur
+                côté ne séparaient plus que le regard. */}
+            <div className="fd-list">
+              {hits.map(f => (
+                <FoodPickRow key={`${f.source}_${f.id || f.barcode}`} food={f}
+                  showImage={thumbs} onPick={()=>pickAny(f)}
+                  refByBarcode={store.refByBarcode} />
+              ))}
+            </div>
 
-            {refMatches.length > 0 && (
-              <div className="fd-list">
-                <p className="fd-list-label">Aliments simples — table Ciqual</p>
-                {refMatches.map(f => (
-                  <FoodPickRow key={f.id} food={f} showImage={false} onPick={()=>pickFromRef(f)} refByBarcode={store.refByBarcode} />
-                ))}
-              </div>
-            )}
-
-            {results && results.length > 0 && (
-              <div className="fd-list">
-                <p className="fd-list-label">Aliments à code — Open Food Facts</p>
-                {results.map(f => (
-                  <FoodPickRow key={f.barcode || f.id} food={f} showImage={thumbs} onPick={()=>pickFromSearch(f)} refByBarcode={store.refByBarcode} />
-                ))}
-              </div>
-            )}
-
-            {results && !results.length && !searching && !refMatches.length && (
+            {results && !hits.length && !searching && (
               <p className="fd-note serif">
                 Aucun produit trouvé pour « {q} ».{' '}
                 <button className="fd-link" onClick={()=>openQuick({ name: q, mode:'ingredient' })}>Le saisir à la main</button>
@@ -2733,34 +2775,53 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
 
         {tab === 'mesitems' && (
           <div className="fd-search">
+            {/* La même barre que l'onglet Recherche : chercher dans ce qui est
+                à soi n'est pas un autre geste que chercher dehors, seule la
+                source change — et un code scanné retrouve d'abord ses items. */}
+            <IconBar
+              icon={<ScanIcon />} onIcon={()=>setScanOpen(v=>!v)} iconOn={scanOpen}
+              iconLabel={scanOpen ? 'Fermer le scanner' : 'Scanner un code-barres'}
+              className="fd-search-bar">
+              <input placeholder="chercher dans mes items…" value={libQuery}
+                onChange={e=>setLibQuery(e.target.value)}
+                onKeyDown={e=>{ if(e.key==='Enter') e.target.blur(); }} />
+            </IconBar>
+
+            {scanOpen && (
+              <div className="fd-scan-panel">
+                <FoodScanner key={scanNonce} onCode={handleCode} />
+              </div>
+            )}
+
             {/* Barre à icône, forme séparée : la barre est ici une bascule — ce
-                qu'on regarde — et l'étoile agit dessus, en la réduisant aux
-                favoris. Deux objets, donc deux contours. */}
-            <IconBar detached
-              icon={<StarIcon filled={favOnly} />} onIcon={()=>setFavOnly(v=>!v)} iconOn={favOnly}
-              iconLabel={favOnly ? 'Voir tout' : 'Ne voir que les favoris'}>
+                qu'on regarde — et les deux ronds agissent dessus, l'un en la
+                réduisant aux favoris, l'autre en montrant ou cachant les
+                vignettes. Deux objets, donc deux contours. */}
+            <IconBar detached className="fd-mine-bar" buttons={[
+              { icon:<StarIcon filled={favOnly} />, onClick:()=>setFavOnly(v=>!v), on:favOnly,
+                label: favOnly ? 'Voir tout' : 'Ne voir que les favoris' },
+              { icon:<ImageIcon />, onClick:()=>setThumbs(v=>!v), on:thumbs,
+                label: thumbs ? 'Masquer les images' : 'Afficher les images' },
+            ]}>
               <Segmented size="small">
                 <button className={mine==='aliments'?'on':''} onClick={()=>setMine('aliments')}>Aliments</button>
                 <button className={mine==='repas'?'on':''} onClick={()=>setMine('repas')}>Repas</button>
               </Segmented>
             </IconBar>
 
-            <div className="fd-mine-filter">
-              <input placeholder="filtrer…" value={libQuery} onChange={e=>setLibQuery(e.target.value)} />
-            </div>
-
             {mine === 'aliments' ? (
               <div className="fd-list">
                 {myFoods.length
                   ? myFoods.map(f => (
-                      <FoodPickRow key={f.id} food={f} showImage onPick={()=>setPicked(f)}
+                      <FoodPickRow key={f.id} food={f} showImage={thumbs} onPick={()=>setPicked(f)}
                         favorite={f.favorite} onToggleFavorite={()=>store.toggleFavorite(f.id)}
+                        onForget={()=>forgetFood(f)}
                         refByBarcode={store.refByBarcode} />
                     ))
                   : <p className="fd-note serif">
                       {favOnly
                         ? "Aucun aliment favori. L'étoile sur un aliment le range ici — de quoi retrouver en un geste ce que tu manges tous les jours."
-                        : "Rien encore. Cherche un aliment, scanne un produit, ou crée-en un dans l'ajout rapide."}
+                        : "Rien encore. Cherche un aliment, scanne un produit, ou crée-en un dans l'onglet Créer."}
                     </p>}
               </div>
             ) : (
@@ -2818,17 +2879,34 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
 // Une ligne de résultat : le nom, puis l'aperçu chiffré pour 100 g — de quoi
 // trancher entre deux produits sans en ouvrir aucun. Les vignettes sont
 // optionnelles : sans elles, la liste s'affiche instantanément.
-function FoodPickRow({ food, onPick, showImage = false, favorite, onToggleFavorite, refByBarcode }){
+/* Les actions d'une ligne, dans le même ordre partout : à gauche ce qui touche
+   à l'item lui-même (l'oublier pour un aliment, l'ouvrir pour un repas) puis
+   l'étoile ; à droite, seule, la flèche qui sort de l'app. Toutes sont des
+   ronds `.icon-btn` — une icône cliquable est un bouton, pas un glyphe posé
+   dans la marge. */
+function FoodPickRow({ food, onPick, showImage = false, favorite, onToggleFavorite,
+                       onForget, onEdit, refByBarcode }){
   const n = food.nutriments || {};
   const src = foodSourceUrl(food, refByBarcode);
   const sub = itemSub(food, refByBarcode);
   return (
     <div className="fd-item-row">
+      {(onForget || onEdit) && (
+        <span className="fd-item-act">
+          {onEdit
+            ? <button className="icon-btn fd-edit-btn" onClick={onEdit}
+                      aria-label="Modifier" title="Modifier"><PencilIcon /></button>
+            : <button className="icon-btn fd-forget-btn" onClick={onForget}
+                      aria-label="Oublier cet item" title="Oublier cet item"><TrashIcon /></button>}
+        </span>
+      )}
       {onToggleFavorite && (
-        <button className={`fd-fav ${favorite?'on':''}`} onClick={onToggleFavorite}
-                aria-pressed={!!favorite} title={favorite ? 'Retirer des favoris' : 'Mettre en favori'}>
-          <StarIcon filled={!!favorite} />
-        </button>
+        <span className="fd-item-act">
+          <button className={`icon-btn fd-fav ${favorite?'on':''}`} onClick={onToggleFavorite}
+                  aria-pressed={!!favorite} title={favorite ? 'Retirer des favoris' : 'Mettre en favori'}>
+            <StarIcon filled={!!favorite} />
+          </button>
+        </span>
       )}
       <button className="fd-item" onClick={onPick}>
         {showImage && (food.imageUrl
@@ -3144,9 +3222,11 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pick
           </div>
         )}
 
+        {/* Deux boutons, pas trois : « Annuler » remet là d'où l'on vient — la
+            liste — plutôt que de fermer tout l'ajout. Renoncer à une quantité
+            n'est pas renoncer à ajouter quelque chose. */}
         <div className="modal-actions">
-          {onBack && <button className="ghost" onClick={onBack}>Retour</button>}
-          <button className="ghost" onClick={onClose}>Annuler</button>
+          <button className="ghost" onClick={onBack || onClose}>Annuler</button>
           <button className="primary" disabled={!canSave}
             onClick={()=>onSubmit({ qty:Number(qty), unit, grams, meal, nutriments })}>
             {pickMode ? 'Ajouter' : 'Enregistrer'}

@@ -289,8 +289,12 @@
   .icon-bar{display:flex;align-items:center;width:100%;min-width:0}
   .icon-bar-field{flex:1;min-width:0;display:flex;align-items:center;gap:8px}
   .icon-bar-field>input,.icon-bar-field>select{flex:1;min-width:0;font-size:14px}
+  /* Forme intégrée : le bouton remplit la barre, donc il colle à son bord —
+     le même liseré de 3 px que la piste d'une sub-nav autour de son thumb,
+     et un rond assez grand pour être une vraie cible au doigt. */
   .icon-bar.inset{gap:6px;background:var(--bg-3);border:1px solid var(--line);
-    border-radius:999px;padding:5px 5px 5px 16px;transition:border-color .35s var(--ease)}
+    border-radius:999px;padding:3px 3px 3px 16px;transition:border-color .35s var(--ease)}
+  .icon-bar.inset .icon-bar-btn{width:34px;height:34px}
   .icon-bar.inset:focus-within{border-color:var(--line-2)}
   .icon-bar.detached{gap:10px;flex-wrap:wrap}
   .icon-bar.detached>.icon-bar-field{flex:1 1 auto}
@@ -1079,10 +1083,8 @@
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 
   /* Étoile favori */
-  .fd-fav{display:flex;align-items:center;padding:0 8px;color:var(--ink-3);flex-shrink:0;cursor:pointer;
-    background:none;border:none;transition:color .3s var(--ease)}
-  .fd-fav:hover{color:var(--ink-2)}
-  .fd-fav.on{color:var(--accent)}
+  .fd-fav:hover{color:var(--ink-2);border-color:var(--ink-3)}
+  .fd-fav.on{color:var(--accent);border-color:var(--accent)}
   .fd-fav-btn.on{color:var(--accent);border-color:var(--accent)}
 
   /* Éditeur d'ingrédients — partagé par l'analyse IA et les repas enregistrés */
@@ -1166,10 +1168,12 @@
   .fd-scan-panel{margin-bottom:14px}
   /* « Mes items » : la bascule et l'étoile occupent la barre, le filtre se
      range en dessous, discret — il sert quand la liste est longue, pas avant. */
-  .fd-mine-filter{margin:10px 0 4px;padding-bottom:8px;border-bottom:1px solid var(--line)}
-  .fd-mine-filter input{width:100%;font-size:13px}
+  .fd-mine-bar{margin:12px 0 4px}
   .fd-mine-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0 4px}
-  .fd-list{max-height:46vh;overflow-y:auto;margin:0 -4px}
+  /* Plus de cadre dans le cadre : la page d'ajout défile déjà, une liste qui
+     défilait dans sa propre fenêtre de 46vh n'utilisait qu'un tiers de l'écran
+     pour montrer ce qu'on est venu chercher. */
+  .fd-list{display:flex;flex-direction:column;gap:8px;margin:10px 0 0}
   .fd-item{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:10px 4px;border:none;border-bottom:1px solid var(--line);background:none;transition:background .3s var(--ease)}
   .fd-item:hover{background:var(--bg-3)}
   .fd-item img{width:38px;height:38px;object-fit:cover;border-radius:2px;flex-shrink:0;background:var(--bg-3)}
@@ -1178,19 +1182,26 @@
   .fd-item-txt .n{font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fd-item-txt .m{font-size:10px;color:var(--ink-3)}
   .fd-item{border-bottom:none;flex:1;min-width:0}
-  .fd-item-row{display:flex;align-items:stretch;gap:2px;border-bottom:1px solid var(--line)}
-  .fd-item-row:hover{background:var(--bg-3)}
+  /* Chaque résultat est une carte, comme tout le reste de l'app — un filet
+     entre deux lignes ne disait pas assez que ce sont des objets distincts,
+     chacun avec ses propres actions. */
+  .fd-item-row{display:flex;align-items:center;gap:2px;padding:2px 6px;
+    background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);
+    transition:border-color .35s var(--ease)}
+  .fd-item-row:hover{border-color:var(--line-2)}
   .fd-item-txt .m b{color:var(--ink-2);font-weight:500}
   /* L'action au bout d'une ligne de résultat — modifier un repas, ouvrir la
      fiche d'origine — est un vrai bouton rond, comme partout ailleurs, et non
      un glyphe nu posé dans la marge. */
   .fd-item-act{display:flex;align-items:center;padding:0 8px;flex-shrink:0}
   .fd-edit-btn:hover{color:var(--accent);border-color:var(--accent)}
+  .fd-forget-btn:hover{color:var(--warn);border-color:var(--warn)}
   .fd-list-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:var(--ink-3);margin:10px 0 2px;padding:0 4px}
   .fd-search-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:-4px 0 6px;min-height:18px}
   .fd-search-meta .serif{font-size:12px;color:var(--ink-3)}
-  .fd-thumb-toggle{font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-3);background:none;border:1px solid var(--line);border-radius:999px;padding:3px 10px;flex-shrink:0;transition:color .3s var(--ease),border-color .3s var(--ease)}
-  .fd-thumb-toggle:hover,.fd-thumb-toggle.on{color:var(--accent);border-color:var(--accent)}
+  .fd-thumb-toggle{width:30px;height:30px}
+  .fd-thumb-toggle:hover{color:var(--ink-2);border-color:var(--ink-3)}
+  .fd-thumb-toggle.on{color:#fff;background:var(--accent);border-color:var(--accent)}
   .fd-src-line{margin-top:12px}
   .fd-src-line a,.fd-src-link{color:var(--ink-2);text-decoration:none;border-bottom:1px solid var(--line-2);transition:color .3s var(--ease)}
   .fd-src-line a:hover,.fd-src-link:hover{color:var(--accent);border-color:var(--accent)}
@@ -1355,7 +1366,6 @@
     .fd-row-main{flex:1 1 100%}
     .fd-row-actions{opacity:1;margin-left:auto}
     .fd-micros{grid-template-columns:1fr}
-    .fd-list{max-height:40vh}
     .fd-lib-search{max-width:none;flex:1 1 100%;order:-1}
     .fd-preview{grid-template-columns:repeat(4,1fr);gap:6px}
     .fd-preview .v{font-size:15px}
@@ -1437,8 +1447,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=47"></script>
-<script type="text/babel" src="app.food.jsx?v=18"></script>
+<script type="text/babel" src="app.jsx?v=48"></script>
+<script type="text/babel" src="app.food.jsx?v=19"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>
