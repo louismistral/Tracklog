@@ -35,6 +35,91 @@ const MEALS = [
 ];
 const MEAL_LABEL = Object.fromEntries(MEALS.map(m => [m.id, m.label]));
 
+/* ---- Les items et leur origine ---------------------------------------------
+   Tout ce qu'on peut verser dans une journée est un ITEM : une ligne de la
+   table Ciqual, un produit Open Food Facts, un aliment ou un repas qu'on a
+   créé soi-même, une analyse IA. Ils étaient déjà rangés dans des tiroirs
+   séparés par le code (`food.source`), mais nulle part cette distinction
+   n'était posée, nommée, ni lisible sur l'item lui-même : quatre origines,
+   quatre façons d'arriver dans la bibliothèque, un seul registre pour les
+   dire — et une pastille (`OriginTag`) que porte tout item, partout où il
+   apparaît, pour qu'on sache d'où il vient sans ouvrir sa fiche.
+
+   `source` reste le champ persisté (colonne `foods.source`, `meals.source`) ;
+   ce registre en est la lecture. Une valeur inconnue retombe sur 'custom'
+   plutôt que de faire disparaître la pastille — un item sans origine lisible
+   serait pire qu'un item mal étiqueté.
+
+   Les sous-catégories, elles, existaient déjà et ne sont pas refaites : le
+   groupe Ciqual pour un aliment simple, la marque pour un produit à code, la
+   provenance de l'analyse pour un item IA. `itemSub()` va les chercher là où
+   chaque origine les range.                                                  */
+const ITEM_ORIGINS = [
+  { id:'ref',    label:'Aliment simple', tag:'simple', hint:'Table Ciqual (ANSES) — un aliment officiel sans étiquette : poulet, riz, framboise.' },
+  { id:'off',    label:'Aliment à code', tag:'code',   hint:'Open Food Facts — un produit emballé, reconnu à son code-barres.' },
+  { id:'ai',     label:'Item IA',        tag:'ia',     hint:'Décomposé par l’analyse IA à partir d’un texte ou d’une photo.' },
+  { id:'custom', label:'Personnel',      tag:'perso',  hint:'Créé à la main, ici, par toi.' },
+];
+const ORIGIN_BY_ID = Object.fromEntries(ITEM_ORIGINS.map(o => [o.id, o]));
+const FALLBACK_ORIGIN = ORIGIN_BY_ID.custom;
+
+// L'origine d'un item, quoi qu'il arrive : un aliment, un repas, ou une ligne
+// de journal (qui n'en porte pas et retombe donc sur « personnel »).
+function itemOrigin(x){
+  return (x && ORIGIN_BY_ID[x.source]) || FALLBACK_ORIGIN;
+}
+// La sous-catégorie, là où chaque origine la range déjà. Un aliment simple
+// perd son groupe Ciqual en rejoignant la bibliothèque (la table `foods` n'a
+// pas de colonne pour ça) : il garde en revanche son code `ciqual:…`, ce qui
+// suffit à le retrouver dans la table — le même détour que `foodSourceUrl`.
+function itemSub(x, refByBarcode){
+  if (!x) return '';
+  if (x.source === 'ref'){
+    if (x.sub || x.group) return x.sub || x.group;
+    const ref = refByBarcode && refByBarcode[x.barcode];
+    return ref ? (ref.sub || ref.group || '') : '';
+  }
+  if (x.source === 'ai')  return Array.isArray(x.items) ? 'analyse d’un repas' : 'analyse';
+  return x.brand || '';
+}
+// La pastille d'origine — le même objet visuel partout où un item se montre :
+// résultat de recherche, carte de bibliothèque, carte de repas.
+function OriginTag({ item, origin }){
+  const o = origin || itemOrigin(item);
+  return <span className={`item-tag o-${o.id}`} title={o.hint}>{o.tag}</span>;
+}
+
+/* ---- Les icônes de la page ------------------------------------------------
+   Trois glyphes qui reviennent à plusieurs endroits chacun. Recopiés à la main
+   là où on en avait besoin, ils auraient dérivé — c'est déjà arrivé à
+   l'engrenage, qui s'était transformé en soleil ; ils sont donc définis une
+   fois, comme GearIcon.                                                      */
+function ScanIcon({ size = 15 }){
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
+         strokeWidth="1.4" strokeLinecap="round" aria-hidden="true" focusable="false">
+      <path d="M2 5.2V3.4A1.4 1.4 0 0 1 3.4 2h1.8M10.8 2h1.8A1.4 1.4 0 0 1 14 3.4v1.8M14 10.8v1.8a1.4 1.4 0 0 1-1.4 1.4h-1.8M5.2 14H3.4A1.4 1.4 0 0 1 2 12.6v-1.8" />
+      <path d="M4.6 8h6.8" />
+    </svg>
+  );
+}
+function StarIcon({ size = 13, filled = false }){
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}
+         stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" />
+    </svg>
+  );
+}
+function PlusIcon({ size = 15 }){
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
+         strokeWidth="1.4" strokeLinecap="round" aria-hidden="true" focusable="false">
+      <path d="M8 3v10M3 8h10" />
+    </svg>
+  );
+}
+
 /* ---- Ce qu'on compte -----------------------------------------------------
    Les 4 macros sont les compteurs de tête : ce sont elles qui remontent dans
    la page Log, elles qui ont un objectif, elles qui ont un graphe.
@@ -136,12 +221,13 @@ function foodToRow(f, userId){
    part). Les ingrédients portent leurs valeurs POUR 100 g et leur poids
    séparément — corriger un poids recalcule les macros sans rien redemander. */
 function mealFromRow(r){
-  return { id:r.id, name:r.name, items:Array.isArray(r.items) ? r.items : [],
-           steps:Array.isArray(r.steps) ? r.steps : [],
+  return { id:r.id, name:r.name, source:r.source || 'custom', items:Array.isArray(r.items) ? r.items : [],
+           steps:Array.isArray(r.steps) ? r.steps : [], favorite:!!r.favorite,
            createdAt:Number(r.created_at), lastUsedAt:r.last_used_at ? Number(r.last_used_at) : null };
 }
 function mealToRow(m, userId){
-  return { id:m.id, user_id:userId, name:m.name, items:m.items || [], steps:m.steps || [],
+  return { id:m.id, user_id:userId, name:m.name, source:m.source || 'custom',
+           items:m.items || [], steps:m.steps || [], favorite:!!m.favorite,
            created_at:m.createdAt, last_used_at:m.lastUsedAt ?? null };
 }
 
@@ -586,9 +672,12 @@ function foodSourceUrl(food, refByBarcode){
      · et garder deux moteurs : BarcodeDetector, natif et
        instantané mais absent de Safari (donc de tout iPhone),
        et ZXing, chargé à la demande depuis un CDN.
-   Restent deux issues de secours quand la vidéo ne suffit pas :
-   la photo — l'appareil photo natif fait une image nette là où
-   le flux vidéo reste flou — et la saisie du code à la main.
+   Le scanner ne fait plus que scanner : il n'a ni photo de
+   secours ni champ à lui. Un code qui ne se lit pas se tape
+   dans le champ à côté — la barre de recherche, ou le champ
+   code-barres de l'ajout rapide — qui reconnaissent une suite
+   de chiffres pour ce qu'elle est. Une seule façon d'entrer un
+   code au clavier, au lieu de trois selon l'endroit.
    ============================================================ */
 const ZXING_SRCS = [
   'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js',
@@ -748,9 +837,6 @@ function FoodScanner({ onCode }){
   const [canTorch, setCanTorch] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [zoom, setZoom] = useState(null);       // { min, max, step, value } si l'appareil le permet
-  const [manual, setManual] = useState('');
-  const [photoBusy, setPhotoBusy] = useState(false);
-  const [photoMsg, setPhotoMsg] = useState('');
 
   // onCode change à chaque rendu du parent ; le passer en dépendance
   // relancerait la caméra en boucle.
@@ -781,7 +867,7 @@ function FoodScanner({ onCode }){
       if (!camOn) return;             // interrupteur éteint : aucun flux demandé
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
         setStatus('error');
-        setErr('Ce navigateur ne donne pas accès à la caméra. Tape le code à la main, ou passe par une photo.');
+        setErr('Ce navigateur ne donne pas accès à la caméra. Tape le code dans le champ à côté.');
         return;
       }
       let stream;
@@ -903,54 +989,6 @@ function FoodScanner({ onCode }){
     try { await track.applyConstraints({ advanced:[{ zoom: value }] }); } catch {}
   };
 
-  // Issue de secours : une photo prise par l'appareil natif est nette et pleine
-  // résolution là où le flux vidéo reste flou. On l'attaque plus fort, en
-  // plusieurs recadrages, puisqu'il n'y a qu'une image à traiter.
-  const decodePhoto = async (file) => {
-    if (!file) return;
-    setPhotoBusy(true); setPhotoMsg('');
-    try {
-      const url = URL.createObjectURL(file);
-      const img = await new Promise((resolve, reject) => {
-        const i = new Image();
-        i.onload = () => resolve(i);
-        i.onerror = () => reject(new Error('Image illisible.'));
-        i.src = url;
-      });
-      const decoders = [];
-      const native = await makeNativeDecoder();
-      if (native) decoders.push(native);
-      try { decoders.push(await makeZXingDecoder()); } catch {}
-      const canvas = document.createElement('canvas');
-      const rot = document.createElement('canvas');
-      let found = null;
-      for (const tight of [false, true]){
-        if (found) break;
-        if (!drawRegion(img, canvas, tight, img.naturalWidth, img.naturalHeight, 1600)) continue;
-        for (const c of [canvas, rotateCanvas(canvas, rot)]){
-          for (const d of decoders){
-            try {
-              const code = await d.decode(c, true);
-              if (code && codeLooksValid(cleanCode(code))){ found = cleanCode(code); break; }
-            } catch {}
-          }
-          if (found) break;
-        }
-      }
-      URL.revokeObjectURL(url);
-      if (found) hit(found);
-      else setPhotoMsg('Aucun code lu sur cette photo. Rapproche-toi un peu, code bien à plat, et réessaie.');
-    } catch(e){
-      setPhotoMsg(e.message || 'Photo illisible.');
-    }
-    setPhotoBusy(false);
-  };
-
-  const submitManual = () => {
-    const code = cleanCode(manual);
-    if (code.length >= 8) onCodeRef.current(code);
-  };
-
   return (
     <div className="fd-scan">
       <div className={`fd-scan-view ${camOn ? status : 'off'}`}>
@@ -1000,27 +1038,6 @@ function FoodScanner({ onCode }){
         </p>
       )}
 
-      <div className="fd-scan-alt">
-        <label className={`fd-photo ${photoBusy?'busy':''}`}>
-          <input type="file" accept="image/*" capture="environment"
-                 onChange={e => { decodePhoto(e.target.files && e.target.files[0]); e.target.value = ''; }} />
-          {photoBusy ? 'Lecture…' : 'Prendre une photo du code'}
-        </label>
-        <span className="fd-scan-alt-note serif">plus net que la vidéo si ça bloque</span>
-      </div>
-      {photoMsg && <p className="fd-note warn serif">{photoMsg}</p>}
-
-      <div className="fd-manual">
-        <label>Ou tape le code</label>
-        <input
-          inputMode="numeric"
-          placeholder="3017620422003"
-          value={manual}
-          onChange={e => setManual(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') submitManual(); }}
-        />
-        <button className="primary sm" disabled={cleanCode(manual).length < 8} onClick={submitManual}>Chercher</button>
-      </div>
     </div>
   );
 }
@@ -1132,12 +1149,18 @@ function useFoodStore(userId){
 
   /* ---- Repas enregistrés ---- */
   const saveMeal = async (meal) => {
-    const m = { steps:[], items:[], createdAt:Date.now(), lastUsedAt:null, ...meal,
+    const m = { steps:[], items:[], source:'custom', favorite:false, createdAt:Date.now(), lastUsedAt:null, ...meal,
                 id: meal.id || uid('m_') };
     const { error } = await supabase.from('meals').upsert(mealToRow(m, userId));
     if (error) return null;
     setMeals(s => s.some(x => x.id === m.id) ? s.map(x => x.id === m.id ? m : x) : [m, ...s]);
     return m;
+  };
+  // Un repas se met en favori exactement comme un aliment : ce sont deux items,
+  // l'étoile ne peut pas vouloir dire deux choses.
+  const toggleMealFavorite = async (id) => {
+    const m = meals.find(x => x.id === id);
+    if (m) await saveMeal({ ...m, favorite: !m.favorite });
   };
   const removeMeal = async (id) => {
     const { error } = await supabase.from('meals').delete().eq('id', id);
@@ -1185,7 +1208,7 @@ function useFoodStore(userId){
   return { ready, foods, logs, logsByDay, meals, goals, effectiveGoals, goalsSet: Object.keys(setGoalValues).length > 0,
            refFoods, refByBarcode,
            saveFood, updateFood, removeFood, toggleFavorite,
-           saveMeal, removeMeal, addMealToDay,
+           saveMeal, removeMeal, addMealToDay, toggleMealFavorite,
            addLog, updateLog, removeLog, saveGoals, totalsForDay };
 }
 
@@ -1256,7 +1279,7 @@ function FoodPage({ store, sub, onSub, aiEnabled = true }){
   const [day, setDay] = useState(() => dayKey(Date.now()));
 
   const hint = sub === 'jour' ? 'ce que vous avez mangé'
-             : sub === 'aliments' ? 'vos produits scannés et vos aliments perso'
+             : sub === 'aliments' ? 'vos items — aliments simples, produits à code, IA, perso'
              : 'calories et macros dans le temps';
 
   return (
@@ -1287,7 +1310,7 @@ function FoodPage({ store, sub, onSub, aiEnabled = true }){
                                   servingG:null, imageUrl:'', nutriments:{}, barcode:null,
                                   favorite:false, lastUsedAt:null, createdAt:Date.now() })}
           onScan={()=>setAddOpen({ meal:null, day })}
-          onNewMeal={()=>setMealDraft({ name:'', items:[], steps:[] })}
+          onNewMeal={()=>setMealDraft({ name:'', items:[], steps:[], source:'custom' })}
           onEditMeal={setMealDraft}
         />
       ) : (
@@ -1448,13 +1471,13 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
         </p>
       )}
 
+      {/* Le bouton principal de la page n'est plus « scanner » : le scan est une
+          façon d'ajouter parmi quatre, pas la porte d'entrée. Il ouvre l'ajout,
+          qui range les quatre dans le même endroit. */}
       <div className="fd-scan-cta">
         <button className="fd-primary" onClick={()=>onAdd(defaultMealForNow())}>
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-            <path d="M2 5.2V3.4A1.4 1.4 0 0 1 3.4 2h1.8M10.8 2h1.8A1.4 1.4 0 0 1 14 3.4v1.8M14 10.8v1.8a1.4 1.4 0 0 1-1.4 1.4h-1.8M5.2 14H3.4A1.4 1.4 0 0 1 2 12.6v-1.8" />
-            <path d="M4.6 8h6.8" />
-          </svg>
-          Scanner un produit
+          <PlusIcon />
+          Ajouter
         </button>
       </div>
 
@@ -1525,8 +1548,8 @@ function foodForLog(store, log){
   if (known) return known;
   const per100 = scaleNutriments(log.nutriments, log.grams > 0 ? (100 / log.grams) * 100 : 100);
   return { id:log.foodId || 'orphan', name:log.name, brand:log.brand, basis:log.unit === 'ml' ? 'ml' : 'g',
-           // Une portion vaut 100 g en interne (voir ManualEntry) : sans ça,
-           // rouvrir une ligne saisie en portions donnerait une quantité nulle.
+           // Une portion valait 100 g en interne dans l'ancienne saisie à la main :
+           // sans ça, rouvrir une telle ligne donnerait une quantité nulle.
            servingG: log.unit === 'portion' ? 100 : null,
            nutriments: log.grams > 0 ? per100 : {}, source:'custom' };
 }
@@ -1736,7 +1759,7 @@ function IngredientEditor({ items, onChange, store, children }){
    ============================================================ */
 const AI_PHOTO_MAX_BYTES = 5 * 1024 * 1024; // 5 Mo — large marge avant l'encodage base64
 
-function AiAnalyseTab({ store, day, initialMeal, onDone, onSaveAsMeal }){
+function AiAnalyseTab({ store, day, initialMeal, onDone, onEditAsMeal }){
   const [description, setDescription] = useState('');
   const [photo, setPhoto] = useState(null);   // { dataUrl, base64, mediaType }
   const [photoErr, setPhotoErr] = useState('');
@@ -1787,44 +1810,56 @@ function AiAnalyseTab({ store, day, initialMeal, onDone, onSaveAsMeal }){
 
   const totals = itemsTotals(items);
   const canAdd = items.some(it => (Number(it.grams) || 0) > 0);
+  const aiName = () => (result && result.plat) || description.trim().slice(0, 60) || 'Analyse IA';
 
+  // Ce qui sort d'ici est un item, pas seulement des lignes de journal : le
+  // repas analysé est enregistré tel quel, marqué `source:'ai'`, et se retrouve
+  // dans Mes items › Repas avec sa pastille. Sans ça, une analyse qu'on refait
+  // deux fois par semaine serait à redemander au modèle deux fois par semaine.
   const addToJournal = async () => {
+    const saved = { name: aiName(), items, steps: [], source: 'ai' };
+    await store.saveMeal(saved);
     await store.addMealToDay({ items }, day, mealSlot);
     onDone();
   };
 
   return (
     <div className="fd-ai">
+      {/* La photo d'abord, en grand : c'est elle qui porte la composition
+          visible, le texte ne sert qu'à dire ce qu'elle ne montre pas.
+          Deux rectangles pleine largeur, l'un au-dessus de l'autre — deux
+          façons de décrire la même assiette, pas deux réglages d'un formulaire. */}
       <div className="fd-ai-input">
+        {photo ? (
+          <div className="fd-ai-drop filled">
+            <img src={photo.dataUrl} alt="" />
+            <button className="icon-btn fd-ai-photo-del" title="Retirer la photo"
+                    aria-label="Retirer la photo" onClick={()=>setPhoto(null)}>✕</button>
+          </div>
+        ) : (
+          <label className="fd-ai-drop">
+            <input type="file" accept="image/*" capture="environment"
+                   onChange={e => { pickPhoto(e.target.files && e.target.files[0]); e.target.value = ''; }} />
+            <span className="fd-ai-drop-plus" aria-hidden="true"><PlusIcon size={22} /></span>
+            <span className="fd-ai-drop-label">Photo du repas</span>
+          </label>
+        )}
+        {photoErr && <p className="fd-note warn serif">{photoErr}</p>}
+
         <textarea
-          rows={3}
+          className="fd-ai-text"
+          rows={4}
           value={description}
           onChange={e=>setDescription(e.target.value)}
           onKeyDown={e=>{ if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) run(); }}
           placeholder="Poke bowl saumon, riz, avocat, edamame, sauce soja sucrée — bol moyen de resto"
         />
 
-        <div className="fd-ai-photo-row">
-          {photo ? (
-            <div className="fd-ai-photo">
-              <img src={photo.dataUrl} alt="" />
-              <button className="icon-btn sm fd-ai-photo-del" title="Retirer la photo" onClick={()=>setPhoto(null)}>✕</button>
-            </div>
-          ) : (
-            <label className="fd-photo">
-              <input type="file" accept="image/*" capture="environment"
-                     onChange={e => { pickPhoto(e.target.files && e.target.files[0]); e.target.value = ''; }} />
-              ＋ Photo du repas
-            </label>
-          )}
+        <div className="fd-ai-actions">
           <span className="fd-ai-hint serif">
             Texte, photo, ou les deux — envoyés dans la même analyse. Plus tu donnes de détails —
             poids pesés, morceau de viande, huile de cuisson — plus l'estimation se resserre.
           </span>
-        </div>
-        {photoErr && <p className="fd-note warn serif">{photoErr}</p>}
-
-        <div className="fd-ai-actions fd-ai-actions-end">
           <button className="primary sm" disabled={!canRun} onClick={run}>
             {busy ? 'Analyse…' : result ? 'Relancer' : 'Analyser'}
           </button>
@@ -1837,7 +1872,10 @@ function AiAnalyseTab({ store, day, initialMeal, onDone, onSaveAsMeal }){
         <>
           <div className="fd-ai-head">
             <span className="fd-ai-plat serif">{result.plat || 'Repas'}</span>
-            {result.marge && <span className="fd-ai-marge mono">{result.marge}</span>}
+            <span className="fd-ai-tags">
+              <OriginTag origin={ORIGIN_BY_ID.ai} />
+              {result.marge && <span className="fd-ai-marge mono">{result.marge}</span>}
+            </span>
           </div>
           {result.question && (
             <p className="fd-note serif">
@@ -1856,10 +1894,15 @@ function AiAnalyseTab({ store, day, initialMeal, onDone, onSaveAsMeal }){
             </Segmented>
           </div>
 
+          <p className="fd-note serif">
+            Ajouter note la journée <b>et</b> range l'analyse dans Mes items › Repas, marquée IA —
+            de quoi la remettre en un geste sans redemander au modèle.
+          </p>
+
           <div className="modal-actions">
-            <button className="ghost" onClick={()=>onSaveAsMeal({
-              name: result.plat || description.trim().slice(0, 60), items, steps: [],
-            })}>Enregistrer comme repas</button>
+            <button className="ghost" onClick={()=>onEditAsMeal({
+              name: aiName(), items, steps: [], source: 'ai',
+            })}>Nommer / ajouter une recette</button>
             <button className="primary" disabled={!canAdd} onClick={addToJournal}>
               Ajouter {fmtNum(totals.kcal, 0)} kcal
             </button>
@@ -1877,26 +1920,35 @@ function AiAnalyseTab({ store, day, initialMeal, onDone, onSaveAsMeal }){
   );
 }
 
-/* ---- Mes repas : les presets, dans la modale d'ajout ----------------------- */
-function MealsTab({ store, day, initialMeal, onDone, onNew, onEdit }){
+/* ---- Mes repas : les presets, dans la page d'ajout -------------------------
+   Un repas est un item comme un aliment — il se met en favori, il porte son
+   origine (créé à la main, ou sorti d'une analyse IA) — d'où la même étoile et
+   la même pastille que sur une ligne d'aliment. La bascule Aliments/Repas et
+   le filtre vivent au-dessus, dans la barre à icône : cette liste ne fait que
+   les appliquer.                                                             */
+function MealsTab({ store, day, initialMeal, favOnly, query, onDone, onNew, onEdit }){
   const [mealSlot, setMealSlot] = useState(initialMeal || defaultMealForNow());
-  const list = useMemo(
-    () => [...store.meals].sort((a,b) => (b.lastUsedAt || b.createdAt) - (a.lastUsedAt || a.createdAt)),
-    [store.meals]);
+  const list = useMemo(() => {
+    const needle = (query || '').trim().toLowerCase();
+    let arr = favOnly ? store.meals.filter(m => m.favorite) : store.meals;
+    if (needle) arr = arr.filter(m => m.name.toLowerCase().includes(needle));
+    return [...arr].sort((a,b) => (b.lastUsedAt || b.createdAt) - (a.lastUsedAt || a.createdAt));
+  }, [store.meals, favOnly, query]);
 
   return (
-    <div className="fd-search">
-      <div className="fd-search-bar">
-        <span className="fd-ai-hint serif" style={{flex:1}}>
+    <>
+      <div className="fd-mine-head">
+        <span className="fd-ai-hint serif">
           Un repas ajoute tous ses ingrédients d'un coup, chacun sur sa propre ligne.
         </span>
-        <button className="primary sm" onClick={onNew}>+ Repas</button>
+        <button className="pill add" onClick={onNew}>+ Repas</button>
       </div>
 
       {!list.length ? (
         <p className="fd-note serif">
-          Aucun repas enregistré. Crée-en un à partir de ce que tu manges souvent — ou enregistre
-          un résultat d'analyse IA comme repas.
+          {favOnly
+            ? "Aucun repas favori. L'étoile sur un repas le range ici."
+            : "Aucun repas enregistré. Crée-en un à partir de ce que tu manges souvent — une analyse IA en fabrique un toute seule."}
         </p>
       ) : (
         <>
@@ -1913,12 +1965,19 @@ function MealsTab({ store, day, initialMeal, onDone, onNew, onEdit }){
               const t = itemsTotals(m.items);
               return (
                 <div className="fd-item-row" key={m.id}>
+                  <button className={`fd-fav ${m.favorite?'on':''}`} onClick={()=>store.toggleMealFavorite(m.id)}
+                          aria-pressed={!!m.favorite} title={m.favorite ? 'Retirer des favoris' : 'Mettre en favori'}>
+                    <StarIcon filled={m.favorite} />
+                  </button>
                   <button className="fd-item" onClick={async ()=>{ await store.addMealToDay(m, day, mealSlot); onDone(); }}>
                     <span className="fd-item-txt">
                       <span className="n">{m.name}</span>
-                      <span className="b">
-                        {m.items.length} ingrédient{m.items.length>1?'s':''}
-                        {m.steps && m.steps.length ? ` · ${m.steps.length} étape${m.steps.length>1?'s':''}` : ''}
+                      <span className="fd-item-tags">
+                        <OriginTag item={m} />
+                        <span className="fd-item-sub">
+                          {m.items.length} ingrédient{m.items.length>1?'s':''}
+                          {m.steps && m.steps.length ? ` · ${m.steps.length} étape${m.steps.length>1?'s':''}` : ''}
+                        </span>
                       </span>
                       <span className="m mono">
                         <b>{fmtNum(t.kcal,0)} kcal</b> · P {fmtMacro(t.protein)} · G {fmtMacro(t.carbs)} · L {fmtMacro(t.fat)}
@@ -1933,7 +1992,7 @@ function MealsTab({ store, day, initialMeal, onDone, onNew, onEdit }){
           </div>
         </>
       )}
-    </div>
+    </>
   );
 }
 
@@ -2006,13 +2065,34 @@ function MealEditModal({ meal, store, onClose, onSave, onDelete }){
   );
 }
 
-/* ---- Ajouter un aliment (scanner / recherche / bibliothèque) --------------- */
+/* ---- La page d'ajout -------------------------------------------------------
+   Le bouton principal de la page Food n'ouvre plus un scanner : il ouvre
+   l'ajout, et le scan n'est plus qu'une des façons d'y arriver. Quatre
+   onglets, parce que ce sont quatre gestes distincts :
+
+     Recherche     chercher dehors — table Ciqual, Open Food Facts — dans une
+                   seule barre qui accepte aussi bien un nom qu'un code-barres,
+                   et dont le bouton rond sort la caméra.
+     Mes items     reprendre ce qui est déjà à soi : aliments ou repas, avec
+                   l'étoile pour ne garder que les favoris des deux.
+     IA            décrire, photographier, ou les deux, et laisser décomposer.
+     Ajout rapide  poser soi-même les chiffres.
+
+   L'ancienne modale en avait sept, sur deux rangées, qui mélangeaient « où je
+   cherche » et « quoi je cherche » — le scan était un onglet à lui seul alors
+   que c'est une façon de remplir la recherche, et « à la main » ne disait pas
+   ce qu'il fabriquait. Rien n'a disparu : les sept sont devenues les
+   sous-bascules de ces quatre.                                               */
 function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true }){
-  // scan | recherche | manuel | ia | bibliotheque | favoris | repas
-  const [source, setSource] = useState('scan');
-  const [manualSeed, setManualSeed] = useState(null);   // { name?, barcode? } pré-rempli
+  // recherche | mesitems | ia | rapide
+  const [tab, setTab] = useState('recherche');
+  const [scanOpen, setScanOpen] = useState(false);      // la caméra de l'onglet Recherche
+  const [quickSeed, setQuickSeed] = useState(null);     // { name?, barcode?, mode? } pour l'ajout rapide
+  // L'ajout rapide lit son amorce au montage. Un nouveau code scanné alors
+  // qu'on y est déjà ne le remonterait pas tout seul : cette clé le force.
+  const [quickKey, setQuickKey] = useState(0);
   const [mealDraft, setMealDraft] = useState(null);     // repas en cours de création/édition
-  const [picked, setPicked] = useState(null);     // aliment choisi → étape quantité
+  const [picked, setPicked] = useState(null);           // aliment choisi → étape quantité
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [results, setResults] = useState(null);
@@ -2021,17 +2101,31 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
   const [searchErr, setSearchErr] = useState('');
   const [query, setQuery] = useState('');
   const [thumbs, setThumbs] = useState(false);    // vignettes : coupées par défaut, c'est plus vif
+  // « Mes items » : la bascule aliments/repas, l'étoile, et le filtre.
+  const [mine, setMine] = useState('aliments');   // aliments | repas
+  const [favOnly, setFavOnly] = useState(false);
   const [libQuery, setLibQuery] = useState('');
   // Le scanner s'arrête au premier code lu. Si ce code ne donne rien, il faut le
   // relancer : changer sa clé le remonte, caméra comprise.
   const [scanNonce, setScanNonce] = useState(0);
+
+  // L'ajout rapide, avec un code déjà connu : c'est là qu'atterrit un code
+  // scanné qu'aucune base ne reconnaît, et le renseigner une fois suffit à ce
+  // qu'il soit reconnu au scan suivant.
+  const openQuick = useCallback((seed) => {
+    setQuickSeed(seed || {});
+    setQuickKey(n => n + 1);
+    setMsg('');
+    setScanOpen(false);
+    setTab('rapide');
+  }, []);
 
   // Un code scanné : d'abord la bibliothèque locale (instantané, marche hors ligne),
   // ensuite seulement le réseau.
   const handleCode = useCallback(async (code) => {
     setMsg('');
     const cached = store.foods.find(f => f.barcode === code);
-    if (cached){ setPicked(cached); return; }
+    if (cached){ setScanOpen(false); setPicked(cached); return; }
     setBusy(true);
     try {
       const found = await offFetchProduct(code);
@@ -2039,7 +2133,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
         setMsg('');
         setPicked(null);
         setBusy(false);
-        openManual({ barcode: code });     // le code est gardé : reconnu au prochain scan
+        openQuick({ barcode: code, mode:'codebarre' });   // le code est gardé : reconnu au prochain scan
         return;
       }
       if (!foodIsUsable(found)){
@@ -2049,13 +2143,14 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
         return;
       }
       const saved = await store.saveFood(found);
+      setScanOpen(false);
       setPicked(saved || found);
     } catch(e){
       setMsg(e.name === 'AbortError' ? 'Open Food Facts ne répond pas. Réessaie.' : (e.message || 'Recherche impossible.'));
       setScanNonce(n => n + 1);
     }
     setBusy(false);
-  }, [store]);
+  }, [store, openQuick]);
 
   // Recherche : une requête en vol à la fois, la plus récente gagne.
   const seqRef = useRef(0);
@@ -2063,7 +2158,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
   const runSearch = useCallback(async (raw) => {
     const q = raw.trim();
     if (q.length < 3) return;
-    if (/^\d{8,14}$/.test(q)){ handleCode(q); return; }   // un code collé dans la barre
+    if (/^\d{8,14}$/.test(q)){ handleCode(q); return; }   // un code tapé dans la barre
     const id = ++seqRef.current;
     try { abortRef.current && abortRef.current.abort(); } catch {}
     const ctrl = new AbortController();
@@ -2095,15 +2190,11 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
 
   useEffect(() => () => { try { abortRef.current && abortRef.current.abort(); } catch {} }, []);
 
-  const openManual = useCallback((seed) => {
-    setManualSeed(seed || {});
-    setMsg('');
-    setSource('manuel');
-  }, []);
-
-  // Une saisie manuelle fait une ligne de repas, et — si on le demande — un
-  // aliment de plus dans la bibliothèque, pour ne pas la retaper la fois d'après.
-  const submitManualEntry = async ({ name, qty, unit, grams, meal:m, nutriments, per100, basis, keep, barcode }) => {
+  // L'ajout rapide fait toujours une ligne de journal. Il fabrique en plus un
+  // item — un aliment de la bibliothèque — dès qu'il y a de quoi en faire un :
+  // un nom et des valeurs ramenables à 100 g. Le bloc de macros nu, lui, n'est
+  // pas un item : c'est un correctif de journée, il n'a rien à venir encombrer.
+  const submitQuickAdd = async ({ name, qty, unit, grams, meal:m, nutriments, per100, basis, keep, barcode }) => {
     let foodId = null;
     if (keep){
       const saved = await store.saveFood({
@@ -2145,12 +2236,12 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
       .slice(0, 6);
   }, [store.foods, query]);
 
-  const library = useMemo(() => {
+  const myFoods = useMemo(() => {
     const q = libQuery.trim().toLowerCase();
-    let list = source === 'favoris' ? store.foods.filter(f => f.favorite) : store.foods;
-    if (q) list = list.filter(f => foodLabel(f).toLowerCase().includes(q));
+    let list = favOnly ? store.foods.filter(f => f.favorite) : store.foods;
+    if (q) list = list.filter(f => foodLabel(f).toLowerCase().includes(q) || (f.barcode || '').includes(q));
     return [...list].sort((a,b) => (b.lastUsedAt || b.createdAt) - (a.lastUsedAt || a.createdAt)).slice(0, 60);
-  }, [store.foods, libQuery, source]);
+  }, [store.foods, libQuery, favOnly]);
 
   if (picked){
     return (
@@ -2173,6 +2264,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
   }
 
   const q = query.trim();
+  const isCode = /^\d{8,14}$/.test(q);
 
   return (
     <div className="scrim" onClick={onClose}>
@@ -2182,67 +2274,46 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
           {meal ? MEAL_LABEL[meal] : 'Bibliothèque'} · {dayLabel(dayKeyToTs(day)).toLowerCase()}
         </div>
 
-        {/* Deux rangées, parce que ce sont deux gestes différents : trouver un
-            aliment quelque part, ou reprendre quelque chose qui est déjà à soi. */}
+        {/* Une seule rangée : les quatre façons d'ajouter quelque chose. */}
         <div className="fd-tabs">
-          <Segmented wrap>
-            <button className={source==='scan'?'on':''} onClick={()=>setSource('scan')}>Scanner</button>
-            <button className={source==='recherche'?'on':''} onClick={()=>setSource('recherche')}>Rechercher</button>
-            <button className={source==='manuel'?'on':''} onClick={()=>openManual({ name: query.trim() })}>À la main</button>
-            {aiEnabled && <button className={source==='ia'?'on':''} onClick={()=>setSource('ia')}>IA</button>}
-          </Segmented>
-          <Segmented wrap>
-            <button className={source==='bibliotheque'?'on':''} onClick={()=>setSource('bibliotheque')}>Mes aliments</button>
-            <button className={source==='favoris'?'on':''} onClick={()=>setSource('favoris')}>Mes favoris</button>
-            <button className={source==='repas'?'on':''} onClick={()=>setSource('repas')}>Mes repas</button>
+          <Segmented size="small" wrap>
+            <button className={tab==='recherche'?'on':''} onClick={()=>setTab('recherche')}>Recherche</button>
+            <button className={tab==='mesitems'?'on':''} onClick={()=>setTab('mesitems')}>Mes items</button>
+            {aiEnabled && <button className={tab==='ia'?'on':''} onClick={()=>setTab('ia')}>IA</button>}
+            <button className={tab==='rapide'?'on':''} onClick={()=>{ if (tab !== 'rapide') openQuick({ name: q }); }}>Ajout rapide</button>
           </Segmented>
         </div>
 
-        {source === 'scan' && <FoodScanner key={scanNonce} onCode={handleCode} />}
-
-        {aiEnabled && source === 'ia' && (
-          <AiAnalyseTab
-            store={store} day={day} initialMeal={meal}
-            onDone={onClose}
-            onSaveAsMeal={(draft)=>setMealDraft(draft)}
-          />
-        )}
-
-        {source === 'repas' && (
-          <MealsTab
-            store={store} day={day} initialMeal={meal}
-            onDone={onClose}
-            onNew={()=>setMealDraft({ name:'', items:[], steps:[] })}
-            onEdit={(m)=>setMealDraft(m)}
-          />
-        )}
-
-        {source === 'manuel' && (
-          <ManualEntry
-            seed={manualSeed}
-            initialMeal={meal || defaultMealForNow()}
-            onSubmit={submitManualEntry}
-            onCancel={()=>{ setManualSeed(null); setSource(manualSeed && manualSeed.barcode ? 'scan' : 'recherche'); setScanNonce(n => n + 1); }}
-          />
-        )}
-
-        {source === 'recherche' && (
+        {tab === 'recherche' && (
           <div className="fd-search">
-            <div className="fd-search-bar">
+            {/* Barre à icône, forme intégrée : le bouton rond est dans la barre
+                parce qu'il ne fait pas autre chose qu'elle — il la remplit
+                autrement. Un nom, ou une suite de chiffres : la barre reconnaît
+                un code-barres pour ce qu'il est et va chercher le produit. */}
+            <IconBar
+              icon={<ScanIcon />} onIcon={()=>setScanOpen(v=>!v)} iconOn={scanOpen}
+              iconLabel={scanOpen ? 'Fermer le scanner' : 'Scanner un code-barres'}
+              className="fd-search-bar">
               <input
-                autoFocus placeholder="skyr, pain de mie, poulet…" value={query}
+                autoFocus placeholder="skyr, pain de mie, poulet, ou un code-barres…" value={query}
                 onChange={e=>setQuery(e.target.value)}
                 onKeyDown={e=>{ if(e.key==='Enter') runSearch(query); }}
               />
-              <button className="primary sm" disabled={q.length < 3} onClick={()=>runSearch(query)}>Chercher</button>
-            </div>
+            </IconBar>
+
+            {scanOpen && (
+              <div className="fd-scan-panel">
+                <FoodScanner key={scanNonce} onCode={handleCode} />
+              </div>
+            )}
 
             <div className="fd-search-meta">
               <span className="serif">
-                {q.length < 3 ? 'Trois lettres suffisent — les résultats arrivent à la frappe.'
+                {isCode ? 'Un code-barres — Entrée pour aller chercher le produit.'
+                  : q.length < 3 ? 'Trois lettres suffisent — les résultats arrivent à la frappe.'
                   : searching ? 'Recherche…'
                   : results ? `${results.length} résultat${results.length>1?'s':''}${via ? ` · ${via}` : ''}`
-                  : searchErr ? '' : ''}
+                  : ''}
               </span>
               <button className={`fd-thumb-toggle ${thumbs?'on':''}`} onClick={()=>setThumbs(v=>!v)}>
                 {thumbs ? 'sans images' : 'avec images'}
@@ -2251,27 +2322,27 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
 
             {localMatches.length > 0 && (
               <div className="fd-list">
-                <p className="fd-list-label">Dans tes aliments</p>
+                <p className="fd-list-label">Déjà à toi</p>
                 {localMatches.map(f => (
-                  <FoodPickRow key={'lib_'+f.id} food={f} showImage={thumbs} onPick={()=>setPicked(f)} />
+                  <FoodPickRow key={'lib_'+f.id} food={f} showImage={thumbs} onPick={()=>setPicked(f)} refByBarcode={store.refByBarcode} />
                 ))}
               </div>
             )}
 
             {refMatches.length > 0 && (
               <div className="fd-list">
-                <p className="fd-list-label">Aliments simples</p>
+                <p className="fd-list-label">Aliments simples — table Ciqual</p>
                 {refMatches.map(f => (
-                  <FoodPickRow key={f.id} food={f} showImage={false} onPick={()=>pickFromRef(f)} />
+                  <FoodPickRow key={f.id} food={f} showImage={false} onPick={()=>pickFromRef(f)} refByBarcode={store.refByBarcode} />
                 ))}
               </div>
             )}
 
             {results && results.length > 0 && (
               <div className="fd-list">
-                {(localMatches.length > 0 || refMatches.length > 0) && <p className="fd-list-label">Produits emballés — Open Food Facts</p>}
+                <p className="fd-list-label">Aliments à code — Open Food Facts</p>
                 {results.map(f => (
-                  <FoodPickRow key={f.barcode || f.id} food={f} showImage={thumbs} onPick={()=>pickFromSearch(f)} />
+                  <FoodPickRow key={f.barcode || f.id} food={f} showImage={thumbs} onPick={()=>pickFromSearch(f)} refByBarcode={store.refByBarcode} />
                 ))}
               </div>
             )}
@@ -2279,12 +2350,12 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
             {results && !results.length && !searching && !refMatches.length && (
               <p className="fd-note serif">
                 Aucun produit trouvé pour « {q} ».{' '}
-                <button className="fd-link" onClick={()=>openManual({ name: q })}>Le saisir à la main</button>
+                <button className="fd-link" onClick={()=>openQuick({ name: q, mode:'ingredient' })}>Le saisir à la main</button>
               </p>
             )}
             {searchErr && <p className="fd-note warn serif">{searchErr}</p>}
 
-            {q.length >= 3 && (
+            {q.length >= 3 && !isCode && (
               <p className="fd-note fd-src-line serif">
                 Vérifier par soi-même :{' '}
                 <a href={offSearchUrl(q)} target="_blank" rel="noopener noreferrer">cette recherche sur Open Food Facts ↗</a>
@@ -2293,31 +2364,73 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
           </div>
         )}
 
-        {(source === 'bibliotheque' || source === 'favoris') && (
+        {tab === 'mesitems' && (
           <div className="fd-search">
-            <div className="fd-search-bar">
+            {/* Barre à icône, forme séparée : la barre est ici une bascule — ce
+                qu'on regarde — et l'étoile agit dessus, en la réduisant aux
+                favoris. Deux objets, donc deux contours. */}
+            <IconBar detached
+              icon={<StarIcon filled={favOnly} />} onIcon={()=>setFavOnly(v=>!v)} iconOn={favOnly}
+              iconLabel={favOnly ? 'Voir tout' : 'Ne voir que les favoris'}>
+              <Segmented size="small">
+                <button className={mine==='aliments'?'on':''} onClick={()=>setMine('aliments')}>Aliments</button>
+                <button className={mine==='repas'?'on':''} onClick={()=>setMine('repas')}>Repas</button>
+              </Segmented>
+            </IconBar>
+
+            <div className="fd-mine-filter">
               <input placeholder="filtrer…" value={libQuery} onChange={e=>setLibQuery(e.target.value)} />
             </div>
-            <div className="fd-list">
-              {library.length
-                ? library.map(f => (
-                    <FoodPickRow key={f.id} food={f} showImage onPick={()=>setPicked(f)}
-                      favorite={f.favorite} onToggleFavorite={()=>store.toggleFavorite(f.id)} />
-                  ))
-                : <p className="fd-note serif">
-                    {source === 'favoris'
-                      ? "Aucun favori. L'étoile sur un aliment le range ici — de quoi retrouver en un geste ce que tu manges tous les jours."
-                      : "Rien encore. Scanne un produit ou crée un aliment dans l'onglet Aliments."}
-                  </p>}
-            </div>
+
+            {mine === 'aliments' ? (
+              <div className="fd-list">
+                {myFoods.length
+                  ? myFoods.map(f => (
+                      <FoodPickRow key={f.id} food={f} showImage onPick={()=>setPicked(f)}
+                        favorite={f.favorite} onToggleFavorite={()=>store.toggleFavorite(f.id)}
+                        refByBarcode={store.refByBarcode} />
+                    ))
+                  : <p className="fd-note serif">
+                      {favOnly
+                        ? "Aucun aliment favori. L'étoile sur un aliment le range ici — de quoi retrouver en un geste ce que tu manges tous les jours."
+                        : "Rien encore. Cherche un aliment, scanne un produit, ou crée-en un dans l'ajout rapide."}
+                    </p>}
+              </div>
+            ) : (
+              <MealsTab
+                store={store} day={day} initialMeal={meal}
+                favOnly={favOnly} query={libQuery}
+                onDone={onClose}
+                onNew={()=>setMealDraft({ name:'', items:[], steps:[], source:'custom' })}
+                onEdit={(m)=>setMealDraft(m)}
+              />
+            )}
           </div>
+        )}
+
+        {aiEnabled && tab === 'ia' && (
+          <AiAnalyseTab
+            store={store} day={day} initialMeal={meal}
+            onDone={onClose}
+            onEditAsMeal={(draft)=>setMealDraft(draft)}
+          />
+        )}
+
+        {tab === 'rapide' && (
+          <QuickAddTab
+            key={quickKey}
+            seed={quickSeed}
+            initialMeal={meal || defaultMealForNow()}
+            onSubmit={submitQuickAdd}
+            onCancel={onClose}
+          />
         )}
 
         {busy && <p className="fd-note serif">Recherche…</p>}
         {msg && <p className="fd-note warn serif">{msg}</p>}
 
-        {/* La saisie, l'IA et les repas ont leurs propres boutons de validation. */}
-        {source !== 'manuel' && source !== 'ia' && (
+        {/* L'ajout rapide et l'IA ont leurs propres boutons de validation. */}
+        {tab !== 'rapide' && tab !== 'ia' && (
           <div className="modal-actions">
             <button className="ghost" onClick={onClose}>Fermer</button>
           </div>
@@ -2329,7 +2442,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
           meal={mealDraft.id ? mealDraft : null}
           store={store}
           onClose={()=>setMealDraft(null)}
-          onSave={async (m)=>{ await store.saveMeal({ ...mealDraft, ...m }); setMealDraft(null); setSource('repas'); }}
+          onSave={async (m)=>{ await store.saveMeal({ ...mealDraft, ...m }); setMealDraft(null); setTab('mesitems'); setMine('repas'); }}
           onDelete={mealDraft.id ? async ()=>{ await store.removeMeal(mealDraft.id); setMealDraft(null); } : null}
         />
       )}
@@ -2340,18 +2453,16 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, aiEnabled = true
 // Une ligne de résultat : le nom, puis l'aperçu chiffré pour 100 g — de quoi
 // trancher entre deux produits sans en ouvrir aucun. Les vignettes sont
 // optionnelles : sans elles, la liste s'affiche instantanément.
-function FoodPickRow({ food, onPick, showImage = false, favorite, onToggleFavorite }){
+function FoodPickRow({ food, onPick, showImage = false, favorite, onToggleFavorite, refByBarcode }){
   const n = food.nutriments || {};
-  const src = foodSourceUrl(food);
+  const src = foodSourceUrl(food, refByBarcode);
+  const sub = itemSub(food, refByBarcode);
   return (
     <div className="fd-item-row">
       {onToggleFavorite && (
         <button className={`fd-fav ${favorite?'on':''}`} onClick={onToggleFavorite}
                 aria-pressed={!!favorite} title={favorite ? 'Retirer des favoris' : 'Mettre en favori'}>
-          <svg width="13" height="13" viewBox="0 0 16 16" fill={favorite ? 'currentColor' : 'none'}
-               stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">
-            <path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" />
-          </svg>
+          <StarIcon filled={!!favorite} />
         </button>
       )}
       <button className="fd-item" onClick={onPick}>
@@ -2360,9 +2471,13 @@ function FoodPickRow({ food, onPick, showImage = false, favorite, onToggleFavori
           : <span className="fd-item-ph" aria-hidden="true">{(food.name || '?').slice(0,1).toUpperCase()}</span>)}
         <span className="fd-item-txt">
           <span className="n">{food.name}</span>
-          {(food.brand || food.sub || food.group) && (
-            <span className="b">{food.brand || food.sub || food.group}</span>
-          )}
+          {/* D'où vient cet item, puis sa sous-catégorie — le groupe Ciqual,
+              la marque. La pastille d'abord : c'est elle qui dit s'il faut
+              croire ce nom sur parole ou aller vérifier une étiquette. */}
+          <span className="fd-item-tags">
+            <OriginTag item={food} />
+            {sub && <span className="fd-item-sub">{sub}</span>}
+          </span>
           <span className="m mono">
             {n.kcal != null
               ? <>
@@ -2385,37 +2500,49 @@ function FoodPickRow({ food, onPick, showImage = false, favorite, onToggleFavori
   );
 }
 
-/* ---- Saisie à la main ------------------------------------------------------
-   Le chemin le plus court entre « j'ai mangé ça » et une ligne dans le journal,
-   quand ni le scan ni la recherche ne servent à rien : un plat maison, un truc
-   au restaurant, une étiquette que la base ne connaît pas.
+/* ---- Ajout rapide ----------------------------------------------------------
+   Poser des chiffres soi-même, quand ni la recherche ni l'IA ne servent à
+   rien. Trois choses différentes sortent d'ici, et la bascule du haut dit
+   laquelle — parce que la question « est-ce que ça reste ? » n'a pas la même
+   réponse dans les trois cas :
 
-   Deux façons de donner les chiffres, parce que les deux se présentent :
-   ceux de l'étiquette (pour 100 g) ou ceux du plat entier (pour la quantité).
-   Avec 100 g et « pour 100 g » — les valeurs par défaut — les deux reviennent
-   au même, donc taper quatre nombres et valider suffit.
+     Ajout rapide  des calories et trois macros, versées dans la journée et
+                   rien d'autre. Ce n'est pas un item : c'est un correctif de
+                   journée — le sandwich du midi dont on connaît l'étiquette
+                   mais qu'on ne remangera jamais. Il n'a rien à faire dans la
+                   bibliothèque.
+     Ingrédient    la même base, plus le poids mangé et ce que les macros
+                   décrivent (100 g, ou tout le poids). Ça fabrique un item :
+                   un aliment personnel, réutilisable.
+     À code-barres l'ingrédient, plus son code. Même item, mais reconnu au
+                   scan la prochaine fois — c'est tout ce que le code ajoute,
+                   et c'est ce qui en fait la peine.
 
-   Une portion vaut 100 g en interne : ça n'est visible nulle part, et ça suffit
-   à ce que doubler la quantité double les chiffres.                          */
-function ManualEntry({ seed, initialMeal, onSubmit, onCancel }){
+   Les trois partagent la même première section, dans le même ordre, au même
+   endroit : passer de l'une à l'autre ne redispose rien, ça ajoute ou retire
+   une section en dessous.                                                    */
+const QUICK_MODES = [
+  { id:'rapide',     label:'Ajout rapide' },
+  { id:'ingredient', label:'Ingrédient' },
+  { id:'codebarre',  label:'À code-barres' },
+];
+
+function QuickAddTab({ seed, initialMeal, onSubmit, onCancel }){
+  // Un code déjà en main (scanné, inconnu de la base) ouvre directement le
+  // troisième mode : c'est le seul qui sache quoi en faire.
+  const [mode, setMode] = useState(seed?.mode || (seed?.barcode ? 'codebarre' : 'rapide'));
   const [name, setName] = useState(seed?.name || '');
-  const [unit, setUnit] = useState('g');            // g | ml | portion
-  const [qty, setQty] = useState('100');
-  const [per100, setPer100] = useState(true);
   const [vals, setVals] = useState({});
+  const [grams, setGrams] = useState('100');
+  const [per100, setPer100] = useState(true);     // les macros décrivent 100 g, ou tout le poids
+  const [basis, setBasis] = useState('g');        // g | ml
+  const [barcode, setBarcode] = useState(seed?.barcode || '');
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanNonce, setScanNonce] = useState(0);
   const [meal, setMeal] = useState(initialMeal || defaultMealForNow());
-  // Un code scanné mais inconnu : le garder, c'est ce qui fait qu'au prochain
-  // scan le produit sera reconnu — donc l'enregistrement n'est pas optionnel.
-  const forcedKeep = !!seed?.barcode;
-  const [keep, setKeep] = useState(true);
 
-  const portion = unit === 'portion';
-  const basis = unit === 'ml' ? 'ml' : 'g';
-  const perQty = portion || !per100;                // les chiffres valent pour la quantité saisie
-  const grams = (Number(qty) || 0) * (portion ? 100 : 1);
-  // Une portion n'a pas de poids : impossible d'en tirer une valeur pour 100 g
-  // honnête, donc pas de rangement en bibliothèque.
-  const canKeep = !portion && name.trim().length > 0;
+  const isItem = mode !== 'rapide';               // ce mode fabrique-t-il un aliment ?
+  const g = Number(grams) || 0;
 
   const entered = useMemo(() => {
     const out = {};
@@ -2426,22 +2553,28 @@ function ManualEntry({ seed, initialMeal, onSubmit, onCancel }){
     return out;
   }, [vals]);
 
-  const nutriments = perQty ? entered : scaleNutriments(entered, grams);
+  // Un ajout rapide n'a pas de poids à déclarer : ce qu'on tape EST ce qu'on a
+  // mangé, et la ligne de journal pèse 100 g par convention — invisible, et
+  // suffisant pour que les totaux du jour tombent juste.
+  const eatenGrams = isItem ? g : 100;
+  const perQty = isItem ? !per100 : true;         // les chiffres valent pour le poids saisi
+  const nutriments = perQty ? entered : scaleNutriments(entered, eatenGrams);
   const per100Values = perQty
-    ? (grams > 0 ? scaleNutriments(entered, (100 / grams) * 100) : {})
+    ? (eatenGrams > 0 ? scaleNutriments(entered, (100 / eatenGrams) * 100) : {})
     : entered;
 
-  const canSave = grams > 0 && typeof entered.kcal === 'number';
+  const hasKcal = typeof entered.kcal === 'number';
+  const canSave = hasKcal && eatenGrams > 0 && (!isItem || name.trim().length > 0);
 
   const submit = () => {
     if (!canSave) return;
     onSubmit({
       name: name.trim() || 'Ajout rapide',
-      qty: Number(qty), unit, grams, meal, nutriments,
+      qty: eatenGrams, unit: isItem ? basis : 'g', grams: eatenGrams, meal, nutriments,
       per100: per100Values,
       basis,
-      keep: forcedKeep || (keep && canKeep),
-      barcode: seed?.barcode || null,
+      keep: isItem,
+      barcode: mode === 'codebarre' ? cleanCode(barcode) || null : null,
     });
   };
 
@@ -2458,59 +2591,95 @@ function ManualEntry({ seed, initialMeal, onSubmit, onCancel }){
 
   return (
     <div className="fd-manual-entry">
-      {seed?.barcode && (
-        <p className="fd-note serif">
-          Code <span className="mono">{seed.barcode}</span> — inconnu de la base. Renseigné ici, il sera
-          reconnu tout seul au prochain scan.
-        </p>
-      )}
-
-      <div className="field">
-        <label>Nom</label>
-        <input autoFocus value={name} onChange={e=>setName(e.target.value)}
-               placeholder="Poulet rôti, poke bowl, gâteau de mamie…" />
-      </div>
-
-      <div className="field">
-        <label>Quantité</label>
-        <div className="fd-qty-inline">
-          <input type="number" step="any" min="0" inputMode="decimal"
-                 value={qty} onChange={e=>setQty(e.target.value)} />
-          <Segmented>
-            {['g','ml','portion'].map(u => (
-              <button key={u} className={unit===u?'on':''} onClick={()=>setUnit(u)}>{u}</button>
-            ))}
-          </Segmented>
-        </div>
-      </div>
-
-      <div className="field">
-        <label>Valeurs</label>
-        <Segmented>
-          <button className={!perQty?'on':''} disabled={portion} onClick={()=>setPer100(true)}>
-            pour 100 {basis}
-          </button>
-          <button className={perQty?'on':''} onClick={()=>setPer100(false)}>
-            total mangé
-          </button>
+      <div className="fd-tabs">
+        <Segmented size="small" wrap>
+          {QUICK_MODES.map(m => (
+            <button key={m.id} className={mode===m.id?'on':''} onClick={()=>setMode(m.id)}>{m.label}</button>
+          ))}
         </Segmented>
       </div>
 
+      <p className="fd-note serif">
+        {mode === 'rapide'
+          ? "Des calories et trois macros, versées dans la journée. Rien n'est enregistré comme aliment : c'est un correctif de journée, pas un item."
+          : mode === 'ingredient'
+          ? "Un aliment personnel, gardé dans tes items — réutilisable, corrigeable, et déjà noté pour aujourd'hui."
+          : "Un aliment personnel avec son code-barres : le scanner le reconnaîtra tout seul la prochaine fois."}
+      </p>
+
+      {/* Section 1 — la base, identique dans les trois modes. */}
+      <p className="modal-section first">Nom et macros</p>
+      <div className="field">
+        <label>Nom</label>
+        <input autoFocus value={name} onChange={e=>setName(e.target.value)}
+               placeholder={mode==='rapide' ? 'Sandwich du midi (facultatif)' : 'Poulet rôti, gâteau de mamie…'} />
+      </div>
       <div className="fd-mini-grid">
         {FOOD_MACROS.map(m => numField(m.key, m.short, m.unit))}
       </div>
 
-      {!perQty && grams > 0 && Math.abs(grams - 100) > 0.01 && (
-        <div className="fd-preview">
-          {FOOD_MACROS.map(m => (
-            <div key={m.key}>
-              <span className="l">{m.short}</span>
-              <span className="v">{m.key==='kcal' ? fmtNum(nutriments.kcal,0) : fmtMacro(nutriments[m.key])}</span>
+      {/* Section 2 — le poids, et ce que les macros au-dessus décrivent. */}
+      {isItem && (
+        <>
+          <p className="modal-section">Quantité et valeurs</p>
+          <div className="field">
+            <label>Mangé</label>
+            <div className="fd-qty-inline">
+              <input type="number" step="any" min="0" inputMode="decimal"
+                     value={grams} onChange={e=>setGrams(e.target.value)} />
+              <Segmented>
+                {['g','ml'].map(u => (
+                  <button key={u} className={basis===u?'on':''} onClick={()=>setBasis(u)}>{u}</button>
+                ))}
+              </Segmented>
             </div>
-          ))}
-        </div>
+          </div>
+          <div className="field">
+            <label>Les macros</label>
+            <Segmented>
+              <button className={per100?'on':''} onClick={()=>setPer100(true)}>valent pour 100 {basis}</button>
+              <button className={!per100?'on':''} onClick={()=>setPer100(false)}>valent pour tout</button>
+            </Segmented>
+          </div>
+          {hasKcal && g > 0 && Math.abs(g - 100) > 0.01 && (
+            <div className="fd-preview">
+              {FOOD_MACROS.map(m => (
+                <div key={m.key}>
+                  <span className="l">{m.short}</span>
+                  <span className="v">{m.key==='kcal' ? fmtNum(nutriments.kcal,0) : fmtMacro(nutriments[m.key])}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
+      {/* Section 3 — le code, tapé ou scanné : les deux remplissent le même champ. */}
+      {mode === 'codebarre' && (
+        <>
+          <p className="modal-section">Code-barres</p>
+          {/* Barre à icône, forme séparée : le champ porte le code, le bouton
+              sort la caméra pour l'y écrire à ta place. */}
+          <IconBar detached className="fd-code-bar"
+            icon={<ScanIcon />} onIcon={()=>setScanOpen(v=>!v)} iconOn={scanOpen}
+            iconLabel={scanOpen ? 'Fermer le scanner' : 'Scanner le code'}>
+            <input inputMode="numeric" placeholder="3017620422003" value={barcode}
+                   onChange={e=>setBarcode(e.target.value)} />
+          </IconBar>
+          {scanOpen && (
+            <div className="fd-scan-panel">
+              <FoodScanner key={scanNonce} onCode={(code)=>{ setBarcode(code); setScanOpen(false); setScanNonce(n=>n+1); }} />
+            </div>
+          )}
+          <p className="fd-note serif">
+            {cleanCode(barcode).length >= 8
+              ? <>Code <span className="mono">{cleanCode(barcode)}</span> — cet aliment sortira tout seul au prochain scan.</>
+              : 'Sans code, ça reste un aliment normal : simplement, aucun scan ne le retrouvera.'}
+          </p>
+        </>
+      )}
+
+      <p className="modal-section">Où</p>
       <div className="field" style={{borderBottom:'none'}}>
         <label>Repas</label>
         <Segmented wrap>
@@ -2520,21 +2689,11 @@ function ManualEntry({ seed, initialMeal, onSubmit, onCancel }){
         </Segmented>
       </div>
 
-      {!forcedKeep && (
-        <div className={`fd-keep ${canKeep?'':'off'}`}>
-          <BoolPill value={keep && canKeep} onChange={setKeep} disabled={!canKeep} />
-          <span>
-            garder dans mes aliments
-            {portion
-              ? <i> — impossible en portions : le poids pour 100 g est inconnu</i>
-              : !name.trim() ? <i> — donne-lui un nom d'abord</i> : null}
-          </span>
-        </div>
-      )}
-
       <div className="modal-actions">
         <button className="ghost" onClick={onCancel}>Annuler</button>
-        <button className="primary" disabled={!canSave} onClick={submit}>Ajouter</button>
+        <button className="primary" disabled={!canSave} onClick={submit}>
+          {isItem ? 'Créer et noter' : 'Noter'}
+        </button>
       </div>
     </div>
   );
@@ -2620,7 +2779,6 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, onCl
 }
 
 /* ---- Aliments (la bibliothèque) ------------------------------------------- */
-const SOURCE_LABEL = { off:'scanné', ref:'référence', custom:'perso' };
 
 function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, onEditMeal }){
   const [q, setQ] = useState('');
@@ -2640,6 +2798,7 @@ function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, on
   }, [store.meals, q]);
 
   const favCount = store.foods.filter(f => f.favorite).length;
+
 
   if (tab === 'repas'){
     return (
@@ -2670,6 +2829,7 @@ function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, on
                   <div className="tk-info">
                     <div className="tk-name"><span>{m.name}</span></div>
                     <div className="tk-meta">
+                      <OriginTag item={m} />
                       <span className="tk-chip">{m.items.length} ingrédient{m.items.length>1?'s':''}</span>
                       {m.steps && m.steps.length > 0 && <span className="tk-type">recette · {m.steps.length} étapes</span>}
                     </div>
@@ -2678,7 +2838,12 @@ function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, on
                       <span className="fd-per"> au total</span>
                     </div>
                   </div>
-                  <div className="tk-actions">
+                  {/* Un repas est un item : il porte la même étoile qu'un aliment. */}
+                  <div className="tk-actions fd-food-actions">
+                    <button className={`tk-edit fd-fav-btn ${m.favorite?'on':''}`}
+                            onClick={()=>store.toggleMealFavorite(m.id)} aria-pressed={!!m.favorite}>
+                      {m.favorite ? '★ Favori' : '☆ Favori'}
+                    </button>
                     <button className="tk-edit" onClick={()=>onEditMeal(m)}>Modifier</button>
                   </div>
                 </div>
@@ -2704,7 +2869,7 @@ function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, on
         </Segmented>
         <div className="fd-lib-actions">
           <input className="fd-lib-search" placeholder="filtrer…" value={q} onChange={e=>setQ(e.target.value)} />
-          <button className="pill add" onClick={onScan}>Scanner et noter</button>
+          <button className="pill add" onClick={onScan}>Ajouter à ma journée</button>
           <button className="pill add" onClick={onNew}>+ Aliment</button>
         </div>
       </div>
@@ -2724,9 +2889,9 @@ function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, on
                 <div className="tk-info">
                   <div className="tk-name"><span>{f.name}</span></div>
                   <div className="tk-meta">
-                    {f.brand && <span className="tk-chip">{f.brand}</span>}
-                    <span className="tk-type">{SOURCE_LABEL[f.source] || 'perso'}</span>
-                    {f.source === 'off' && f.barcode && <span className="tk-count mono">{f.barcode}</span>}
+                    <OriginTag item={f} />
+                    {itemSub(f, store.refByBarcode) && <span className="tk-chip">{itemSub(f, store.refByBarcode)}</span>}
+                    {f.barcode && !String(f.barcode).startsWith('ciqual:') && <span className="tk-count mono">{f.barcode}</span>}
                   </div>
                   <div className="fd-food-nums mono">
                     {n.kcal != null ? `${fmtNum(n.kcal,0)} kcal` : 'sans valeurs'}
