@@ -1181,8 +1181,11 @@
   .fd-item-row{display:flex;align-items:stretch;gap:2px;border-bottom:1px solid var(--line)}
   .fd-item-row:hover{background:var(--bg-3)}
   .fd-item-txt .m b{color:var(--ink-2);font-weight:500}
-  .fd-item-src{display:flex;align-items:center;padding:0 10px;color:var(--ink-3);font-size:13px;text-decoration:none;flex-shrink:0;transition:color .3s var(--ease)}
-  .fd-item-src:hover{color:var(--accent)}
+  /* L'action au bout d'une ligne de résultat — modifier un repas, ouvrir la
+     fiche d'origine — est un vrai bouton rond, comme partout ailleurs, et non
+     un glyphe nu posé dans la marge. */
+  .fd-item-act{display:flex;align-items:center;padding:0 8px;flex-shrink:0}
+  .fd-edit-btn:hover{color:var(--accent);border-color:var(--accent)}
   .fd-list-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:var(--ink-3);margin:10px 0 2px;padding:0 4px}
   .fd-search-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:-4px 0 6px;min-height:18px}
   .fd-search-meta .serif{font-size:12px;color:var(--ink-3)}
@@ -1225,7 +1228,13 @@
   .field-num{display:flex;align-items:baseline;flex:1}
   .field-num input{width:100%}
 
+  /* Une portion, sous le total de la recette : la même rangée que le total,
+     juste plus discrète — c'est une lecture dérivée, pas un second total. */
+  .fd-per-portion{border-top-color:var(--line);color:var(--ink-2)}
+  .fd-per-portion .fd-ing-total-l{color:var(--ink-3)}
+
   /* Quantité */
+  .fd-qty-unit{font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.1em}
   .fd-qty{display:flex;align-items:center;gap:12px;margin:6px 0 12px;flex-wrap:wrap}
   .fd-qty input{width:96px;font-size:20px;font-family:"Geist Mono",monospace;text-align:right}
   .fd-chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
@@ -1428,8 +1437,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=46"></script>
-<script type="text/babel" src="app.food.jsx?v=17"></script>
+<script type="text/babel" src="app.jsx?v=47"></script>
+<script type="text/babel" src="app.food.jsx?v=18"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>
