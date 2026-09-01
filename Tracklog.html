@@ -395,6 +395,15 @@
      écrite qui l'emportait, et une piste de quatre options débordait de son
      propre contour sur téléphone au lieu de passer à la ligne. */
   .seg-track.compact.wrap,.seg-track.small.wrap{flex-wrap:wrap}
+  /* `scrollx` : l'autre réponse à « trop d'options pour une ligne ». Plutôt que
+     de passer à la ligne (une piste de 4 aux allures cassées, un bouton seul
+     sur sa propre ligne) ou de rétrécir le texte jusqu'à l'illisible, la piste
+     garde une seule ligne et glisse au doigt — pour un choix court et exclusif
+     (repas, mode d'ajout) où chaque option doit rester à un tap, pas cachée
+     dans un menu déroulant. */
+  .seg-track.scrollx{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .seg-track.scrollx::-webkit-scrollbar{display:none}
+  .seg-track.scrollx button{flex-shrink:0}
   .seg-track.compact{min-height:var(--ctl-h)}
   .seg-track.compact button,.seg-track.small button{border:none;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.1em;white-space:nowrap}
   .seg-track.compact button{padding:6px 14px;font-size:11px}
@@ -553,8 +562,32 @@
   .scrim{position:fixed;inset:0;background:rgba(8,7,6,.66);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;z-index:20;animation:fadeIn .2s ease-out}
   @keyframes fade{from{opacity:0}}
   .modal{background:var(--bg-2);border:1px solid var(--line-2);border-radius:var(--radius);padding:28px;width:100%;max-width:440px;max-height:calc(100vh - 40px);overflow-y:auto;box-shadow:0 40px 80px -30px rgba(0,0,0,.8);animation:riseIn .5s var(--ease) both}
-  .modal h2{margin:0 0 4px;font-family:"Instrument Serif",serif;font-style:italic;font-weight:400;font-size:24px;letter-spacing:0}
-  .modal .modal-sub{font-size:12px;color:var(--ink-3);margin-bottom:20px;text-transform:uppercase;letter-spacing:0.1em}
+
+  /* La page d'ajout — plein écran, pas une fenêtre : quatre onglets ont besoin
+     de place pour respirer (des cartes empilées, une liste qui défile), pas
+     d'un couloir centré avec sa propre limite de hauteur. Le titre et les
+     onglets restent fixes en haut ; seul le corps défile, comme une page à
+     part entière plutôt qu'une boîte de dialogue. */
+  .fd-add-page{position:fixed;inset:0;z-index:20;background:var(--bg);display:flex;flex-direction:column;animation:fadeIn .2s ease-out}
+  .fd-add-head{flex:0 0 auto;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+    padding:20px 20px 0;max-width:680px;width:100%;margin:0 auto;box-sizing:border-box}
+  .fd-add-head-txt{min-width:0}
+  .fd-add-close{flex-shrink:0;margin-top:2px}
+  /* Sélecteur composé : `.fd-tabs` (styles partagés) pose déjà `margin-bottom`,
+     et une seule classe ne suffirait pas à le battre de façon fiable selon
+     l'ordre des règles — la combinaison l'emporte, sans devoir la déplacer
+     dans le fichier à chaque futur réordonnancement. */
+  .fd-add-page .fd-add-tabs{flex:0 0 auto;display:flex;flex-direction:row;justify-content:center;
+    margin:14px 0 0;padding:0 20px 14px;border-bottom:1px solid var(--line)}
+  .fd-add-page .fd-add-tabs>.seg-track{max-width:680px}
+  .fd-add-body{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px 20px 40px;
+    max-width:640px;width:100%;margin:0 auto;box-sizing:border-box}
+  /* La modale de repas (créer/éditer un preset), ouverte par-dessus la page
+     d'ajout, garde son propre `.scrim` — un vrai calque, pas la page en
+     dessous qui referait semblant d'en être un. */
+  .fd-add-page .scrim{padding:20px}
+  .modal h2,.fd-add-head-txt h2{margin:0 0 4px;font-family:"Instrument Serif",serif;font-style:italic;font-weight:400;font-size:24px;letter-spacing:0}
+  .modal .modal-sub,.fd-add-head-txt .modal-sub{font-size:12px;color:var(--ink-3);margin-bottom:0;text-transform:uppercase;letter-spacing:0.1em}
   .typegrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}
   .typegrid button{padding:12px 8px;border:1px solid var(--line-2);border-radius:var(--radius);font-size:12px;color:var(--ink-2);background:transparent;text-align:left;display:flex;flex-direction:column;gap:3px;transition:all .35s var(--ease)}
   .typegrid button:hover{border-color:var(--ink-2)}
@@ -1159,17 +1192,23 @@
   .fd-zoom input[type=range]{flex:1;accent-color:var(--accent)}
   .fd-scan-diag{color:var(--ink-3);opacity:.65;font-size:10px;white-space:nowrap}
 
-  /* Ajout rapide */
-  .fd-manual-entry .field{border-bottom:1px solid var(--line)}
-  .fd-code-bar{margin:10px 0}
+  /* Ajout rapide — chaque question dans son propre cadre : la même carte que
+     partout ailleurs (`.card`), resserrée pour tenir plusieurs à la suite
+     plutôt qu'une seule pleine largeur. `:last-of-type` retire déjà la
+     bordure du dernier `.field` de chaque carte — nul besoin de la remettre
+     à la main comme quand les sections n'étaient que des filets à la suite. */
+  .fd-manual-entry .card.fd-card{padding:16px 18px;margin-bottom:14px}
+  .fd-manual-entry .card.fd-card .section-label{margin-bottom:12px}
+  .fd-card-note{margin-top:10px;margin-bottom:0}
+  .fd-code-bar{margin:2px 0 10px}
   .fd-code-bar input{font-family:"Geist Mono",monospace;letter-spacing:0.06em}
   .fd-qty-inline{display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap}
   .fd-qty-inline input{width:84px;font-family:"Geist Mono",monospace;text-align:right}
-  .fd-mini-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0}
-  .fd-mini-field{display:flex;flex-direction:column;gap:5px}
-  .fd-mini-field>span{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3)}
-  .fd-mini-field input{width:100%;font-family:"Geist Mono",monospace;font-size:17px;text-align:center;padding:8px 4px}
-  .fd-mini-field>i{font-size:9px;color:var(--ink-3);text-align:center;font-style:normal;letter-spacing:0.08em}
+  /* Le corps d'un `NumField` : l'input prend la place, l'unité colle à sa
+     droite — la même rangée dense que tout `.field`, jamais un pavé à part
+     pour les macros. */
+  .field-num{display:flex;align-items:baseline;flex:1}
+  .field-num input{width:100%}
 
   /* Quantité */
   .fd-qty{display:flex;align-items:center;gap:12px;margin:6px 0 12px;flex-wrap:wrap}
@@ -1273,6 +1312,9 @@
     .field label{width:66px}
 
     .modal{padding:22px}
+    .fd-add-head{padding:16px 16px 0}
+    .fd-add-page .fd-add-tabs{padding:0 16px 14px}
+    .fd-add-body{padding:14px 16px 32px}
     .typegrid{grid-template-columns:repeat(2,1fr)}
 
     /* Food : les trois macros restent sur une ligne (c'est la lecture qu'on
@@ -1292,7 +1334,6 @@
     .fd-list{max-height:40vh}
     .fd-lib-search{max-width:none;flex:1 1 100%;order:-1}
     .fd-preview{grid-template-columns:repeat(4,1fr);gap:6px}
-    .fd-mini-grid{grid-template-columns:repeat(2,1fr);gap:12px}
     .fd-preview .v{font-size:15px}
     .fd-primary{width:100%;justify-content:center}
     /* Barre à icône : la forme intégrée reste une barre (le rond doit tenir
@@ -1372,8 +1413,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=44"></script>
-<script type="text/babel" src="app.food.jsx?v=15"></script>
+<script type="text/babel" src="app.jsx?v=45"></script>
+<script type="text/babel" src="app.food.jsx?v=16"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>

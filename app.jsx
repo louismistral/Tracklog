@@ -542,7 +542,12 @@ function GearIcon({ size = 13 }){
 //     Graphes/Calendrier/Grille. Short, tracked-out labels only.
 //   small     the same compact track, one notch down — rail sort, library tabs,
 //     the chart density row (icon-bearing buttons welcome).
-function Segmented({ size, wrap, className = '', children, ...rest }){
+// `wrap` lets a track break onto a second line instead of overflowing.
+// `scrollx` is the other answer to "too many options for one row": it keeps
+// a single line and lets it scroll horizontally instead — for a short,
+// exclusive choice (which meal, which mode) where a second line reads as
+// broken and a dropdown would hide options that should stay one tap away.
+function Segmented({ size, wrap, scrollx, className = '', children, ...rest }){
   const ref = useRef(null);
   const [thumb, setThumb] = useState(null);
 
@@ -564,6 +569,15 @@ function Segmented({ size, wrap, className = '', children, ...rest }){
     const next = { left: active.offsetLeft, top: active.offsetTop, width: active.offsetWidth, height: active.offsetHeight };
     setThumb(prev => (prev && prev.left === next.left && prev.top === next.top
       && prev.width === next.width && prev.height === next.height) ? prev : next);
+    // `scrollx` : l'option choisie doit être visible sans geste — si elle
+    // tombe hors de la fenêtre visible (ex. « Dîner » sélectionné par défaut,
+    // rangé en bout de piste), on la ramène dans le cadre plutôt que de
+    // forcer l'utilisateur à deviner qu'il faut glisser pour la voir.
+    if (scrollx){
+      const tb = track.getBoundingClientRect(), ab = active.getBoundingClientRect();
+      if (ab.left < tb.left) track.scrollLeft -= (tb.left - ab.left) + 8;
+      else if (ab.right > tb.right) track.scrollLeft += (ab.right - tb.right) + 8;
+    }
   };
 
   useLayoutEffect(measure);
@@ -577,7 +591,7 @@ function Segmented({ size, wrap, className = '', children, ...rest }){
   }, []);
 
   return (
-    <div ref={ref} className={`seg-track ${size ? size : ''} ${wrap ? 'wrap' : ''} ${className}`} role="group" {...rest}>
+    <div ref={ref} className={`seg-track ${size ? size : ''} ${wrap ? 'wrap' : ''} ${scrollx ? 'scrollx' : ''} ${className}`} role="group" {...rest}>
       {thumb && <span className="seg-thumb" style={{
         transform: `translate(${thumb.left}px, ${thumb.top}px)`, width: thumb.width, height: thumb.height,
       }} aria-hidden="true" />}
