@@ -944,6 +944,19 @@ function DragHandle({ onPointerDown, dragging }){
     </span>
   );
 }
+// Une pastille de saisie numérique — la même `.pill` que le rail et les
+// nuanciers de couleur, pour que la valeur cible et l'échelle ne soient plus
+// les seules boîtes à bordure carrée de la page. Le comportement (parsing,
+// bornes) reste entièrement à l'appelant : ceci n'habille qu'un input.
+function NumPill({ label, value, onChange, unit, placeholder, min, style }){
+  return (
+    <label className="pill num-pill" style={style}>
+      <span className="np-lab">{label}</span>
+      <input type="number" step="any" min={min} value={value} placeholder={placeholder} onChange={onChange} />
+      {unit && <span className="np-unit">{unit}</span>}
+    </label>
+  );
+}
 
 
 /* ============================================================
@@ -4634,6 +4647,17 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
     GRAINS.some(g => g.id === tracker?.chartGrain) ? tracker.chartGrain : 'day');
   const [startDate, setStartDate] = useState(tracker?.startDate || dayKey(tracker?.createdAt || Date.now()));
   const [endDate, setEndDate] = useState(tracker?.endDate || '');
+  // Le calendrier de la période d'activité — celui de l'Historique (`MonthCalendar`),
+  // ouvert en pastille plutôt qu'inventé une seconde fois. `dateField` dit
+  // laquelle des deux dates le prochain jour cliqué renseigne.
+  const [dateField, setDateField] = useState(null); // 'start' | 'end' | null
+  const [calMonth, setCalMonth] = useState(() => startOfMonth(Date.now()));
+  const dayKeyToTs = (dk) => new Date(dk + 'T00:00:00').getTime();
+  const openDateField = (field) => {
+    const dk = field === 'start' ? startDate : endDate;
+    setCalMonth(startOfMonth(dk ? dayKeyToTs(dk) : Date.now()));
+    setDateField(f => f === field ? null : field);
+  };
   const [color, setColor] = useState(tracker?.color || DEFAULT_COLOR);
   const nameRef = useRef();
 
@@ -4760,21 +4784,12 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
               <div className="field" style={{borderBottom:'none',flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
                 <label style={{width:'auto'}}>Échelle</label>
                 <div className="period-row">
-                  <div className="period-field">
-                    <span>Min</span>
-                    <input type="number" step="any" value={scaleMin}
-                      onChange={e=>setScaleMin(e.target.value === '' ? '' : parseFloat(e.target.value))} />
-                  </div>
-                  <div className="period-field">
-                    <span>Max</span>
-                    <input type="number" step="any" value={scaleMax}
-                      onChange={e=>setScaleMax(e.target.value === '' ? '' : parseFloat(e.target.value))} />
-                  </div>
-                  <div className="period-field">
-                    <span>Incrément</span>
-                    <input type="number" step="any" min="0.01" value={scaleStep}
-                      onChange={e=>setScaleStep(e.target.value === '' ? '' : parseFloat(e.target.value))} />
-                  </div>
+                  <NumPill label="Min" value={scaleMin}
+                    onChange={e=>setScaleMin(e.target.value === '' ? '' : parseFloat(e.target.value))} />
+                  <NumPill label="Max" value={scaleMax}
+                    onChange={e=>setScaleMax(e.target.value === '' ? '' : parseFloat(e.target.value))} />
+                  <NumPill label="Incrément" min="0.01" value={scaleStep}
+                    onChange={e=>setScaleStep(e.target.value === '' ? '' : parseFloat(e.target.value))} />
                 </div>
               </div>
             )}
@@ -4878,16 +4893,47 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
             </InfoBubble>
           </div>
           {windowEnabled ? (
-            <div className="period-row">
-              <div className="period-field">
-                <span>Début</span>
-                <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
+            <>
+              <div className="period-row">
+                <button type="button" className={`pill date-pill ${dateField==='start'?'open':''}`} onClick={()=>openDateField('start')}>
+                  <span className="np-lab">Début</span>
+                  <span className="mono">{startDate ? shortDate(dayKeyToTs(startDate)) : '—'}</span>
+                </button>
+                <button type="button" className={`pill date-pill ${dateField==='end'?'open':''}`} onClick={()=>openDateField('end')}>
+                  <span className="np-lab">Fin</span>
+                  <span className="mono">{endDate ? shortDate(dayKeyToTs(endDate)) : 'indéfini'}</span>
+                  {endDate && (
+                    <span className="date-pill-clear" role="button" aria-label="Effacer la date de fin"
+                      onClick={e=>{ e.stopPropagation(); setEndDate(''); }}>✕</span>
+                  )}
+                </button>
               </div>
-              <div className="period-field">
-                <span>Fin</span>
-                <input type="date" value={endDate} min={startDate || undefined} onChange={e=>setEndDate(e.target.value)} />
-              </div>
-            </div>
+              {/* Le calendrier de l'Historique, ouvert ici plutôt que refait :
+                  une pastille = un jour choisi, le mois se garde en mémoire
+                  entre les deux tant que la modale reste ouverte. */}
+              {dateField && (
+                <div className="date-pill-cal">
+                  <MonthCalendar
+                    monthTs={calMonth}
+                    onPrev={()=>setCalMonth(m=>addMonths(m,-1))}
+                    onNext={()=>setCalMonth(m=>addMonths(m,1))}
+                    entries={[]}
+                    selectedKey={dateField==='start' ? startDate : endDate}
+                    onSelectDay={(ts)=>{
+                      const dk = dayKey(ts);
+                      if (dateField === 'start'){
+                        setStartDate(dk);
+                        if (endDate && endDate < dk) setEndDate('');
+                      } else {
+                        if (startDate && dk < startDate) return; // une fin ne précède pas le début
+                        setEndDate(dk);
+                      }
+                      setDateField(null);
+                    }}
+                  />
+                </div>
+              )}
+            </>
           ) : (
             <span className="tc-empty-note">Ce tracker compte tous les jours, sans limite de période.</span>
           )}
@@ -4956,10 +5002,8 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
               </InfoBubble>
             </div>
             {goodDirection === 'target' && (
-              <div className="period-field" style={{maxWidth:200}}>
-                <span>Valeur cible{unit.trim() ? ` (${unit.trim()})` : ''}</span>
-                <input type="number" step="any" value={targetValue} onChange={e=>setTargetValue(e.target.value)} placeholder="ex. 0" />
-              </div>
+              <NumPill label="Valeur cible" unit={unit.trim() || null} value={targetValue}
+                onChange={e=>setTargetValue(e.target.value)} placeholder="ex. 0" style={{maxWidth:200}} />
             )}
           </div>
         )}

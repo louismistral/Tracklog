@@ -708,6 +708,33 @@
   .period-arch:hover{border-color:var(--warn);color:var(--warn)}
   .period-arch.unarchive:hover{border-color:var(--accent);color:var(--accent)}
 
+  /* Pastilles de saisie — la même .pill que le rail et les nuanciers de
+     couleur, pour que la valeur cible, l'échelle et la période d'activité ne
+     soient plus les seules boîtes à bordure carrée de la page. */
+  .num-pill,.date-pill{cursor:text;touch-action:auto}
+  /* `flex:1` à parts égales écrasait le champ d'“Incrément” derrière son propre
+     libellé sur trois pastilles étroites : elle pousse plutôt sur son contenu, et la
+     ligne repasse à deux pastilles + une sur un téléphone étroit plutôt que de rogner
+     le chiffre. */
+  .num-pill{flex:1 1 auto;min-width:118px;gap:8px}
+  .num-pill input{min-width:2.4em}
+  .period-row{flex-wrap:wrap}
+  .np-lab{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-3);flex-shrink:0}
+  .num-pill input{width:100%;min-width:0;font-family:"Geist Mono",monospace;font-feature-settings:"tnum";
+    font-size:14px;text-align:right;background:none}
+  .np-unit{font-size:11px;color:var(--ink-3);flex-shrink:0}
+  .date-pill{cursor:pointer;touch-action:auto;flex:1;justify-content:space-between}
+  .date-pill.open{border-color:var(--ink-2)}
+  .date-pill .mono{font-size:13px}
+  .date-pill-clear{width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+    font-size:9px;color:var(--ink-3);flex-shrink:0;transition:all .25s var(--ease)}
+  .date-pill-clear:hover{color:var(--warn);background:var(--bg-3)}
+  /* `.cal` (déjà utilisé par l'Historique) porte sa propre carte — pas de
+     second cadre autour, juste l'espacement pour la faire descendre sous les
+     deux pastilles. */
+  .date-pill-cal{margin-top:10px}
+  .date-pill-cal .cal{margin-bottom:0;max-width:none}
+
   .toggle{display:inline-flex;align-items:center;gap:10px;background:none;border:none;padding:0;cursor:pointer}
   .toggle .knob{width:42px;height:24px;border-radius:12px;background:var(--bg-3);border:1px solid var(--line-2);position:relative;flex-shrink:0;transition:background .4s var(--ease),border-color .4s var(--ease)}
   .toggle .knob::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--ink-2);transition:transform .4s var(--ease),background .4s var(--ease)}
@@ -1504,7 +1531,7 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=52"></script>
+<script type="text/babel" src="app.jsx?v=53"></script>
 <script type="text/babel" src="app.food.jsx?v=22"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>

@@ -118,7 +118,12 @@ comme `AddFoodModal`/`MealEditModal`, une **page entière** (`.fd-add-page`) —
 quatre cadres en cartes (Cœur, Paramètres, Vues, Couleur) plutôt qu'une boîte
 étroite au-dessus du Log : les champs à choix (genre, fréquence, courbe,
 granularité) y sont des pastilles pleine largeur (`Segmented size="compact"`),
-pas des chips à leur contour.
+pas des chips à leur contour. Les champs à saisir suivent le même principe :
+`NumPill` habille min/max/incrément d'une échelle et la valeur cible dans une
+`.pill` comme celles du rail, et la période d'activité (Début/Fin) est deux
+`.pill` qui ouvrent le `MonthCalendar` de l'Historique en pastille plutôt que
+d'inventer un second sélecteur de date — aucune boîte à bordure carrée ne
+reste sur la page.
 
 Modales transverses restantes : `EntryModal` (éditer une entrée existante),
 `ChronoModal`, `AddFoodModal`, `FoodEditModal`, `MealEditModal`, `GoalsModal`,
