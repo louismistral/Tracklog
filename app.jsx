@@ -2588,7 +2588,7 @@ function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
         </div>
         <div className="field">
           <label>Nom</label>
-          <input autoFocus value={label} onChange={e=>setLabel(e.target.value)}
+          <input value={label} onChange={e=>setLabel(e.target.value)}
             onKeyDown={e=>{ if(e.key==='Enter' && canSave) onSave(payload); }}
             placeholder={linked ? linked.name : 'ex. Lecture'} />
         </div>
@@ -4204,7 +4204,7 @@ function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
           <div style={{flex:1}}>
             {t.type === 'number' && (
               <div style={{display:'flex',alignItems:'baseline'}}>
-                <input type="number" step="any" autoFocus value={num} onChange={e=>setNum(e.target.value)}
+                <input type="number" step="any" value={num} onChange={e=>setNum(e.target.value)}
                   onKeyDown={e=>{ if(e.key==='Enter') submit(); }} placeholder="0" style={{width:'5.5em',flex:'0 1 auto'}} />
                 {t.unit && <span className="unit">{t.unit}</span>}
               </div>
@@ -4326,8 +4326,6 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
   const [endDate, setEndDate] = useState(tracker?.endDate || '');
   const [color, setColor] = useState(tracker?.color || DEFAULT_COLOR);
   const nameRef = useRef();
-
-  useEffect(() => { nameRef.current?.focus(); }, []);
 
   const setChoiceAt = (i, val) => setChoices(cs => cs.map((c,idx)=>idx===i?val:c));
   const addChoice = () => setChoices(cs => [...cs, '']);
@@ -4753,7 +4751,7 @@ function SignIn(){
         </p>
         <div className="field">
           <label>Email</label>
-          <input type="email" autoFocus value={email}
+          <input type="email" value={email}
             onChange={e=>setEmail(e.target.value)}
             onKeyDown={e=>{ if(e.key==='Enter') submit(); }}
             placeholder="vous@exemple.com" />
@@ -4822,7 +4820,7 @@ function PasswordModal({ recovery, onClose }){
           <>
             <div className="field">
               <label>Mot de passe</label>
-              <input type="password" autoFocus value={password} onChange={e=>setPassword(e.target.value)} placeholder="au moins 6 caractères" />
+              <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="au moins 6 caractères" />
             </div>
             <div className="field" style={{borderBottom:'none'}}>
               <label>Confirmer</label>

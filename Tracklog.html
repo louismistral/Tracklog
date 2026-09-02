@@ -877,7 +877,12 @@
      pour qu'un ratio en déduise la largeur, et le rond restait un rectangle. */
   @media (max-width:440px){
     .log-subnav{gap:8px}
-    .subnav-add{padding:0;width:var(--ctl-h);font-size:14px}
+    /* `height` en dur, pas seulement la largeur : `align-self:stretch` cale la
+       hauteur sur la ligne, qui peut différer d'un pixel de --ctl-h selon la
+       police réellement rendue — assez pour qu'un cercle cense devienne un
+       ovale. Les deux dimensions doivent venir du même nombre pour qu'aucune
+       des deux ne puisse diverger. */
+    .subnav-add{padding:0;width:var(--ctl-h);height:var(--ctl-h);font-size:14px}
     .subnav-add .add-mid{display:none} .subnav-add .add-min{display:inline}
   }
   /* Last resort on the narrowest phones: tighten the sub-tabs themselves rather
@@ -1489,7 +1494,7 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=50"></script>
+<script type="text/babel" src="app.jsx?v=51"></script>
 <script type="text/babel" src="app.food.jsx?v=21"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
