@@ -4041,16 +4041,23 @@ function NutritionBars({ series, metric, color }){
    Lecture seule : on note ce qu'on mange dans la page Food, ici
    on ne fait que voir où en est la journée.
    ============================================================ */
-function FoodDaySummary({ store, onOpen }){
+// Section du Jour comme les autres, réordonnable au même titre : elle porte
+// déjà son propre intitulé (« Alimentation ») et son lien « ouvrir » sur la
+// même ligne — la poignée de `TodayView` s'y ajoute plutôt que de dupliquer
+// un second en-tête au-dessus.
+function FoodDaySummary({ store, onOpen, containerRef, dragging, onDragStart }){
   const dk = dayKey(Date.now());
   const rows = store.logsByDay[dk] || [];
   const totals = useMemo(() => sumNutriments(rows.map(l => l.nutriments)), [rows]);
   const goals = store.effectiveGoalsAt(dk);
 
   return (
-    <div className="day-group fd-log-group">
+    <div ref={containerRef} className={`day-group fd-log-group ${dragging?'dragging':''}`}>
       <div className="fd-log-head">
-        <p className="section-label" style={{margin:0}}>Alimentation</p>
+        <span className="fd-log-title">
+          {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
+          <p className="section-label" style={{margin:0}}>Alimentation</p>
+        </span>
         <button className="fd-link" onClick={onOpen}>
           {rows.length ? `${rows.length} ligne${rows.length>1?'s':''} — ouvrir` : 'ouvrir la page Food'}
         </button>

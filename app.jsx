@@ -186,6 +186,16 @@ function entryFromRow(r){
 function entryToRow(e, userId){
   return { id:e.id, user_id:userId, tracker_id:e.trackerId, value:e.value, note:e.note || '', ts:e.ts };
 }
+function chronoFromRow(r){
+  return { id:r.id, label:r.label || '', trackerId:r.tracker_id || null,
+           accumulatedMs:Number(r.accumulated_ms) || 0, startedAt:r.started_at != null ? Number(r.started_at) : null,
+           order:r.order_index || 0 };
+}
+function chronoToRow(c, userId){
+  return { id:c.id, user_id:userId, label:c.label || null, tracker_id:c.trackerId || null,
+           accumulated_ms:c.accumulatedMs || 0, started_at:c.startedAt ?? null, order_index:c.order || 0,
+           updated_at:Date.now() };
+}
 
 /* ============================================================ */
 
@@ -1087,19 +1097,39 @@ function App({ session }){
   // La nutrition a son propre magasin (foods / food_logs / objectifs), chargé ici
   // une seule fois : la page Food et les compteurs du Jour lisent la même chose.
   const food = useFoodStore(userId);
-  // Chronos are per-device working state (what's running right now), not history, so they
-  // live in localStorage — only the entry a chrono produces is saved to the database.
-  const chronoKey = `tracklog.chronos.${userId}`;
-  const [chronos, setChronos] = useState(() => {
-    try {
-      const raw = localStorage.getItem(`tracklog.chronos.${session.user.id}`);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch { return []; }
-  });
+  // Les chronos suivent le compte, pas l'appareil : démarré sur PC, un chrono
+  // doit se voir démarré sur téléphone. `chronos` table + canal Realtime — un
+  // chrono qui tourne pousse son horodatage de départ aux autres appareils
+  // connectés, le décompte affiché reste calculé localement comme avant
+  // (`chronoElapsed`, un `setInterval` par appareil), seul l'instant de départ
+  // voyage. Chargement + abonnement une fois par compte.
+  const [chronos, setChronos] = useState([]);
   useEffect(() => {
-    try { localStorage.setItem(chronoKey, JSON.stringify(chronos)); } catch {}
-  }, [chronos, chronoKey]);
+    let cancelled = false;
+    supabase.from('chronos').select('*').then(({ data, error }) => {
+      if (!cancelled && !error && data) setChronos(data.map(chronoFromRow).sort((a,b)=>(a.order||0)-(b.order||0)));
+    });
+    const channel = supabase.channel(`chronos:${userId}`)
+      .on('postgres_changes', { event:'*', schema:'public', table:'chronos', filter:`user_id=eq.${userId}` }, (payload) => {
+        if (payload.eventType === 'DELETE'){
+          setChronos(s => s.filter(c => c.id !== payload.old.id));
+          return;
+        }
+        const row = chronoFromRow(payload.new);
+        setChronos(s => s.some(c => c.id === row.id) ? s.map(c => c.id === row.id ? row : c) : [...s, row]);
+      })
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(channel); };
+  }, [userId]);
+  // Écriture optimiste, comme le reste de l'app : l'état local est déjà posé
+  // par l'appelant, celle-ci ne fait qu'envoyer derrière. Un échec reste
+  // silencieux ici — jamais critique (un chrono se relance), contrairement à
+  // un objectif ou un repas qu'on croirait enregistré à tort.
+  const writeChrono = (c) => {
+    supabase.from('chronos').upsert(chronoToRow(c, userId)).then(({ error }) => {
+      if (error) console.error('tracklog: chrono non synchronisé —', error);
+    });
+  };
   // Whether starting a chrono pauses every other one — a per-device preference,
   // not data, so it lives next to the chronos themselves in localStorage.
   const exclusiveKey = `tracklog.chronoExclusive.${userId}`;
@@ -1148,17 +1178,35 @@ function App({ session }){
   const [selectedIds, setSelectedIds] = useState(
     () => Array.isArray(savedFilter.selectedIds) ? savedFilter.selectedIds : []);
   const [showAll, setShowAll] = useState(() => savedFilter.showAll !== false);
-  // Filters and sorting start collapsed everywhere — they're occasional controls,
-  // and on a phone an expanded rail pushed the day's cards below the fold. Le rail
-  // se rouvre en revanche s'il était ouvert : c'est là qu'on voit le filtre actif.
-  const [railOpen, setRailOpen] = useState(() => savedFilter.railOpen === true);
+  // Filtres, tri et groupe démarrent chacun replié — ce sont des réglages
+  // occasionnels, et sur téléphone un panneau ouvert pousse les cartes du jour
+  // sous la ligne de flottaison. Chacun se rouvre en revanche s'il l'était :
+  // c'est là qu'on voit le réglage actif.
+  const [filterOpen, setFilterOpen] = useState(() => savedFilter.filterOpen === true);
+  const [sortOpen, setSortOpen] = useState(() => savedFilter.sortOpen === true);
+  const [groupOpen, setGroupOpen] = useState(() => savedFilter.groupOpen === true);
   const [sortMode, setSortMode] = useState(
     () => SORTS.some(s => s.id === savedFilter.sortMode) ? savedFilter.sortMode : 'manuel');
+  const [groupMode, setGroupMode] = useState(
+    () => GROUPS.some(g => g.id === savedFilter.groupMode) ? savedFilter.groupMode : 'type');
+  // L'ordre des SECTIONS du Jour (masters / quotidiens / plusieurs / alimentation
+  // en groupement Type ; masters / une couleur par section / alimentation en
+  // Couleur ; masters / fait / pas fait / alimentation en Fait) — un ordre par
+  // mode de groupement, parce que « couleur » n'a pas les mêmes clés que
+  // « type ». `mergeSectionOrder` (même logique que `mergeSubOrder` pour les
+  // trackers) recale les clés disparues et ajoute les nouvelles en fin de liste.
+  const [sectionOrders, setSectionOrders] = useState(() => {
+    const v = savedFilter.sectionOrders;
+    return v && typeof v === 'object' ? v : {};
+  });
   useEffect(() => {
     try {
-      localStorage.setItem(filterKey, JSON.stringify({ selectedIds, showAll, railOpen, sortMode }));
+      localStorage.setItem(filterKey, JSON.stringify(
+        { selectedIds, showAll, filterOpen, sortOpen, groupOpen, sortMode, groupMode, sectionOrders }));
     } catch {}
-  }, [filterKey, selectedIds, showAll, railOpen, sortMode]);
+  }, [filterKey, selectedIds, showAll, filterOpen, sortOpen, groupOpen, sortMode, groupMode, sectionOrders]);
+  const reorderSections = (mode, newOrder) =>
+    setSectionOrders(prev => ({ ...prev, [mode]: newOrder }));
   // Un tracker supprimé (ou archivé) depuis un autre appareil laisserait son id
   // dans le filtre restauré, qui ne filtrerait plus rien de visible. On purge
   // une fois les trackers chargés — pas avant, ils sont vides le temps de la
@@ -1230,33 +1278,84 @@ function App({ session }){
     if (!error) setEntries(s => s.map(e => e.id===id ? updated : e));
   };
   const addChrono = ({ label, trackerId }) => {
-    setChronos(s => [...s, { id: uid('c_'), label, trackerId: trackerId || null, accumulatedMs: 0, startedAt: null }]);
+    const nextOrder = chronos.length ? Math.max(...chronos.map(c => c.order || 0)) + 1 : 0;
+    const c = { id: uid('c_'), label, trackerId: trackerId || null, accumulatedMs: 0, startedAt: null, order: nextOrder };
+    setChronos(s => [...s, c]);
+    writeChrono(c);
   };
   const startChrono = (id) => {
     const now = Date.now();
+    const touched = [];
     setChronos(s => s.map(c => {
-      if (c.id === id) return c.startedAt ? c : { ...c, startedAt: now };
+      if (c.id === id){
+        if (c.startedAt) return c;
+        const next = { ...c, startedAt: now };
+        touched.push(next);
+        return next;
+      }
       // In exclusive mode, starting one banks and stops whichever other was running —
       // same accounting as a manual pause, just triggered on the other chrono's behalf.
-      if (chronoExclusive && c.startedAt) return { ...c, accumulatedMs: chronoElapsed(c, now), startedAt: null };
+      if (chronoExclusive && c.startedAt){
+        const next = { ...c, accumulatedMs: chronoElapsed(c, now), startedAt: null };
+        touched.push(next);
+        return next;
+      }
       return c;
     }));
+    touched.forEach(writeChrono);
   };
   // Pausing banks the running segment, so elapsed time never depends on render timing.
   const pauseChrono = (id) => {
     const now = Date.now();
-    setChronos(s => s.map(c => (c.id !== id || !c.startedAt) ? c
-      : { ...c, accumulatedMs: chronoElapsed(c, now), startedAt: null }));
+    let touched = null;
+    setChronos(s => s.map(c => {
+      if (c.id !== id || !c.startedAt) return c;
+      touched = { ...c, accumulatedMs: chronoElapsed(c, now), startedAt: null };
+      return touched;
+    }));
+    if (touched) writeChrono(touched);
   };
   const resetChrono = (id) => {
-    setChronos(s => s.map(c => c.id !== id ? c : { ...c, accumulatedMs: 0, startedAt: null }));
+    let touched = null;
+    setChronos(s => s.map(c => {
+      if (c.id !== id) return c;
+      touched = { ...c, accumulatedMs: 0, startedAt: null };
+      return touched;
+    }));
+    if (touched) writeChrono(touched);
   };
   // Bulk action: stops and zeroes every chrono on the board at once.
   const resetAllChronos = () => {
-    setChronos(s => s.map(c => ({ ...c, accumulatedMs: 0, startedAt: null })));
+    const touched = [];
+    setChronos(s => s.map(c => { const next = { ...c, accumulatedMs: 0, startedAt: null }; touched.push(next); return next; }));
+    touched.forEach(writeChrono);
   };
-  const removeChrono = (id) => setChronos(s => s.filter(c => c.id !== id));
-  const updateChrono = (id, patch) => setChronos(s => s.map(c => c.id === id ? { ...c, ...patch } : c));
+  const removeChrono = (id) => {
+    setChronos(s => s.filter(c => c.id !== id));
+    supabase.from('chronos').delete().eq('id', id).then(({ error }) => {
+      if (error) console.error('tracklog: suppression du chrono refusée —', error);
+    });
+  };
+  const updateChrono = (id, patch) => {
+    let touched = null;
+    setChronos(s => s.map(c => { if (c.id !== id) return c; touched = { ...c, ...patch }; return touched; }));
+    if (touched) writeChrono(touched);
+  };
+  // Même mécanique que le réordonnancement des trackers, mais sur une poignée
+  // de chronos plutôt que sur un ordre global à préserver ailleurs : l'ordre
+  // reçu EST le nouvel ordre complet, pas un sous-ensemble à recoller.
+  const reorderChronos = (newOrder) => {
+    const orderMap = Object.fromEntries(newOrder.map((id, i) => [id, i]));
+    const touched = [];
+    setChronos(s => s.map(c => {
+      const o = orderMap[c.id];
+      if (o == null || o === c.order) return c;
+      const next = { ...c, order: o };
+      touched.push(next);
+      return next;
+    }));
+    touched.forEach(writeChrono);
+  };
   // Bank the elapsed time as a real entry on the linked tracker, then start the chrono over.
   const saveChronoAsEntry = async (id) => {
     const c = chronos.find(x => x.id === id);
@@ -1408,10 +1507,16 @@ function App({ session }){
           onAdd={()=>setNewTrackerOpen(true)}
           onEdit={(t)=>setEditTracker(t)}
           onReorder={manualSort ? reorderTrackers : null}
-          open={railOpen}
-          onToggleOpen={()=>setRailOpen(v=>!v)}
+          filterOpen={filterOpen}
+          onToggleFilterOpen={()=>setFilterOpen(v=>!v)}
           sortMode={sortMode}
           onSortMode={setSortMode}
+          sortOpen={sortOpen}
+          onToggleSortOpen={()=>setSortOpen(v=>!v)}
+          groupMode={groupMode}
+          onGroupMode={setGroupMode}
+          groupOpen={groupOpen}
+          onToggleGroupOpen={()=>setGroupOpen(v=>!v)}
         />
       )}
 
@@ -1435,6 +1540,7 @@ function App({ session }){
           onPauseChrono={pauseChrono}
           onResetChrono={resetChrono}
           onResetAllChronos={resetAllChronos}
+          onReorderChronos={reorderChronos}
           chronoExclusive={chronoExclusive}
           onSetChronoExclusive={setChronoExclusive}
           onRemoveChrono={removeChrono}
@@ -1445,6 +1551,9 @@ function App({ session }){
           onAddTracker={()=>setNewTrackerOpen(true)}
           onEditTracker={(t)=>setEditTracker(t)}
           showWeek={showWeek}
+          groupMode={groupMode}
+          sectionOrder={sectionOrders[groupMode]}
+          onReorderSections={(next)=>reorderSections(groupMode, next)}
         />
       ) : activeTab === 'food' ? (
         <FoodPage store={food} sub={foodSub} onSub={setFoodSub} />
@@ -1866,8 +1975,28 @@ const SORTS = [
   { id:'recent', label:'Récents', hint:'renseignés le plus récemment en premier' },
   { id:'type',   label:'Type',    hint:'regroupés par type de tracker' },
 ];
+// Grouper décide comment le Jour range ses trackers en sections ; trier décide
+// l'ordre DANS chaque section. Les deux étaient un seul réglage confondu
+// (« Filtres & tri ») avant d'avoir de quoi grouper — trois questions
+// différentes méritent trois boutons, pas un seul qui grossit.
+const GROUPS = [
+  { id:'type',  label:'Type',    hint:'quotidiens, plusieurs par jour, alimentation, masters' },
+  { id:'color', label:'Couleur', hint:'un groupe par couleur de tracker' },
+  { id:'done',  label:'Fait',    hint:'noté aujourd’hui, ou pas encore' },
+];
+// Les quatre sections possibles du Jour en groupement « Type ». Le master et
+// l'alimentation sont des sections comme les autres — réordonnables au même
+// titre, pas des blocs fixes en tête et en pied de page.
+const SECTION_LABELS = { masters:'Masters', daily:'Quotidiens', multi:'Plusieurs par jour', food:'Alimentation',
+                          done:'Fait aujourd\'hui', notdone:'Pas fait' };
 
-function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onToggleAll, onAdd, onEdit, onReorder, open, onToggleOpen, sortMode, onSortMode }){
+function ChevronDown(){
+  return <svg width="9" height="6" viewBox="0 0 9 6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M1 1L4.5 5L8 1"/></svg>;
+}
+
+function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onToggleAll, onAdd, onEdit, onReorder,
+                        filterOpen, onToggleFilterOpen, sortMode, onSortMode, sortOpen, onToggleSortOpen,
+                        groupMode, onGroupMode, groupOpen, onToggleGroupOpen }){
   const byId = useMemo(() => Object.fromEntries(trackers.map(t => [t.id, t])), [trackers]);
   const ids = useMemo(() => trackers.map(t => t.id), [trackers]);
   const { order, dragId, startDrag, setNodeRef, wasArmed } = useDragReorder(ids, onReorder);
@@ -1876,15 +2005,24 @@ function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onTog
 
   return (
     <div className="rail-wrap">
-      <button className={`rail-toggle ${open?'open':''}`} onClick={onToggleOpen} aria-expanded={open}>
-        <svg width="9" height="6" viewBox="0 0 9 6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M1 1L4.5 5L8 1"/></svg>
-        <span>Filtres & tri</span>
-        {filterActive && <span className="rail-count">{selectedIds.length}</span>}
-        {sortMode !== 'manuel' && (
-          <span className="rail-sort-tag">{SORTS.find(s=>s.id===sortMode)?.label}</span>
-        )}
-      </button>
-      {open && (
+      <div className="rail-toggles">
+        <button className={`rail-toggle ${filterOpen?'open':''}`} onClick={onToggleFilterOpen} aria-expanded={filterOpen}>
+          <ChevronDown/>
+          <span>Filtres</span>
+          {filterActive && <span className="rail-count">{selectedIds.length}</span>}
+        </button>
+        <button className={`rail-toggle ${sortOpen?'open':''}`} onClick={onToggleSortOpen} aria-expanded={sortOpen}>
+          <ChevronDown/>
+          <span>Tri</span>
+          {sortMode !== 'manuel' && <span className="rail-sort-tag">{SORTS.find(s=>s.id===sortMode)?.label}</span>}
+        </button>
+        <button className={`rail-toggle ${groupOpen?'open':''}`} onClick={onToggleGroupOpen} aria-expanded={groupOpen}>
+          <ChevronDown/>
+          <span>Grouper</span>
+          {groupMode !== 'type' && <span className="rail-sort-tag">{GROUPS.find(g=>g.id===groupMode)?.label}</span>}
+        </button>
+      </div>
+      {sortOpen && (
         <div className="rail-sort">
           <span className="rail-sort-label">Trier</span>
           <Segmented size="small">
@@ -1895,7 +2033,18 @@ function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onTog
           </Segmented>
         </div>
       )}
-      {open && (
+      {groupOpen && (
+        <div className="rail-sort">
+          <span className="rail-sort-label">Grouper</span>
+          <Segmented size="small">
+            {GROUPS.map(g => (
+              <button key={g.id} className={groupMode===g.id?'on':''} title={g.hint}
+                onClick={()=>onGroupMode(g.id)}>{g.label}</button>
+            ))}
+          </Segmented>
+        </div>
+      )}
+      {filterOpen && (
         <div className="rail">
           <button
             className={`pill ${!filterActive?'active':''}`}
@@ -1946,7 +2095,8 @@ function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onTog
    Day view — fill / edit every tracker for one given day.
    Used by the "Jour" tab (today) and the Historique calendar (any day).
    ============================================================ */
-function TodayView({ trackers, masters = [], trackerById = {}, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder, foodSummary = null, onEditTracker, showWeek }){
+function TodayView({ trackers, masters = [], trackerById = {}, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder, foodSummary = null, onEditTracker, showWeek,
+                      groupMode = 'type', sectionOrder, onReorderSections }){
   const todayTs = startOfDay(Date.now());
   const dk = dayKey(todayTs);
 
@@ -1972,11 +2122,22 @@ function TodayView({ trackers, masters = [], trackerById = {}, entries, filterId
   const dailyDone = dailyTrackers.filter(t => entries.some(e => e.trackerId === t.id && dayKey(e.ts) === dk)).length;
   const todayLabel = new Date().toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' });
 
+  // "Tout ajouter" porte sur toutes les cartes affichées, quel que soit le
+  // groupement choisi — une carte n'a jamais qu'un seul bouton "Noter", peu
+  // importe la section où elle atterrit.
+  const submit = useSubmitAll();
+  const sections = buildDaySections({
+    groupMode, trackers, masters, entries, dk, foodSummary, trackerById,
+    onAddEntry, onDeleteEntry, onEditEntry, todayTs, onReorder, onEditTracker,
+    registerSubmit: submit.registerSubmit,
+  });
+  const sectionIds = sections.map(s => s.id);
+  const order = mergeSectionOrder(sectionIds, sectionOrder);
+  const sectionDrag = useDragReorder(order, onReorderSections);
+  const sectionById = Object.fromEntries(sections.map(s => [s.id, s]));
+
   return (
     <div>
-      {masters.length > 0 && (
-        <MasterStrips masters={masters} trackerById={trackerById} entries={entries} onReorder={onReorder} onEdit={onEditTracker} />
-      )}
       <div className="today-head">
         <p className="section-label" style={{textTransform:'capitalize',margin:0}}>
           {todayLabel}{showWeek && <span className="week-tag mono">sem. {isoWeek(todayTs)}</span>}
@@ -1985,39 +2146,65 @@ function TodayView({ trackers, masters = [], trackerById = {}, entries, filterId
           <span className="today-progress">{dailyDone}/{dailyTrackers.length} quotidien{dailyTrackers.length>1?'s':''}</span>
         )}
       </div>
-      {trackers.length > 0
-        ? <DayGrid trackers={trackers} entries={entries} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} dayTs={todayTs} isToday={true} onReorder={onReorder} onEditTracker={onEditTracker} />
-        : <div className="empty" style={{padding:'30px 0'}}><span className="em-serif">Aucun tracker à remplir.</span> Vos masters se calculent tout seuls.</div>}
-      {/* Troisième catégorie du jour : les compteurs de la page Food. Ils ne se
-          remplissent pas ici — ils se lisent, et mènent à la page qui les nourrit. */}
-      {foodSummary}
+      {submit.bar}
+      {!trackers.length && (
+        <div className="empty" style={{padding:'30px 0'}}><span className="em-serif">Aucun tracker à remplir.</span> Vos masters se calculent tout seuls.</div>
+      )}
+      <div className="day-groups">
+        {sectionDrag.order.map(id => {
+          const sec = sectionById[id];
+          if (!sec) return null;
+          const dragProps = { containerRef: sectionDrag.setNodeRef(id), dragging: sectionDrag.dragId === id,
+                               onDragStart: sectionDrag.startDrag(id) };
+          return sec.selfLabeled
+            ? React.cloneElement(sec.node, { key:id, ...dragProps })
+            : (
+              <ReorderSection key={id} label={sec.label} swatch={sec.swatch} {...dragProps}>
+                {sec.node}
+              </ReorderSection>
+            );
+        })}
+      </div>
     </div>
   );
 }
 
-// Grid of one editable card per tracker, for the given day.
-// Trackers are split into two groups so daily ("une entrée/jour") and
-// multi-entry trackers don't get mixed in the same visual set. Each group
-// is its own reorderable subset (see mergeSubOrder).
-function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, onReorder, onEditTracker }){
-  const dk = dayKey(dayTs);
-  const byTracker = useMemo(() => {
-    const m = {};
-    for (const t of trackers) m[t.id] = [];
-    for (const e of entries){
-      if (dayKey(e.ts) === dk && m[e.trackerId]) m[e.trackerId].push(e);
-    }
-    return m;
-  }, [entries, trackers, dk]);
+// Recale une préférence d'ordre enregistrée sur les clés RÉELLEMENT présentes
+// aujourd'hui : celles qu'on retrouve gardent la place relative qu'on leur
+// avait donnée, celles apparues depuis (une nouvelle couleur, une section qui
+// vient d'avoir du contenu) s'ajoutent à la fin dans leur ordre par défaut.
+// Pas la même chose que `mergeSubOrder` : ici on réordonne une liste complète
+// selon un souvenir, on ne recolle pas un sous-ensemble glissé dans le tout.
+function mergeSectionOrder(defaultIds, saved){
+  if (!Array.isArray(saved) || !saved.length) return defaultIds;
+  const known = new Set(defaultIds);
+  const kept = saved.filter(id => known.has(id));
+  const added = defaultIds.filter(id => !kept.includes(id));
+  return [...kept, ...added];
+}
 
-  const byId = useMemo(() => Object.fromEntries(trackers.map(t => [t.id, t])), [trackers]);
-  const dailyIds = useMemo(() => trackers.filter(t => t.daily).map(t => t.id), [trackers]);
-  const multiIds = useMemo(() => trackers.filter(t => !t.daily).map(t => t.id), [trackers]);
-  const dailyDrag = useDragReorder(dailyIds, onReorder);
-  const multiDrag = useDragReorder(multiIds, onReorder);
+// Un en-tête de section réordonnable : la même poignée que sur une carte de
+// tracker, un rond de couleur pour un groupe "Couleur" (le regroupement se
+// voit déjà, un mot de plus ne dirait rien), un intitulé pour tout le reste.
+function ReorderSection({ label, swatch, containerRef, dragging, onDragStart, children }){
+  return (
+    <div ref={containerRef} className={`day-group ${dragging?'dragging':''}`}>
+      <p className="section-label day-group-head">
+        {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
+        {swatch && <span className="dot" style={{background:swatch, width:10, height:10}}></span>}
+        {label}
+      </p>
+      {children}
+    </div>
+  );
+}
 
-  // Cards keep their own draft state; each one hands up a submit function while it holds
-  // something unsaved, which is what "Tout ajouter" fires in one go.
+// L'état partagé d'un "Tout ajouter" : chaque DayCard remonte sa propre
+// fonction de sauvegarde tant qu'elle porte un brouillon non enregistré, et
+// c'est ce que ce bouton groupé déclenche d'un coup. Partagé par DayGrid
+// (Historique) et par les sections du Jour — une carte n'a qu'un bouton
+// "Noter", peu importe dans quelle section elle se trouve affichée.
+function useSubmitAll(){
   const submitters = useRef({});
   const [pendingIds, setPendingIds] = useState([]);
   const registerSubmit = useCallback((id, fn) => {
@@ -2030,12 +2217,26 @@ function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, da
     // Snapshot first: submitting mutates the registry as cards reset.
     Object.values({ ...submitters.current }).forEach(ref => ref?.current?.());
   };
+  // Only worth offering once more than one card is waiting — with a single one,
+  // that card's own button is right there.
+  const bar = pendingIds.length > 1 && (
+    <div className="submit-all-bar">
+      <button className="submit-all" onClick={submitAll}>
+        Tout ajouter <span className="sa-count">{pendingIds.length}</span>
+      </button>
+    </div>
+  );
+  return { registerSubmit, bar };
+}
 
-  if (!trackers.length){
-    return <div className="empty"><span className="em-serif">Aucun tracker.</span></div>;
-  }
-
-  const renderGrid = (drag) => (
+// Une grille de cartes de tracker pour un jour donné — la seule façon de
+// remplir un tracker de données dans l'app, qu'on soit dans "Quotidiens" ou
+// dans un groupe de couleur. Sans `onReorder` (un bucket dérivé d'une donnée —
+// couleur, fait/pas fait — plutôt que d'un ordre posé), `useDragReorder`
+// dégrade déjà proprement à une grille sans poignée.
+function TrackerCardGrid({ ids, byId, byTracker, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, onReorder, onEditTracker, registerSubmit }){
+  const drag = useDragReorder(ids, onReorder);
+  return (
     <div className="today-grid">
       {drag.order.map(id => {
         const t = byId[id];
@@ -2054,36 +2255,128 @@ function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, da
       })}
     </div>
   );
+}
 
-  // Only worth offering once more than one card is waiting — with a single one,
-  // that card's own button is right there.
-  const submitAllBar = pendingIds.length > 1 && (
-    <div className="submit-all-bar">
-      <button className="submit-all" onClick={submitAll}>
-        Tout ajouter <span className="sa-count">{pendingIds.length}</span>
-      </button>
-    </div>
+// Range les trackers du Jour en sections selon le groupement choisi. Masters
+// et Alimentation restent leurs composants existants — un master garde son
+// langage visuel de composite, pas celui d'une carte de tracker — les buckets
+// de trackers passent tous par `TrackerCardGrid`.
+function buildDaySections({ groupMode, trackers, masters, entries, dk, foodSummary, trackerById,
+                             onAddEntry, onDeleteEntry, onEditEntry, todayTs, onReorder, onEditTracker, registerSubmit }){
+  const byTracker = {};
+  for (const t of trackers) byTracker[t.id] = [];
+  for (const e of entries){
+    if (dayKey(e.ts) === dk && byTracker[e.trackerId]) byTracker[e.trackerId].push(e);
+  }
+  const byId = Object.fromEntries(trackers.map(t => [t.id, t]));
+  const grid = (ids, reorderable) => (
+    <TrackerCardGrid ids={ids} byId={byId} byTracker={byTracker}
+      onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry}
+      dayTs={todayTs} isToday={true} onReorder={reorderable ? onReorder : null} onEditTracker={onEditTracker}
+      registerSubmit={registerSubmit} />
+  );
+
+  // Les clés portent le mode en préfixe : « masters » et « alimentation »
+  // existent dans les trois groupements, et `useDragReorder` réconcilie son
+  // ordre interne d'un rendu à l'autre par identité de clé — sans le préfixe,
+  // changer de groupement lui ferait croire que ces deux-là gardaient la
+  // position qu'elles avaient dans le groupement précédent.
+  const k = (id) => `${groupMode}:${id}`;
+  const sections = [];
+  if (masters.length){
+    sections.push({ id:k('masters'), label:SECTION_LABELS.masters,
+      node: <MasterStrips masters={masters} trackerById={trackerById} entries={entries} onReorder={onReorder} onEdit={onEditTracker} /> });
+  }
+
+  if (groupMode === 'color'){
+    // Une section par couleur réellement utilisée, dans l'ordre où ces
+    // couleurs apparaissent (celui du tri courant) — pas de manche à
+    // réordonner à l'intérieur : l'appartenance à une couleur n'est pas un
+    // ordre posé, glisser une carte d'un bucket de couleur à l'autre ne
+        // changerait pas sa couleur.
+    const byColor = {};
+    const colorOrder = [];
+    for (const t of trackers){
+      if (!byColor[t.color]) { byColor[t.color] = []; colorOrder.push(t.color); }
+      byColor[t.color].push(t.id);
+    }
+    for (const color of colorOrder){
+      sections.push({ id:k(`color:${color}`), swatch:color, label:'', node: grid(byColor[color], false) });
+    }
+  } else if (groupMode === 'done'){
+    // Un joker compte comme "fait" : c'est une journée traitée délibérément,
+    // pas une case vide qu'on aurait oubliée.
+    const doneIds = trackers.filter(t => (byTracker[t.id] || []).length > 0).map(t => t.id);
+    const notDoneIds = trackers.filter(t => !(byTracker[t.id] || []).length).map(t => t.id);
+    if (doneIds.length) sections.push({ id:k('done'), label:SECTION_LABELS.done, node: grid(doneIds, false) });
+    if (notDoneIds.length) sections.push({ id:k('notdone'), label:SECTION_LABELS.notdone, node: grid(notDoneIds, false) });
+  } else {
+    // 'type' — le cas d'origine : quotidiens et plusieurs par jour, toujours
+    // reorderables entre eux comme avant.
+    const dailyIds = trackers.filter(t => t.daily).map(t => t.id);
+    const multiIds = trackers.filter(t => !t.daily).map(t => t.id);
+    if (dailyIds.length) sections.push({ id:k('daily'), label:SECTION_LABELS.daily, node: grid(dailyIds, true) });
+    if (multiIds.length) sections.push({ id:k('multi'), label:SECTION_LABELS.multi, node: grid(multiIds, true) });
+  }
+
+  if (foodSummary){
+    // Le résumé Food porte déjà son propre intitulé et son lien « ouvrir » sur
+    // la même ligne — `selfLabeled` dit à TodayView de lui passer la poignée
+    // directement plutôt que de dupliquer un second en-tête au-dessus.
+    sections.push({ id:k('food'), selfLabeled:true, node: foodSummary });
+  }
+  return sections;
+}
+
+// Grid of one editable card per tracker, for the given day. Utilisé par
+// l'Historique, qui ne connaît ni le groupement ni l'alimentation — il garde
+// le partage fixe Quotidiens / Plusieurs par jour d'origine.
+function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, onReorder, onEditTracker }){
+  const dk = dayKey(dayTs);
+  const byTracker = useMemo(() => {
+    const m = {};
+    for (const t of trackers) m[t.id] = [];
+    for (const e of entries){
+      if (dayKey(e.ts) === dk && m[e.trackerId]) m[e.trackerId].push(e);
+    }
+    return m;
+  }, [entries, trackers, dk]);
+
+  const byId = useMemo(() => Object.fromEntries(trackers.map(t => [t.id, t])), [trackers]);
+  const dailyIds = useMemo(() => trackers.filter(t => t.daily).map(t => t.id), [trackers]);
+  const multiIds = useMemo(() => trackers.filter(t => !t.daily).map(t => t.id), [trackers]);
+  const submit = useSubmitAll();
+
+  if (!trackers.length){
+    return <div className="empty"><span className="em-serif">Aucun tracker.</span></div>;
+  }
+
+  const grid = (ids) => (
+    <TrackerCardGrid ids={ids} byId={byId} byTracker={byTracker}
+      onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry}
+      dayTs={dayTs} isToday={isToday} onReorder={onReorder} onEditTracker={onEditTracker}
+      registerSubmit={submit.registerSubmit} />
   );
 
   if (!dailyIds.length || !multiIds.length){
     return (
       <>
-        {submitAllBar}
-        {renderGrid(dailyIds.length ? dailyDrag : multiDrag)}
+        {submit.bar}
+        {grid(dailyIds.length ? dailyIds : multiIds)}
       </>
     );
   }
 
   return (
     <div className="day-groups">
-      {submitAllBar}
+      {submit.bar}
       <div className="day-group">
         <p className="section-label">Quotidiens</p>
-        {renderGrid(dailyDrag)}
+        {grid(dailyIds)}
       </div>
       <div className="day-group">
         <p className="section-label">Plusieurs par jour</p>
-        {renderGrid(multiDrag)}
+        {grid(multiIds)}
       </div>
     </div>
   );
@@ -2389,7 +2682,7 @@ function copyStylesTo(win){
 }
 const PIP_SUPPORTED = typeof window !== 'undefined' && 'documentPictureInPicture' in window;
 
-function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, onReset, onRemove, onSave, onUpdate, onResetAll, exclusive, onSetExclusive }){
+function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, onReset, onRemove, onSave, onUpdate, onResetAll, onReorder, exclusive, onSetExclusive }){
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
   const running = chronos.some(c => c.startedAt);
@@ -2422,16 +2715,30 @@ function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, o
     } catch { /* user dismissed the window request */ }
   };
 
+  // Même ordre partout : chaque appareil connecté voit les chronos dans
+  // l'arrangement posé, pas dans l'ordre où ils ont été créés.
+  const sortedChronos = useMemo(() => [...chronos].sort((a,b) => (a.order||0) - (b.order||0)), [chronos]);
+  const chronoIds = useMemo(() => sortedChronos.map(c => c.id), [sortedChronos]);
+  const byChronoId = useMemo(() => Object.fromEntries(sortedChronos.map(c => [c.id, c])), [sortedChronos]);
+  const drag = useDragReorder(chronoIds, onReorder);
+
   const cards = (
     <div className="today-grid">
-      {chronos.map(c => (
-        <ChronoCard
-          key={c.id} chrono={c} now={now}
-          tracker={c.trackerId ? trackerById[c.trackerId] : null}
-          onStart={onStart} onPause={onPause} onReset={onReset}
-          onSave={onSave} onEdit={()=>setEditing(c)}
-        />
-      ))}
+      {drag.order.map(id => {
+        const c = byChronoId[id];
+        if (!c) return null;
+        return (
+          <ChronoCard
+            key={c.id} chrono={c} now={now}
+            tracker={c.trackerId ? trackerById[c.trackerId] : null}
+            onStart={onStart} onPause={onPause} onReset={onReset}
+            onSave={onSave} onEdit={()=>setEditing(c)}
+            containerRef={drag.setNodeRef(c.id)}
+            dragging={drag.dragId === c.id}
+            onDragStart={drag.startDrag(c.id)}
+          />
+        );
+      })}
     </div>
   );
 
@@ -2500,14 +2807,15 @@ function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, o
   );
 }
 
-function ChronoCard({ chrono: c, now, tracker, onStart, onPause, onReset, onSave, onEdit }){
+function ChronoCard({ chrono: c, now, tracker, onStart, onPause, onReset, onSave, onEdit, containerRef, dragging, onDragStart }){
   const elapsed = chronoElapsed(c, now);
   const isRunning = !!c.startedAt;
   const minutes = Math.round(elapsed / 60000);
 
   return (
-    <div className={`today-card chrono-card ${isRunning?'running':''}`}>
+    <div ref={containerRef} className={`today-card chrono-card ${isRunning?'running':''} ${dragging?'dragging':''}`}>
       <div className="tc-head">
+        {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
         <div className="tc-name">
           {tracker && <span className="dot" style={{background:tracker.color}}></span>}
           {c.label}
@@ -2626,8 +2934,8 @@ function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
    Log view — the entries, split into "Jour", "Historique" and "Chrono"
    ============================================================ */
 function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder,
-                  chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono, onUpdateChrono, onResetAllChronos, chronoExclusive, onSetChronoExclusive,
-                  foodSummary, historyJump, onAddTracker, onEditTracker, showWeek }){
+                  chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono, onUpdateChrono, onResetAllChronos, onReorderChronos, chronoExclusive, onSetChronoExclusive,
+                  foodSummary, historyJump, onAddTracker, onEditTracker, showWeek, groupMode, sectionOrder, onReorderSections }){
   const hint = logSub === 'historique' ? "ouvrez n’importe quel jour pour l’éditer"
              : "chronométrez vos sessions, puis enregistrez-les";
   return (
@@ -2663,9 +2971,11 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
           onRemove={onRemoveChrono}
           onSave={onSaveChrono}
           onUpdate={onUpdateChrono}
+          onReorder={onReorderChronos}
         />
       ) : logSub === 'jour' ? (
-        <TodayView trackers={trackers} masters={masters} trackerById={trackerById} entries={entries} filterIds={filterIds} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} onReorder={onReorder} foodSummary={foodSummary} onEditTracker={onEditTracker} showWeek={showWeek} />
+        <TodayView trackers={trackers} masters={masters} trackerById={trackerById} entries={entries} filterIds={filterIds} onAddEntry={onAddEntry} onDeleteEntry={onDeleteEntry} onEditEntry={onEditEntry} onReorder={onReorder} foodSummary={foodSummary} onEditTracker={onEditTracker} showWeek={showWeek}
+                  groupMode={groupMode} sectionOrder={sectionOrder} onReorderSections={onReorderSections} />
       ) : (
         <HistoryView
           trackers={trackers}
@@ -4377,18 +4687,24 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
   };
 
   return (
-    <div className="scrim" onClick={onClose}>
-      <div className="modal" onClick={e=>e.stopPropagation()}>
-        <h2>{isEdit ? 'Modifier le tracker' : 'Nouveau tracker'}</h2>
-        <div className="modal-sub">Le cœur définit ce que vous mesurez, les paramètres comment.</div>
+    <div className="fd-add-page">
+      <div className="fd-add-head">
+        <div className="fd-add-head-txt">
+          <h2>{isEdit ? 'Modifier le tracker' : 'Nouveau tracker'}</h2>
+          <div className="modal-sub">Le cœur définit ce que vous mesurez, les paramètres comment.</div>
+        </div>
+        <button className="icon-btn fd-add-close" onClick={onClose} aria-label="Fermer">✕</button>
+      </div>
+      <div className="fd-add-body">
 
         {/* ============ CŒUR ============ */}
-        <p className="modal-section first">Cœur</p>
+        <div className="card fd-card">
+        <p className="section-label">Cœur</p>
 
         <div className="field">
           <label>Genre</label>
           <div className="ctl-with-info">
-            <Segmented>
+            <Segmented size="compact" wrap>
               <button className={!isMasterKind?'on':''} onClick={()=>setKind('data')}>Tracker</button>
               <button className={isMasterKind?'on':''} onClick={()=>setKind('master')}>Master</button>
             </Segmented>
@@ -4481,14 +4797,17 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           </>
         )}
 
+        </div>
+
         {/* ============ PARAMÈTRES ============ */}
-        <p className="modal-section">Paramètres</p>
+        <div className="card fd-card">
+        <p className="section-label">Paramètres</p>
 
         {!isMasterKind && (
           <div className="field">
             <label>Fréquence</label>
             <div className="ctl-with-info">
-              <Segmented>
+              <Segmented size="compact" wrap>
                 <button className={daily?'on':''} onClick={()=>setDaily(true)}>Une / jour</button>
                 <button className={!daily?'on':''} onClick={()=>setDaily(false)}>Plusieurs / jour</button>
               </Segmented>
@@ -4579,13 +4898,16 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           )}
         </div>
 
+        </div>
+
         {/* ============ VUES ============ */}
-        <p className="modal-section">Vues</p>
+        <div className="card fd-card">
+        <p className="section-label">Vues</p>
 
         <div className="field">
           <label>Courbe</label>
           <div className="ctl-with-info">
-            <Segmented>
+            <Segmented size="compact" wrap>
               {CURVE_STYLES.map(c => (
                 <button key={c.id} className={curveStyle===c.id?'on':''} onClick={()=>setCurveStyle(c.id)}>{c.label}</button>
               ))}
@@ -4601,9 +4923,9 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         </div>
 
         <div className="field">
-          <label>Un point =</label>
+          <label>Granularité</label>
           <div className="ctl-with-info">
-            <Segmented>
+            <Segmented size="compact" wrap>
               {GRAINS.map(g => (
                 <button key={g.id} className={chartGrain===g.id?'on':''} onClick={()=>setChartGrain(g.id)}>{g.label}</button>
               ))}
@@ -4656,8 +4978,11 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           </div>
         )}
 
-        <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:10,borderBottom:'none'}}>
-          <label style={{width:'auto'}}>Couleur</label>
+        </div>
+
+        <div className="card fd-card">
+        <p className="section-label">Couleur</p>
+        <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:10,borderBottom:'none',paddingTop:0}}>
           <div className="swatch-grid">
             <div className="swatch-row">
               {COLOR_NEUTRALS.map(c => (
@@ -4679,6 +5004,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
               </div>
             ))}
           </div>
+        </div>
         </div>
 
         <div className="modal-actions">

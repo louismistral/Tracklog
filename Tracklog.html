@@ -212,6 +212,9 @@
 
   /* Tracker rail */
   .rail-wrap{border-bottom:1px solid var(--line);margin-bottom:34px}
+  /* Trois boutons, pas un : Filtres, Tri et Grouper sont trois questions
+     différentes qui ne méritaient plus de se disputer un seul intitulé. */
+  .rail-toggles{display:flex;flex-wrap:wrap;gap:22px}
   .rail-toggle{display:inline-flex;align-items:center;gap:8px;padding:16px 0;font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3);transition:color .3s var(--ease)}
   .rail-toggle:hover{color:var(--ink)}
   .rail-toggle svg{transition:transform .3s var(--ease)}
@@ -350,6 +353,11 @@
   .entry .actions button:last-child:hover{color:var(--warn)}
 
   .day-group{margin-bottom:6px}
+  /* La poignée + le rond de couleur (groupement « Couleur ») partagent la ligne
+     du titre de section — `.section-label` seul est un simple bloc ailleurs
+     dans l'app, cette variante lui ajoute juste la mise en ligne. */
+  .day-group-head{display:flex;align-items:center;gap:8px}
+  .day-group.dragging{opacity:.9}
   .day-head{font-size:10px;color:var(--ink-3);letter-spacing:0.18em;text-transform:uppercase;padding:22px 6px 10px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between}
   .day-head .count{color:var(--ink-3)}
 
@@ -1329,6 +1337,8 @@
   /* Les 4 compteurs dans la page Log */
   .fd-log-group{margin-top:34px;padding-top:26px;border-top:1px solid var(--line)}
   .fd-log-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:18px}
+  .fd-log-title{display:flex;align-items:baseline;gap:8px}
+  .fd-log-title .drag-handle{align-self:center}
   .today-card.fd-card{cursor:pointer;gap:10px}
   .today-card.fd-card:hover{border-color:var(--line-2)}
   .fd-card-v{font-family:"Geist Mono",monospace;font-size:24px;color:var(--ink);line-height:1;display:flex;align-items:baseline;gap:4px}
@@ -1494,8 +1504,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=51"></script>
-<script type="text/babel" src="app.food.jsx?v=21"></script>
+<script type="text/babel" src="app.jsx?v=52"></script>
+<script type="text/babel" src="app.food.jsx?v=22"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>
