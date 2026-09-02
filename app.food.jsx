@@ -164,10 +164,10 @@ function ExternalIcon({ size = 12 }){
 // chacun leur propre variante (une grille 4 colonnes ici, un style en ligne
 // là) pour dire la même chose ; ils partagent maintenant celle-ci plutôt que
 // de continuer à dériver chacun de son côté.
-function NumField({ label, unit, value, onChange, onKeyDown, placeholder = '—' }){
+function NumField({ label, unit, value, onChange, onKeyDown, placeholder = '—', info = null }){
   return (
     <div className="field">
-      <label>{label}</label>
+      <label>{info ? <span className="lab-info">{label}<InfoBubble>{info}</InfoBubble></span> : label}</label>
       <div className="field-num">
         <input type="number" step="any" min="0" inputMode="decimal" placeholder={placeholder}
                value={value ?? ''} onChange={e=>onChange(e.target.value)} onKeyDown={onKeyDown} />
@@ -182,12 +182,23 @@ function NumField({ label, unit, value, onChange, onKeyDown, placeholder = '—'
    la page Log, elles qui ont un objectif, elles qui ont un graphe.
    Tout le reste (sucres, sel, vitamines…) est du détail affiché quand
    l'étiquette le porte. */
+/* Une couleur par macro, prises dans le nuancier de l'app (mêmes paliers de
+   luminosité, même chroma que les couleurs de tracker) : vert les calories,
+   rouge les protéines, bleu les glucides, jaune les lipides. Elles ne suivent
+   pas l'accent — ce sont quatre repères qu'on apprend une fois, et qui doivent
+   rester les mêmes quelle que soit la couleur choisie pour l'app. */
 const FOOD_MACROS = [
-  { key:'kcal',    label:'Calories',  short:'kcal', unit:'kcal', color:'var(--accent)' },
-  { key:'protein', label:'Protéines', short:'prot', unit:'g',    color:'oklch(0.62 0.11 150)' },
+  { key:'kcal',    label:'Calories',  short:'kcal', unit:'kcal', color:'oklch(0.62 0.11 150)' },
+  { key:'protein', label:'Protéines', short:'prot', unit:'g',    color:'oklch(0.60 0.13 25)'  },
   { key:'carbs',   label:'Glucides',  short:'gluc', unit:'g',    color:'oklch(0.62 0.11 250)' },
-  { key:'fat',     label:'Lipides',   short:'lip',  unit:'g',    color:'oklch(0.68 0.11 80)' },
+  { key:'fat',     label:'Lipides',   short:'lip',  unit:'g',    color:'oklch(0.75 0.12 90)'  },
 ];
+/* Dépasser sa cible calorique de quelques calories n'est pas un écart : c'est
+   la précision de l'estimation. Au-delà de 2,5 %, c'en est un, et le chiffre
+   comme la barre passent au rouge. Seules les calories : une macro au-dessus de
+   sa cible n'est pas une mauvaise nouvelle en soi (des protéines, par exemple). */
+const KCAL_OVER_TOLERANCE = 0.025;
+const kcalOverrun = (key, v, goal) => key === 'kcal' && goal > 0 && v > goal * (1 + KCAL_OVER_TOLERANCE);
 const MACRO_BY_KEY = Object.fromEntries(FOOD_MACROS.map(m => [m.key, m]));
 
 // Le reste de l'étiquette réglementaire — toujours en grammes pour 100 g/ml.
@@ -1650,13 +1661,16 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
           const v = totals[m.key] || 0;
           const goal = goals[m.key] || 0;
           const pct = goal > 0 ? Math.min(100, (v / goal) * 100) : 0;
-          const over = goal > 0 && v > goal;
+          const bad = kcalOverrun(m.key, v, goal);
           const lead = m.key === 'kcal';
           const amount = (n) => lead ? `${fmtNum(n, 0)} kcal` : `${fmtMacro(n)}g`;
           return (
-            <div className={`fd-total ${lead?'lead':''}`} key={m.key}>
+            <div className={`fd-total ${lead?'lead':''} ${bad?'bad':''}`} key={m.key}>
               <span className="fd-total-head">
-                <span className="fd-total-label">{m.label}</span>
+                {/* Le nom porte la couleur de sa macro, comme le nom d'un tracker
+                    porte la sienne : la jauge ne la montre qu'une fois remplie,
+                    et une journée à zéro n'apprendrait rien. */}
+                <span className="fd-total-label" style={{color:m.color}}>{m.label}</span>
                 {lead && (
                   <button className="icon-btn chart-edit-btn" onClick={()=>onGoals(day)}
                           aria-label="Régler les objectifs" title="Régler les objectifs">
@@ -1668,7 +1682,7 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
                 {lead ? fmtNum(v, 0) : fmtMacro(v)}
                 <span className="u">{m.unit}</span>
               </span>
-              <span className="fd-meter"><span className={`fd-fill ${over?'over':''}`} style={{width:`${pct}%`, background:m.color}} /></span>
+              <span className="fd-meter"><span className={`fd-fill ${bad?'over':''}`} style={{width:`${pct}%`, background:m.color}} /></span>
               <span className="fd-total-goal mono">
                 {goal > 0 ? `${amount(v)} / ${amount(goal)}` : 'sans objectif'}
               </span>
@@ -2540,12 +2554,12 @@ function MealEditModal({ meal, store, onClose, onSave, onDelete }){
                    placeholder="Poke bowl du dimanche, porridge, salade César…" />
           </div>
           <NumField label="Portions" unit={portions > 1 ? 'parts' : 'part'} placeholder="1"
-                    value={portionsStr} onChange={setPortionsStr} />
-          <Help>
-            Ce que la recette produit, pas ce qu'on en mange : les ingrédients ci-dessous
-            pèsent le plat entier, et une portion en est la division. Au moment de l'ajouter
-            à une journée, on dira combien de portions on a prises — une demie comprise.
-          </Help>
+                    value={portionsStr} onChange={setPortionsStr}
+                    info={<>
+                      Ce que la recette produit, pas ce qu'on en mange : les ingrédients ci-dessous
+                      pèsent le plat entier, et une portion en est la division. Au moment de l'ajouter
+                      à une journée, on dira combien de portions on a prises — une demie comprise.
+                    </>} />
         </div>
 
         <div className="card fd-card">
@@ -2916,19 +2930,21 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
               </div>
             )}
 
-            <div className="fd-search-meta">
-              <span className="serif">
+            {/* La même barre à icône que l'onglet d'à côté, à la même place :
+                ce qu'on regarde à gauche, ce qui agit dessus à droite. Le
+                bouton vignettes est le dernier rond des deux onglets — un
+                même geste ne peut pas changer de coin selon l'onglet. */}
+            <IconBar detached className="fd-mine-bar" buttons={[
+              { icon:<ImageIcon />, onClick:()=>setThumbs(v=>!v), on:thumbs,
+                label: thumbs ? 'Masquer les images' : 'Afficher les images' },
+            ]}>
+              <span className="serif fd-bar-note">
                 {isCode ? 'Un code-barres — Entrée pour aller chercher le produit.'
                   : q.length < 3 ? 'Trois lettres suffisent — les résultats arrivent à la frappe.'
                   : searching ? 'Recherche…'
                   : `${hits.length} résultat${hits.length>1?'s':''}${via ? ` · ${via}` : ''}`}
               </span>
-              <button className={`icon-btn fd-thumb-toggle ${thumbs?'on':''}`} onClick={()=>setThumbs(v=>!v)}
-                      aria-pressed={thumbs} title={thumbs ? 'Masquer les images' : 'Afficher les images'}
-                      aria-label={thumbs ? 'Masquer les images' : 'Afficher les images'}>
-                <ImageIcon />
-              </button>
-            </div>
+            </IconBar>
 
             {/* Une seule liste. Les pastilles d'origine disent déjà d'où vient
                 chaque ligne, donc trois listes qui défilaient chacune de leur
@@ -3077,23 +3093,6 @@ function FoodPickRow({ food, onPick, showImage = false, favorite, onToggleFavori
   const sub = itemSub(food, refByBarcode);
   return (
     <div className="fd-item-row">
-      {(onForget || onEdit) && (
-        <span className="fd-item-act">
-          {onEdit
-            ? <button className="icon-btn fd-edit-btn" onClick={onEdit}
-                      aria-label="Modifier" title="Modifier"><PencilIcon /></button>
-            : <button className="icon-btn fd-forget-btn" onClick={onForget}
-                      aria-label="Oublier cet item" title="Oublier cet item"><TrashIcon /></button>}
-        </span>
-      )}
-      {onToggleFavorite && (
-        <span className="fd-item-act">
-          <button className={`icon-btn fd-fav ${favorite?'on':''}`} onClick={onToggleFavorite}
-                  aria-pressed={!!favorite} title={favorite ? 'Retirer des favoris' : 'Mettre en favori'}>
-            <StarIcon filled={!!favorite} />
-          </button>
-        </span>
-      )}
       <button className="fd-item" onClick={onPick}>
         {showImage && (food.imageUrl
           ? <img src={food.imageUrl} alt="" loading="lazy" />
@@ -3120,12 +3119,33 @@ function FoodPickRow({ food, onPick, showImage = false, favorite, onToggleFavori
           </span>
         </span>
       </button>
-      {src && (
+      {/* Les trois gestes de la ligne, ensemble et dans le même ordre partout :
+          la fiche d'origine, l'étoile, puis la corbeille. Ils étaient répartis
+          des deux côtés du nom — la main devait choisir son bord avant de
+          choisir son geste, et une ligne sans favori décalait toutes les
+          autres. */}
+      {(src || onToggleFavorite || onForget || onEdit) && (
         <span className="fd-item-act">
-          <a className="icon-btn fd-src-btn" href={src} target="_blank" rel="noopener noreferrer"
-             aria-label="Voir la fiche d'origine"
-             title={food.source === 'ref' ? `Table Ciqual — ${food.sub || food.group}` : 'Voir la fiche sur Open Food Facts'}
-             onClick={e=>e.stopPropagation()}><ExternalIcon /></a>
+          {src && (
+            <a className="icon-btn fd-src-btn" href={src} target="_blank" rel="noopener noreferrer"
+               aria-label="Voir la fiche d'origine"
+               title={food.source === 'ref' ? `Table Ciqual — ${food.sub || food.group}` : 'Voir la fiche sur Open Food Facts'}
+               onClick={e=>e.stopPropagation()}><ExternalIcon /></a>
+          )}
+          {onToggleFavorite && (
+            <button className={`icon-btn fd-fav ${favorite?'on':''}`} onClick={onToggleFavorite}
+                    aria-pressed={!!favorite} title={favorite ? 'Retirer des favoris' : 'Mettre en favori'}>
+              <StarIcon filled={!!favorite} />
+            </button>
+          )}
+          {onEdit && (
+            <button className="icon-btn fd-edit-btn" onClick={onEdit}
+                    aria-label="Modifier" title="Modifier"><PencilIcon /></button>
+          )}
+          {onForget && (
+            <button className="icon-btn fd-forget-btn" onClick={onForget}
+                    aria-label="Oublier cet item" title="Oublier cet item"><TrashIcon /></button>
+          )}
         </span>
       )}
     </div>
@@ -4062,14 +4082,16 @@ function FoodDaySummary({ store, onOpen, containerRef, dragging, onDragStart }){
           {rows.length ? `${rows.length} ligne${rows.length>1?'s':''} — ouvrir` : 'ouvrir la page Food'}
         </button>
       </div>
-      <div className="today-grid">
+      {/* `day-group-body` : le même repli que les autres sections du Jour quand
+          on les réorganise — c'est le Log qui décide, pas cette carte. */}
+      <div className="today-grid day-group-body">
         {FOOD_MACROS.map(m => {
           const v = totals[m.key] || 0;
           const goal = goals[m.key] || 0;
           const pct = goal > 0 ? Math.min(100, (v/goal)*100) : 0;
-          const over = goal > 0 && v > goal;
+          const bad = kcalOverrun(m.key, v, goal);
           return (
-            <div className={`today-card fd-card ${rows.length?'done':''}`} key={m.key} onClick={onOpen} role="button" tabIndex={0}
+            <div className={`today-card fd-card ${rows.length?'done':''} ${bad?'bad':''}`} key={m.key} onClick={onOpen} role="button" tabIndex={0}
                  onKeyDown={e=>{ if(e.key==='Enter') onOpen(); }}>
               <div className="tc-head">
                 {/* Même convention que les cartes de tracker : le nom porte la
@@ -4081,7 +4103,7 @@ function FoodDaySummary({ store, onOpen, containerRef, dragging, onDragStart }){
                 {m.key === 'kcal' ? fmtNum(v,0) : fmtMacro(v)}
                 <span className="u">{m.unit}</span>
               </div>
-              <span className="fd-meter"><span className={`fd-fill ${over?'over':''}`} style={{width:`${pct}%`,background:m.color}} /></span>
+              <span className="fd-meter"><span className={`fd-fill ${bad?'over':''}`} style={{width:`${pct}%`,background:m.color}} /></span>
               <div className="fd-card-goal mono">
                 {goal > 0
                   ? (m.key === 'kcal'

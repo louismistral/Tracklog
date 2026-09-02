@@ -15,6 +15,19 @@
     var t = localStorage.getItem('tracklog.theme');
     if (STYLE_IDS.indexOf(t) !== -1) document.documentElement.dataset.theme = t;
   } catch(e){}
+  // La couleur d'accent choisie, posée avant le premier pixel pour la même
+  // raison que le style. Les deux dérivées (survol, fond très pâle) se
+  // calculent en CSS : une seule couleur est stockée, jamais trois qui
+  // pourraient diverger. `applyAccent` est réutilisée par l'app (STYLES,
+  // app.jsx) quand on change de couleur en cours de route.
+  window.applyAccent = function(c){
+    var r = document.documentElement.style;
+    if (!c){ r.removeProperty('--accent'); r.removeProperty('--accent-2'); r.removeProperty('--accent-soft'); return; }
+    r.setProperty('--accent', c);
+    r.setProperty('--accent-2', 'color-mix(in oklab, ' + c + ' 84%, #000)');
+    r.setProperty('--accent-soft', 'color-mix(in srgb, ' + c + ' 14%, transparent)');
+  };
+  try{ window.applyAccent(localStorage.getItem('tracklog.accent') || ''); } catch(e){}
 </script>
 <title>Tracklog</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
@@ -149,18 +162,28 @@
   .gear-btn:hover svg{transform:rotate(25deg)}
   .settings-view{max-width:480px}
   .settings-card{margin-bottom:20px}
-  .settings-section-title{font-family:"Instrument Serif",serif;font-style:italic;font-size:19px;margin:0 0 6px}
+  .settings-section-title{font-family:"Instrument Serif",serif;font-style:italic;font-size:19px;margin:0 0 6px;
+    display:flex;align-items:center;gap:8px}
   .settings-value{font-size:13px;color:var(--ink-2)}
   .settings-value.dim{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.1em}
   .settings-hint{font-size:12px;color:var(--ink-3);line-height:1.6;margin:12px 0 0}
-  /* Un réglage et son explication forment un bloc : la description est écrite
-     sous la ligne du contrôle, dans le corps de la page, plutôt que rangée
-     derrière une bulle à ouvrir. Le trait de séparation passe donc du .field au
-     bloc entier, sinon il couperait le réglage de sa propre description. */
-  .setting-block{border-bottom:1px solid var(--line);padding-bottom:12px}
-  .setting-block:last-of-type{border-bottom:none}
-  .setting-block .field{border-bottom:none;padding-bottom:0}
-  .setting-block .settings-hint{margin-top:8px}
+  /* Une ligne de réglage « étalée » : l'intitulé à gauche, le contrôle collé au
+     bord droit. Sans ça, l'intitulé impose sa largeur (82 px, ou la sienne dans
+     la liste des onglets) et chaque « Affiché / Masqué » démarre à un endroit
+     différent selon la longueur du nom — une colonne qui ondule au lieu de
+     s'aligner. C'est la même règle pour toute la page : deux lignes de la même
+     carte ne peuvent pas se ranger différemment. */
+  .field.spread{gap:12px}
+  .field.spread>label,.field.spread>label.label-drag{width:auto;flex:0 1 auto}
+  .field.spread>:last-child{margin-left:auto}
+  .field.spread .ctl-with-info{flex:0 1 auto;justify-content:flex-end}
+  /* Une bulle posée en tête de ligne (dans un intitulé, dans un titre de carte)
+     s'ouvrirait vers la gauche, donc hors de l'écran sur un téléphone : c'est
+     alors le bloc entier qui lui sert d'ancre, et elle s'aligne sur son bord
+     droit. Même correctif que pour les sources de la page Food. */
+  .settings-section-title,.field{position:relative}
+  .settings-section-title>.info,.field>label .info{position:static}
+  .lab-info{display:inline-flex;align-items:center;gap:6px}
   /* Une ligne réordonnable : la poignée fait partie du libellé, elle ne pousse
      pas le contrôle plus loin que sur les lignes qui n'en ont pas. */
   .field label.label-drag{display:flex;align-items:center;gap:6px;margin-left:-24px;width:106px}
@@ -358,6 +381,19 @@
      dans l'app, cette variante lui ajoute juste la mise en ligne. */
   .day-group-head{display:flex;align-items:center;gap:8px}
   .day-group.dragging{opacity:.9}
+  /* Réorganiser les sections : tout le contenu se replie le temps du glisser, et
+     il ne reste que les intitulés. Sans ça, deux sections de plusieurs écrans de
+     haut ne se voient jamais ensemble — on déplace à l'aveugle. `display:none`
+     et non un démontage : les cartes gardent leur brouillon en cours. */
+  .day-groups.reordering .day-group-body{display:none}
+  .day-groups.reordering{gap:2px}
+  .day-groups.reordering .day-group .section-label{margin-bottom:0}
+  .day-groups.reordering .day-group{padding:9px 0;border-bottom:1px solid var(--line);margin:0}
+  /* La section Alimentation porte son propre en-tête (avec son lien « ouvrir ») :
+     repliée, elle doit se réduire à la même ligne que les autres. */
+  .day-groups.reordering .fd-log-group{padding-top:9px;border-top:none}
+  .day-groups.reordering .fd-log-head{margin-bottom:0}
+  .day-groups.reordering .fd-log-head .fd-link{display:none}
   .day-head{font-size:10px;color:var(--ink-3);letter-spacing:0.18em;text-transform:uppercase;padding:22px 6px 10px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between}
   .day-head .count{color:var(--ink-3)}
 
@@ -390,11 +426,27 @@
   .seg-track.wrap{flex-wrap:wrap}
   .seg-thumb{position:absolute;top:0;left:0;background:var(--ink);border-radius:999px;z-index:0;
     transition:transform .35s var(--ease),width .35s var(--ease),height .35s var(--ease);pointer-events:none}
-  .seg-track button{position:relative;z-index:1;padding:7px 12px;border:1px solid var(--line-2);border-radius:999px;
+  .seg-track button,.seg-track .seg-opt{position:relative;z-index:1;padding:7px 12px;border:1px solid var(--line-2);border-radius:999px;
     font-size:12px;color:var(--ink-2);background:transparent;font-family:inherit;
     transition:color .35s var(--ease),border-color .35s var(--ease)}
-  .seg-track button.on{color:var(--bg);border-color:transparent}
+  .seg-track button.on,.seg-track .seg-opt.on{color:var(--bg);border-color:transparent}
   .seg-track button:disabled{opacity:0.4;cursor:not-allowed}
+  /* Une option qui porte sa propre saisie : choisie, elle s'élargit pour faire
+     place au nombre — le fond glissant suit, puisqu'il se mesure sur l'option
+     active. Un <label>, pas un <button> : un champ enfermé dans un bouton ne
+     reçoit pas le clavier. */
+  /* `width:auto` et compagnie : c'est un <label>, donc `.field label` lui posait
+     la largeur fixe et les petites capitales d'un intitulé de rangée. Ici ce
+     n'est pas un intitulé, c'est une option de piste. */
+  .seg-track .seg-opt{display:inline-flex;align-items:center;gap:7px;cursor:text;
+    width:auto;flex-shrink:0;text-transform:none;letter-spacing:normal}
+  /* `flex:none` contre le `.field input{flex:1}` de la rangée qui l'héberge :
+     avec une base de 0 dans un inline-flex dimensionné sur son contenu, le champ
+     se réduisait à zéro et l'option n'affichait plus que son mot. */
+  .seg-track .seg-opt input{flex:none;width:4.5em;min-width:0;background:none;border:none;padding:0;color:inherit;
+    font-family:"Geist Mono",monospace;font-feature-settings:"tnum";font-size:12px;text-align:right}
+  .seg-track .seg-opt input::placeholder{color:inherit;opacity:.55}
+  .seg-track .seg-opt .np-unit{color:inherit;opacity:.7}
 
   /* La hauteur d'une barre d'onglets compacte, en un seul endroit : c'est elle
      que le bouton « + » du Log doit égaler, en hauteur comme en largeur quand il
@@ -413,7 +465,12 @@
      garde une seule ligne et glisse au doigt — pour un choix court et exclusif
      (repas, mode d'ajout) où chaque option doit rester à un tap, pas cachée
      dans un menu déroulant. */
-  .seg-track.scrollx{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  /* `max-width:100%` fait toute la différence entre « ça glisse » et « ça
+     déborde » : la piste est un inline-flex, donc large comme son contenu, et
+     rien ne la ramène dans son parent tant qu'on ne le lui dit pas. Dans une
+     rangée `.field` elle était déjà bornée par le flex ; posée seule dans une
+     carte (le repas, dans Créer), elle sortait du cadre. */
+  .seg-track.scrollx{flex-wrap:nowrap;overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch;scrollbar-width:none}
   .seg-track.scrollx::-webkit-scrollbar{display:none}
   .seg-track.scrollx button{flex-shrink:0}
   .seg-track.compact{min-height:var(--ctl-h)}
@@ -434,7 +491,8 @@
     border-radius:6px;padding:3px 6px;letter-spacing:normal;text-transform:none}
 
   /* Chart layout bar */
-  .layout-bar{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+  .layout-bar{display:flex;align-items:center;gap:16px;margin-bottom:18px;position:relative}
+  .layout-bar>.info{position:static}
   .layout-label{font-size:10px;text-transform:uppercase;letter-spacing:0.18em;color:var(--ink-3);font-weight:500}
   /* Combien de cartes par ligne — le curseur écrit `data-per`, une valeur par
      règle plutôt qu'un `repeat()` calculé : la fonction repeat() n'accepte pas
@@ -499,7 +557,12 @@
      card — see "Un nom long se coupe" below. */
   .chart-head .name>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .chart-head .name .dot{width:8px;height:8px;border-radius:50%}
-  .chart-head .stats{display:flex;gap:22px;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.06em;flex-shrink:0}
+  /* Quatre statistiques et un engrenage ne tiennent pas sur la ligne d'un nom
+     sur un téléphone : la rangée de droite passe alors dessous, entière, plutôt
+     que de pousser l'engrenage hors de la carte — `html{overflow-x:hidden}`
+     l'aurait simplement coupé, hors d'atteinte. */
+  .chart-head{flex-wrap:wrap}
+  .chart-head .stats{display:flex;flex-wrap:wrap;gap:8px 22px;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.06em;min-width:0}
   .chart-head .stats .v{color:var(--ink);font-family:"Geist Mono",monospace;font-weight:500;font-size:14px;font-feature-settings:"tnum";letter-spacing:0}
   .chart-head-right{display:flex;align-items:center;gap:14px}
 
@@ -620,6 +683,10 @@
   .swatch{width:100%;aspect-ratio:1;min-width:0}
   .swatches button:hover,.swatch:hover{transform:scale(1.12)}
   .swatches button.on,.swatch.on{outline:2px solid var(--ink);outline-offset:2px}
+  /* « La couleur de Tracklog » — écrite en dur, et pas var(--accent) : dès qu'un
+     accent perso est posé, ce jeton EST la couleur perso, et la pastille du
+     retour en arrière montrerait ce qu'on cherche justement à quitter. */
+  .swatch-default{background:#e2542f}
   .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:24px;border-top:1px solid var(--line);padding-top:18px}
   .modal-actions .ghost{font-size:11px;padding:10px 16px;border-radius:999px;color:var(--ink-2);text-transform:uppercase;letter-spacing:0.12em;transition:color .3s,background .3s}
   .modal-actions .ghost:hover{background:var(--bg-3);color:var(--ink)}
@@ -1037,7 +1104,15 @@
   .fd-total-goal{font-size:10px;color:var(--ink-3);letter-spacing:0.06em}
   .fd-meter{display:block;height:3px;background:var(--bg-3);border-radius:2px;overflow:hidden}
   .fd-fill{display:block;height:100%;border-radius:2px;transition:width .6s var(--ease)}
+  /* Dépassement calorique franc (au-delà de 2,5 % de la cible) : la jauge et le
+     chiffre passent au rouge. Deux calories de trop ne sont pas un écart, c'est
+     l'imprécision de l'estimation — d'où la tolérance plutôt qu'un simple « au
+     dessus de l'objectif ». Rien de tel pour les macros : dépasser sa cible de
+     protéines n'est pas une mauvaise nouvelle. */
   .fd-fill.over{background:var(--warn)!important}
+  .fd-total.bad .fd-total-v,.today-card.bad .fd-card-v{color:var(--warn)}
+  .fd-total.bad .fd-total-label,.today-card.bad .tc-name{color:var(--warn)!important}
+  .fd-total.bad{border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
 
   .fd-note{font-size:12px;color:var(--ink-2);margin:0 0 16px;line-height:1.6}
   .fd-note.warn{color:var(--warn)}
@@ -1253,15 +1328,15 @@
   /* L'action au bout d'une ligne de résultat — modifier un repas, ouvrir la
      fiche d'origine — est un vrai bouton rond, comme partout ailleurs, et non
      un glyphe nu posé dans la marge. */
-  .fd-item-act{display:flex;align-items:center;padding:0 8px;flex-shrink:0}
+  .fd-item-act{display:flex;align-items:center;gap:6px;padding:0 8px 0 4px;flex-shrink:0}
   .fd-edit-btn:hover{color:var(--accent);border-color:var(--accent)}
   .fd-forget-btn:hover{color:var(--warn);border-color:var(--warn)}
   .fd-list-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:var(--ink-3);margin:10px 0 2px;padding:0 4px}
-  .fd-search-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:-4px 0 6px;min-height:18px}
-  .fd-search-meta .serif{font-size:12px;color:var(--ink-3)}
-  .fd-thumb-toggle{width:30px;height:30px}
-  .fd-thumb-toggle:hover{color:var(--ink-2);border-color:var(--ink-3)}
-  .fd-thumb-toggle.on{color:#fff;background:var(--accent);border-color:var(--accent)}
+  /* Le décompte de résultats occupe la barre à icône de l'onglet Recherche
+     exactement comme la bascule Aliments/Repas occupe celle de Mes items :
+     une saisie nue reçoit le contour de la barre, un texte nu ne le reçoit
+     pas — il n'y a rien à y saisir. */
+  .fd-bar-note{font-size:12px;color:var(--ink-3);min-height:18px;display:flex;align-items:center}
   .fd-src-line{margin-top:12px}
   .fd-src-line a,.fd-src-link{color:var(--ink-2);text-decoration:none;border-bottom:1px solid var(--line-2);transition:color .3s var(--ease)}
   .fd-src-line a:hover,.fd-src-link:hover{color:var(--accent);border-color:var(--accent)}
@@ -1531,8 +1606,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=53"></script>
-<script type="text/babel" src="app.food.jsx?v=22"></script>
+<script type="text/babel" src="app.jsx?v=54"></script>
+<script type="text/babel" src="app.food.jsx?v=23"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>

@@ -105,10 +105,12 @@ const DEFAULT_STYLE = 'dark';
 const isStyle = (id) => STYLES.some(s => s.id === id);
 
 /* ---- Onglets --------------------------------------------------------------
-   Log et Paramètres ne se désactivent pas : l'un est la raison d'être de
-   l'app, l'autre est la seule porte pour rallumer le reste. Pas d'entrée
-   « Trackers » : cette page a disparu, remplacée par le bouton du Log et
-   l'engrenage par tracker.
+   Les paramètres ne se désactivent pas : c'est la seule porte pour rallumer le
+   reste, et ce n'est de toute façon pas un onglet mais l'engrenage du bout de
+   barre. Tous les autres se masquent, Log compris — deux lignes de la même
+   liste, dans la même carte, ne peuvent pas se comporter différemment sans que
+   ça passe pour un bug. Pas d'entrée « Trackers » : cette page a disparu,
+   remplacée par le bouton du Log et l'engrenage par tracker.
 
    Cette liste ne dit QUE des onglets de la barre du haut. L'analyse IA de la
    page Food y a figuré un temps : c'était une erreur de rangement — ce n'est
@@ -116,18 +118,18 @@ const isStyle = (id) => STYLES.some(s => s.id === id);
    titre que la recherche ou le scan. On ne masque pas l'une sans les autres,
    donc elle est toujours là et n'a plus d'interrupteur. */
 const TOGGLEABLE_TABS = [
+  { id:'log',      label:'Log',      hint:'remplir la journée, l’historique, les chronos' },
   { id:'food',     label:'Food',     hint:'suivi nutritionnel, scanner, aliments et repas' },
   { id:'vues',     label:'Vues',     hint:'graphes, calendrier, grille de KPI' },
   { id:'training', label:'Training', hint:'à venir' },
   { id:'analyst',  label:'AI analyst', hint:'lecture des données par Claude — corrélations entre trackers ; à venir' },
 ];
-const DEFAULT_TABS = { food:true, vues:true, training:true, analyst:true };
+const DEFAULT_TABS = { log:true, food:true, vues:true, training:true, analyst:true };
 
 /* Les onglets de la barre du haut, dans leur ordre par défaut. L'ordre affiché
    vient du compte (prefs.tabOrder) : il se réarrange en maintenant un onglet,
-   comme les cartes et les pastilles du rail. « Log » est du lot — il ne se
-   masque pas, mais rien n'oblige à le garder en tête. Les paramètres, eux, ne
-   sont pas un onglet : c'est l'engrenage, à sa place fixe au bout de la barre. */
+   comme les cartes et les pastilles du rail. Les paramètres, eux, ne sont pas
+   un onglet : c'est l'engrenage, à sa place fixe au bout de la barre. */
 const NAV_TABS = [
   { id:'log',      label:'Log' },
   { id:'food',     label:'Food' },
@@ -489,23 +491,16 @@ const isMaster = (t) => t.type === 'master';
 // and more call sites are coming later, per Louis.
 const InfoVisibilityContext = React.createContext(true);
 
-/* L'explication d'un réglage, écrite sous lui dans le corps de la page plutôt
-   que cachée derrière un « i » à ouvrir. La règle de partage avec InfoBubble :
-   là où il y a la place de l'écrire — une page de réglages, où la description
-   fait justement partie de ce qu'on est venu lire — on l'écrit ; là où elle
-   étoufferait ce qu'elle explique (une modale déjà dense, une carte, une barre
-   d'outils), c'est la bulle flottante qui prend le relais. Les deux répondent au
-   même interrupteur : « Explications » dans les paramètres. */
-function Help({ children }){
-  const on = useContext(InfoVisibilityContext);
-  if (!on) return null;
-  return <p className="settings-hint">{children}</p>;
-}
+/* Une explication vit derrière un « i », partout, sans exception : c'est ce que
+   dit le réglage « Bulles infos » des paramètres, et une page qui écrirait
+   quand même ses descriptions en clair lui donnerait tort. Elles étaient
+   inline dans les paramètres à une époque (un composant `Help`) ; l'interrupteur
+   parlait alors de deux choses à la fois.
 
-// `always` is the same deliberate exception Help makes for the explanations
-// switch itself: a bubble that carries something other than an explanation —
-// the source credits Open Food Facts' licence requires — must not vanish with
-// the switch that hides explanations.
+   `always` est l'exception délibérée : une bulle qui ne porte pas une
+   explication — le crédit que la licence d'Open Food Facts impose, ou la bulle
+   de l'interrupteur lui-même, seule porte pour rallumer les autres — ne doit
+   pas disparaître avec l'interrupteur. */
 function InfoBubble({ children, always = false }){
   const infoEnabled = useContext(InfoVisibilityContext);
   const [open, setOpen] = useState(false);
@@ -572,7 +567,10 @@ function Segmented({ size, wrap, scrollx, className = '', children, ...rest }){
   // (React coupe court avec « Maximum update depth exceeded »).
   const measure = () => {
     const track = ref.current;
-    const active = track && track.querySelector(':scope > button.on');
+    // `.on`, pas `button.on` : une option peut être autre chose qu'un bouton dès
+    // qu'elle porte une saisie (la valeur cible s'écrit DANS son option, qui
+    // s'élargit alors — un <input> dans un <button> ne se laisse pas taper).
+    const active = track && track.querySelector(':scope > .on');
     if (!track || !active){
       setThumb(prev => prev === null ? prev : null);
       return;
@@ -729,10 +727,16 @@ function useDragReorder(ids, onReorder){
 
   useEffect(() => {
     setOrder(prev => {
+      // Ce qu'on avait rangé à la main garde son ordre ; ce qui apparaît reprend
+      // la place que la liste d'entrée lui donne. On parcourt donc `ids` et on y
+      // reverse les anciens dans leur ordre à eux, les nouveaux tels quels —
+      // plutôt que d'empiler les nouveaux à la fin. Sans ça, un onglet masqué
+      // puis rallumé revenait en bout de barre au lieu de retrouver son créneau.
       const idsSet = new Set(ids);
+      const prevSet = new Set(prev);
       const kept = prev.filter(id => idsSet.has(id));
-      const added = ids.filter(id => !kept.includes(id));
-      const next = [...kept, ...added];
+      let k = 0;
+      const next = ids.map(id => prevSet.has(id) ? kept[k++] : id);
       orderRef.current = next;
       return next;
     });
@@ -948,6 +952,38 @@ function DragHandle({ onPointerDown, dragging }){
 // nuanciers de couleur, pour que la valeur cible et l'échelle ne soient plus
 // les seules boîtes à bordure carrée de la page. Le comportement (parsing,
 // bornes) reste entièrement à l'appelant : ceci n'habille qu'un input.
+/* Le nuancier de l'app : les neutres en tête, puis les quatre paliers de
+   luminosité des douze teintes. Un seul composant pour la couleur d'un tracker
+   et pour l'accent de l'app — ce sont les mêmes couleurs, choisies de la même
+   façon, et deux grilles jumelles auraient dérivé l'une de l'autre.
+   `extra` ajoute une pastille au bout (« la couleur de Tracklog » dans les
+   paramètres) sans que la grille ait à connaître ce qu'elle veut dire. */
+function SwatchGrid({ value, onChange, extra = null }){
+  return (
+    <div className="swatch-grid">
+      <div className="swatch-row">
+        {COLOR_NEUTRALS.map(c => (
+          <button key={c} type="button" className={`swatch ${value===c?'on':''}`} style={{background:c}}
+                  onClick={()=>onChange(c)} aria-label={`Couleur ${c}`} />
+        ))}
+        {/* Une couleur venue d'ailleurs (ancienne version, import, pipette)
+            reste sélectionnée et cliquable plutôt que d'être ignorée. */}
+        {value && !COLORS.includes(value) && (
+          <button type="button" className="swatch on" style={{background:value}} title="Couleur actuelle" aria-label="Couleur actuelle" />
+        )}
+        {extra}
+      </div>
+      {COLOR_ROWS.map((row, i) => (
+        <div className="swatch-row" key={i}>
+          {row.map(c => (
+            <button key={c} type="button" className={`swatch ${value===c?'on':''}`} style={{background:c}}
+                    onClick={()=>onChange(c)} aria-label={`Couleur ${c}`} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
 function NumPill({ label, value, onChange, unit, placeholder, min, style }){
   return (
     <label className="pill num-pill" style={style}>
@@ -1171,6 +1207,13 @@ function App({ session }){
       if (meta && style) meta.setAttribute('content', style.themeColor);
     } catch {}
   }, [theme]);
+  // La couleur d'accent, à côté du style : le style choisit le fond et l'encre,
+  // l'accent choisit ce qui ressort dessus. Chaîne vide = celle de Tracklog.
+  // Même mécanique que le style, jusqu'au script en tête de page (window.applyAccent)
+  // qui la pose avant le premier rendu — sinon toute l'app clignoterait en orange
+  // avant de passer à la couleur choisie.
+  const [accent, setAccent] = useSyncedPref(accountPrefs, 'accent', 'tracklog.accent', '');
+  useEffect(() => { try { window.applyAccent(accent); } catch {} }, [accent]);
   // Multi-select filter for the rail. `selectedIds` is the remembered set;
   // `showAll` temporarily overrides it (the "Tout" toggle) while keeping the
   // set intact (shown greyed) so it isn't lost.
@@ -1476,10 +1519,15 @@ function App({ session }){
   // Not on Food: it filters trackers, and the food page has none.
   const showRail = tab === 'log' || tab === 'vues';
 
-  // Turning a tab off while standing on it would leave a blank screen, so the
-  // view falls back to Log — which can never be turned off.
+  // Masquer l'onglet sur lequel on se tient laisserait un écran blanc : la vue
+  // retombe sur le premier onglet encore affiché, et sur les paramètres s'il
+  // n'en reste aucun — le seul écran qui ne se masque jamais, puisque c'est de
+  // là qu'on rallume les autres.
   const visibleTabs = accountPrefs.tabs;
-  const activeTab = (tab !== 'log' && tab !== 'parametres' && visibleTabs[tab] === false) ? 'log' : tab;
+  const shownTabs = NAV_TABS.filter(t => visibleTabs[t.id] !== false);
+  const fallbackTab = (accountPrefs.tabOrder.find(id => shownTabs.some(t => t.id === id))
+                      || shownTabs[0]?.id || 'parametres');
+  const activeTab = (tab !== 'parametres' && visibleTabs[tab] === false) ? fallbackTab : tab;
 
   return (
     <AccountPrefsContext.Provider value={accountPrefs}>
@@ -1493,7 +1541,7 @@ function App({ session }){
         </div>
         <div className="topbar-actions">
           <TabBar
-            tabs={NAV_TABS.filter(t => t.id === 'log' || visibleTabs[t.id] !== false)}
+            tabs={shownTabs}
             order={accountPrefs.tabOrder}
             activeTab={activeTab}
             onSelect={setTab}
@@ -1596,6 +1644,8 @@ function App({ session }){
           onSetShowWeek={setShowWeek}
           theme={theme}
           onSetTheme={setTheme}
+          accent={accent}
+          onSetAccent={setAccent}
           tabs={visibleTabs}
           onSetTabVisible={accountPrefs.setTab}
           tabOrder={accountPrefs.tabOrder}
@@ -1651,7 +1701,8 @@ function App({ session }){
    loose top-bar buttons.
    ============================================================ */
 function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled, onSetInfoEnabled,
-                       showWeek, onSetShowWeek, theme, onSetTheme, tabs, onSetTabVisible, prefsReady,
+                       showWeek, onSetShowWeek, theme, onSetTheme, accent, onSetAccent,
+                       tabs, onSetTabVisible, prefsReady,
                        tabOrder = [], onSetTabOrder = () => {},
                        archivedTrackers = [], onEditTracker }){
   return (
@@ -1660,23 +1711,29 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
 
       <div className="card settings-card">
         <p className="settings-section-title">Compte</p>
-        <div className="field">
+        <div className="field spread">
           <label>Connecté</label>
           <span className="settings-value">{email}</span>
         </div>
-        <div className="field">
+        <div className="field spread">
           <label>Mot de passe</label>
           <button className="account-btn" onClick={onChangePassword}>Changer</button>
         </div>
-        <div className="field" style={{borderBottom:'none'}}>
+        <div className="field spread" style={{borderBottom:'none'}}>
           <label>Session</label>
           <button className="account-btn" onClick={onSignOut}>Déconnexion</button>
         </div>
       </div>
 
       <div className="card settings-card">
-        <p className="settings-section-title">Style</p>
-        <div className="field" style={{borderBottom:'none',flexDirection:'column',alignItems:'stretch',gap:10}}>
+        <p className="settings-section-title">
+          Style
+          <InfoBubble>
+            Le style suit le compte : choisi sur le téléphone, il s'applique aussi sur
+            l'ordinateur. D'autres viendront s'ajouter à cette liste.
+          </InfoBubble>
+        </p>
+        <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:10}}>
           <div className="style-picker">
             {STYLES.map(s => (
               <button key={s.id} className={`style-choice ${theme===s.id?'on':''}`} onClick={()=>onSetTheme(s.id)}>
@@ -1689,10 +1746,25 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
             ))}
           </div>
         </div>
-        <Help>
-          Le style suit le compte : choisi sur le téléphone, il s'applique aussi sur
-          l'ordinateur. D'autres viendront s'ajouter à cette liste.
-        </Help>
+        {/* Le style choisit le fond et l'encre ; l'accent choisit ce qui ressort
+            dessus. Le même nuancier que la couleur d'un tracker — ce sont les
+            mêmes couleurs, il n'y a pas de raison d'en inventer une seconde
+            grille — plus une pastille pour revenir à celle de Tracklog. */}
+        <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:10,borderBottom:'none'}}>
+          <label style={{width:'auto',display:'flex',alignItems:'center',gap:8}}>
+            Couleur d'accent
+            <InfoBubble>
+              La couleur des boutons, des liens et de tout ce qui doit attirer l'œil.
+              La première pastille remet celle de Tracklog. Comme le style, elle suit le
+              compte : posée sur le téléphone, elle est là sur l'ordinateur.
+            </InfoBubble>
+          </label>
+          <SwatchGrid value={accent} onChange={onSetAccent} extra={
+            <button type="button" className={`swatch swatch-default ${!accent?'on':''}`}
+                    onClick={()=>onSetAccent('')} title="Couleur de Tracklog"
+                    aria-label="Revenir à la couleur de Tracklog" />
+          } />
+        </div>
       </div>
 
       <TabsSettingsCard
@@ -1705,32 +1777,42 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
 
       <div className="card settings-card">
         <p className="settings-section-title">Affichage</p>
-        <div className="field">
-          <label>Explications</label>
-          <Segmented size="small">
-            <button className={infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(true)}>Affichées</button>
-            <button className={!infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(false)}>Masquées</button>
-          </Segmented>
+        <div className="field spread">
+          <label>Bulles infos</label>
+          <div className="ctl-with-info">
+            <Segmented size="small">
+              <button className={infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(true)}>Affichées</button>
+              <button className={!infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(false)}>Masquées</button>
+            </Segmented>
+            {/* La seule bulle qui ne se masque pas : c'est elle qui dit comment
+                rallumer les autres, elle ne peut pas partir avec elles. */}
+            <InfoBubble always>
+              Les petits « i » posés à côté des réglages, ici et partout dans l'app :
+              chacun ouvre son explication quand on le tape. Masquez-les une fois l'app
+              bien en main — les explications partent avec eux, et ce réglage-ci garde
+              sa bulle dans tous les cas.
+            </InfoBubble>
+          </div>
         </div>
-        {/* La seule description qui ne se masque pas : c'est elle qui dit comment
-            rallumer les autres, elle ne peut pas partir avec elles. */}
-        <p className="settings-hint">
-          Les descriptions sous chaque réglage de cette page, et les petits « i » ailleurs
-          dans l'app. Masquez-les une fois l'app bien en main — ce réglage-ci garde son
-          explication dans tous les cas.
-        </p>
-        <div className="field" style={{borderBottom:'none'}}>
+        <div className="field spread" style={{borderBottom:'none'}}>
           <label>Numéro de semaine</label>
-          <Segmented size="small">
-            <button className={showWeek?'on':''} onClick={()=>onSetShowWeek(true)}>Affiché</button>
-            <button className={!showWeek?'on':''} onClick={()=>onSetShowWeek(false)}>Masqué</button>
-          </Segmented>
+          <div className="ctl-with-info">
+            <Segmented size="small">
+              <button className={showWeek?'on':''} onClick={()=>onSetShowWeek(true)}>Affiché</button>
+              <button className={!showWeek?'on':''} onClick={()=>onSetShowWeek(false)}>Masqué</button>
+            </Segmented>
+            <InfoBubble>À côté de la date du jour, dans le Log et l'Historique.</InfoBubble>
+          </div>
         </div>
-        <Help>À côté de la date du jour, dans le Log et l'Historique.</Help>
       </div>
 
       <div className="card settings-card">
-        <p className="settings-section-title">Archives</p>
+        <p className="settings-section-title">
+          Archives
+          {archivedTrackers.length > 0 && (
+            <InfoBubble>Ouvre les réglages du tracker pour le désarchiver ou le supprimer.</InfoBubble>
+          )}
+        </p>
         {!archivedTrackers.length ? (
           <p className="settings-hint" style={{marginTop:0}}>
             Aucun tracker archivé. Archiver un tracker le retire du Log sans supprimer ses
@@ -1749,9 +1831,6 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
             ))}
           </div>
         )}
-        {archivedTrackers.length > 0 && (
-          <Help>Ouvre les réglages du tracker pour le désarchiver ou le supprimer.</Help>
-        )}
       </div>
 
       <FeedbackCard userId={userId} />
@@ -1765,7 +1844,10 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
    visibilité dans un autre. On y réordonne à la poignée (souris) ou en
    maintenant l'appui (doigt), exactement comme dans la barre du haut, et ce que
    l'on fait ici se voit là-bas immédiatement.
-   « Log » y figure sans interrupteur : il se déplace mais ne se masque pas. */
+   Toutes les lignes se comportent pareil, « Log » compris : une exception au
+   milieu d'une liste d'objets identiques se lit comme une panne, pas comme une
+   règle. Les paramètres n'y figurent pas — ce n'est pas un onglet mais
+   l'engrenage du bout de barre, et c'est de là qu'on rallume ce qu'on a éteint. */
 function TabsSettingsCard({ tabs, onSetTabVisible, tabOrder, onSetTabOrder, prefsReady }){
   const byId = useMemo(() => Object.fromEntries(NAV_TABS.map(t => [t.id, t])), []);
   const hints = useMemo(() => Object.fromEntries(TOGGLEABLE_TABS.map(t => [t.id, t.hint])), []);
@@ -1773,40 +1855,37 @@ function TabsSettingsCard({ tabs, onSetTabVisible, tabOrder, onSetTabOrder, pref
 
   return (
     <div className="card settings-card">
-      <p className="settings-section-title">Onglets</p>
+      <p className="settings-section-title">
+        Onglets
+        <InfoBubble>
+          Masquer un onglet ne supprime rien : les données restent, l'onglet disparaît de la
+          barre du haut. Glissez une ligne pour changer l'ordre de cette barre — au doigt,
+          maintenez d'abord l'appui. Visibilité comme ordre suivent le compte, pas l'appareil :
+          la barre est la même sur le téléphone et sur l'ordinateur. Tout masquer est permis —
+          il reste cet engrenage pour revenir ici.
+        </InfoBubble>
+      </p>
       {!prefsReady && <p className="settings-hint" style={{marginTop:0}}>Chargement…</p>}
 
       {order.map(id => {
         const t = byId[id];
         if (!t) return null;
-        const lockedOn = id === 'log';
         return (
-          <div className="setting-block" key={id} ref={setNodeRef(id)}>
-            <div className="field">
-              <label className="label-drag">
-                <DragHandle onPointerDown={startDrag(id)} dragging={dragId===id} />
-                <span>{t.label}</span>
-              </label>
-              {lockedOn ? (
-                <span className="settings-value dim">toujours affiché</span>
-              ) : (
-                <Segmented size="small">
-                  <button className={tabs[id] !== false ? 'on' : ''} onClick={()=>onSetTabVisible(id, true)}>Affiché</button>
-                  <button className={tabs[id] === false ? 'on' : ''} onClick={()=>onSetTabVisible(id, false)}>Masqué</button>
-                </Segmented>
-              )}
+          <div className="field spread" key={id} ref={setNodeRef(id)}>
+            <label className="label-drag">
+              <DragHandle onPointerDown={startDrag(id)} dragging={dragId===id} />
+              <span>{t.label}</span>
+            </label>
+            <div className="ctl-with-info">
+              <Segmented size="small">
+                <button className={tabs[id] !== false ? 'on' : ''} onClick={()=>onSetTabVisible(id, true)}>Affiché</button>
+                <button className={tabs[id] === false ? 'on' : ''} onClick={()=>onSetTabVisible(id, false)}>Masqué</button>
+              </Segmented>
+              <InfoBubble>{hints[id]}</InfoBubble>
             </div>
-            <Help>{lockedOn ? "La raison d'être de l'app — il ne se masque pas, mais il se déplace comme les autres." : hints[id]}</Help>
           </div>
         );
       })}
-
-      <Help>
-        Masquer un onglet ne supprime rien : les données restent, l'onglet disparaît de la
-        barre du haut. Glissez une ligne pour changer l'ordre de cette barre — au doigt,
-        maintenez d'abord l'appui. Visibilité comme ordre suivent le compte, pas l'appareil :
-        la barre est la même sur le téléphone et sur l'ordinateur.
-      </Help>
     </div>
   );
 }
@@ -2163,7 +2242,13 @@ function TodayView({ trackers, masters = [], trackerById = {}, entries, filterId
       {!trackers.length && (
         <div className="empty" style={{padding:'30px 0'}}><span className="em-serif">Aucun tracker à remplir.</span> Vos masters se calculent tout seuls.</div>
       )}
-      <div className="day-groups">
+      {/* Déplacer une section entre des sections hautes de plusieurs écrans est
+          impossible : on ne voit jamais l'arrivée en même temps que le départ.
+          Dès qu'un glisser s'arme, tout le contenu se replie et il ne reste que
+          les intitulés — la liste entière tient alors sous les yeux. Replié en
+          CSS et non démonté : une carte à moitié remplie ne doit pas perdre son
+          brouillon parce qu'on a rangé les sections. */}
+      <div className={`day-groups ${sectionDrag.dragId != null ? 'reordering' : ''}`}>
         {sectionDrag.order.map(id => {
           const sec = sectionById[id];
           if (!sec) return null;
@@ -2207,7 +2292,7 @@ function ReorderSection({ label, swatch, containerRef, dragging, onDragStart, ch
         {swatch && <span className="dot" style={{background:swatch, width:10, height:10}}></span>}
         {label}
       </p>
-      {children}
+      <div className="day-group-body">{children}</div>
     </div>
   );
 }
@@ -3173,14 +3258,18 @@ function MonthCalendar({ monthTs, onPrev, onNext, entries, selectedKey, onSelect
    Vues view (charts / heatmap / grid)
    ============================================================ */
 function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit, onOpenDay }){
-  const [mode, setMode] = useState('chart'); // chart | calendar | summary
+  // Quatre vues à plat, pas trois dont une qui en cache trois autres : les
+  // cartes, la tendance, le calendrier et la grille sont quatre façons de
+  // regarder les mêmes données, aucune n'est un réglage d'une autre. La barre
+  // « Affichage » qui vivait sous « Graphes » a donc disparu, et l'overlay
+  // Master avec elle — un master a sa propre carte dans les cartes.
+  const [mode, setMode] = useState('chart'); // chart | trend | calendar | summary
   const [rangeMode, setRangeMode] = useState('30'); // '7'|'30'|'90'|'365'|'ytd'|'all'|'custom'
   const [customStart, setCustomStart] = useState('');
   // « Liste » et « Grille » ne sont pas deux affichages mais un seul réglé à
   // deux crans : combien de cartes par ligne. Le curseur remplace le choix, et
   // chaque cran de plus rétrécit les cartes et les allège de leurs statistiques
   // secondaires — sans quoi elles se tasseraient au lieu de se simplifier.
-  const [layout, setLayout] = useState('cards'); // cards | master | average
   const [perRow, setPerRow] = useState(1);       // 1..MAX_PER_ROW
 
   const filterSet = filterIds ? new Set(filterIds) : null;
@@ -3222,8 +3311,9 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
   return (
     <div>
       <div className="vue-controls">
-        <Segmented size="compact">
+        <Segmented size="compact" scrollx>
           <button className={mode==='chart'?'on':''} onClick={()=>setMode('chart')}>Graphes</button>
+          <button className={mode==='trend'?'on':''} onClick={()=>setMode('trend')}>Tendance</button>
           <button className={mode==='calendar'?'on':''} onClick={()=>setMode('calendar')}>Calendrier</button>
           <button className={mode==='summary'?'on':''} onClick={()=>setMode('summary')}>Grille</button>
         </Segmented>
@@ -3249,61 +3339,47 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
       {mode === 'chart' && (
         <>
           <div className="layout-bar">
-            <span className="layout-label">Affichage</span>
-            <Segmented size="small">
-              <button className={layout==='cards'?'on':''} onClick={()=>setLayout('cards')} title="Une carte par tracker — le curseur règle combien par ligne">
-                <svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="currentColor" strokeWidth="1"><rect x="0.5" y="0.5" width="11" height="9" rx="1"/><path d="M2.5 7 L5 4.5 L7 6 L9.5 3"/></svg>
-                Cartes
-              </button>
-              <button className={layout==='master'?'on':''} onClick={()=>setLayout('master')} title="Les séries sélectionnées superposées, normalisées 0–100">
-                <svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="currentColor" strokeWidth="1"><path d="M0 7 L3 4 L6 6 L9 2 L12 5"/><path d="M0 5 L3 7 L6 3 L9 5 L12 3" opacity="0.5"/></svg>
-                Master
-              </button>
-              <button className={layout==='average'?'on':''} onClick={()=>setLayout('average')} title="Moyenne normalisée des trackers sélectionnés">
-                <svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M0 6 Q3 3 6 5 T12 4"/></svg>
-                Tendance
-              </button>
-            </Segmented>
-            {/* Le curseur ne s'affiche que là où il a un sens : Master et Tendance
-                sont un seul graphe, il n'y a rien à répartir par ligne. */}
-            {layout === 'cards' && (
-              <div className="per-row">
-                <span className="per-row-end" aria-hidden="true">−</span>
-                <input
-                  type="range" min="1" max={MAX_PER_ROW} step="1" value={perRow}
-                  onChange={e=>setPerRow(parseInt(e.target.value, 10))}
-                  aria-label="Cartes par ligne"
-                  title={`${perRow} carte${perRow>1?'s':''} par ligne`}
-                  style={{'--fill': `${((perRow-1)/(MAX_PER_ROW-1))*100}%`}}
-                />
-                <span className="per-row-end" aria-hidden="true">+</span>
-                <span className="per-row-n mono">{perRow}</span>
-              </div>
-            )}
+            <span className="layout-label">Densité</span>
+            <div className="per-row">
+              <span className="per-row-end" aria-hidden="true">−</span>
+              <input
+                type="range" min="1" max={MAX_PER_ROW} step="1" value={perRow}
+                onChange={e=>setPerRow(parseInt(e.target.value, 10))}
+                aria-label="Cartes par ligne"
+                title={`${perRow} carte${perRow>1?'s':''} par ligne`}
+                style={{'--fill': `${((perRow-1)/(MAX_PER_ROW-1))*100}%`}}
+              />
+              <span className="per-row-end" aria-hidden="true">+</span>
+              <span className="per-row-n mono">{perRow}</span>
+            </div>
+            <InfoBubble>
+              Combien de cartes par ligne — de 1 à 4. Chaque cran ne rétrécit pas seulement
+              la carte : il lui retire ses statistiques secondaires, puis ses graduations,
+              jusqu'à la <span className="k">sparkline</span> et sa seule valeur du jour.
+              Sur téléphone l'écran ne tient qu'une colonne, et deux sous 880 px : le curseur
+              ne change alors que le détail. <span className="k">C'est sur un grand écran
+              qu'il change vraiment quelque chose.</span>
+            </InfoBubble>
           </div>
 
-          {layout === 'cards' && (
-            <div className="chart-grid-layout" data-per={perRow}>
-              {cardsDrag.order.map(id => {
-                const t = visibleById[id];
-                if (!t) return null;
-                const dragProps = { containerRef: cardsDrag.setNodeRef(t.id), dragging: cardsDrag.dragId===t.id, onDragStart: cardsDrag.startDrag(t.id) };
-                return isMaster(t)
-                  ? <MasterTrackerCard key={t.id} perRow={perRow} master={t} trackerById={trackerById} entries={entries} rangeDays={range} onEdit={onEdit} {...dragProps} />
-                  : <ChartCard key={t.id} perRow={perRow} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} onOpenDay={onOpenDay} {...dragProps} />;
-              })}
-            </div>
-          )}
-
-          {layout === 'master' && (
-            <MasterChart trackers={dataVisible} entries={entries} rangeDays={range} />
-          )}
-
-          {layout === 'average' && (
-            <TrendChart trackers={dataVisible} entries={entries} rangeDays={range} />
-          )}
+          <div className="chart-grid-layout" data-per={perRow}>
+            {cardsDrag.order.map(id => {
+              const t = visibleById[id];
+              if (!t) return null;
+              const dragProps = { containerRef: cardsDrag.setNodeRef(t.id), dragging: cardsDrag.dragId===t.id, onDragStart: cardsDrag.startDrag(t.id) };
+              return isMaster(t)
+                ? <MasterTrackerCard key={t.id} perRow={perRow} master={t} trackerById={trackerById} entries={entries} rangeDays={range} onEdit={onEdit} {...dragProps} />
+                : <ChartCard key={t.id} perRow={perRow} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} onOpenDay={onOpenDay} {...dragProps} />;
+            })}
+          </div>
 
           {visibleTrackers.length === 0 && <div className="empty"><span className="em-serif">Pas de tracker.</span></div>}
+        </>
+      )}
+      {mode === 'trend' && (
+        <>
+          <TrendChart trackers={dataVisible} entries={entries} rangeDays={range} />
+          {dataVisible.length === 0 && <div className="empty"><span className="em-serif">Pas de tracker à moyenner.</span></div>}
         </>
       )}
       {mode === 'calendar' && (
@@ -3789,119 +3865,6 @@ function forwardFill(series){
   });
 }
 
-/* ============================================================
-   MasterChart — all trackers overlaid, normalized 0..100
-   ============================================================ */
-function MasterChart({ trackers, entries, rangeDays }){
-  const series = useMemo(() => trackers.map(t => {
-    const raw = buildDailySeries(t, entries.filter(e=>e.trackerId===t.id), rangeDays);
-    const norm = normalizeSeries(t, raw);
-    return { tracker: t, raw, norm };
-  }), [trackers, entries, rangeDays]);
-
-  const W = 800, H = 260, PAD_L = 38, PAD_R = 14, PAD_T = 16, PAD_B = 28;
-  const innerW = W - PAD_L - PAD_R;
-  const innerH = H - PAD_T - PAD_B;
-  const points = series[0]?.raw || [];
-  const xAt = (i) => PAD_L + (i / Math.max(1, points.length - 1)) * innerW;
-  const yAt = (v) => PAD_T + innerH - v * innerH;
-
-  const xTicks = points.length ? [
-    { i: 0, label: shortDate(points[0].ts) },
-    { i: Math.floor(points.length/2), label: shortDate(points[Math.floor(points.length/2)].ts) },
-    { i: points.length-1, label: shortDate(points[points.length-1].ts) },
-  ] : [];
-
-  const yTicks = [0, 0.25, 0.5, 0.75, 1];
-  const [hover, setHover] = useState(null);
-
-  if (!trackers.length) return <div className="empty"><span className="em-serif">Pas de tracker.</span></div>;
-
-  return (
-    <div className="chart-card">
-      <div className="chart-head">
-        <div className="name"><span className="serif" style={{fontSize:18}}>Master</span> <span style={{color:'var(--ink-3)',fontSize:12,marginLeft:8}}>{trackers.length} séries normalisées</span></div>
-        <div className="stats">
-          <div>plage <span className="v">{rangeDays}j</span></div>
-        </div>
-      </div>
-      <svg className="chart-svg" style={{height: H + 'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
-        onMouseMove={(e)=>{
-          const rect = e.currentTarget.getBoundingClientRect();
-          const x = ((e.clientX - rect.left) / rect.width) * W;
-          const i = Math.round(((x - PAD_L) / innerW) * (points.length - 1));
-          if (i >= 0 && i < points.length) setHover(i);
-        }}
-        onMouseLeave={()=>setHover(null)}
-      >
-        {/* Y grid */}
-        {yTicks.map((v,i)=>(
-          <g key={i}>
-            <line className="chart-grid" x1={PAD_L} x2={W-PAD_R} y1={yAt(v)} y2={yAt(v)} />
-            <text className="chart-axis" x={PAD_L-6} y={yAt(v)+3} textAnchor="end">{Math.round(v*100)}</text>
-          </g>
-        ))}
-        {/* Series */}
-        {series.map(s => {
-          const segs = [];
-          let cur = [];
-          s.norm.forEach((p,i)=>{
-            if (p.value == null){ if (cur.length) segs.push(cur); cur = []; }
-            else cur.push([xAt(i), yAt(p.value)]);
-          });
-          if (cur.length) segs.push(cur);
-          return (
-            <g key={s.tracker.id}>
-              {bridgesBetween(segs).map((b, i) => (
-                <line key={`b${i}`} x1={b.from[0]} y1={b.from[1]} x2={b.to[0]} y2={b.to[1]}
-                  stroke={s.tracker.color} strokeWidth="1.1" strokeDasharray="3 4"
-                  opacity={hover==null?0.45:0.25} />
-              ))}
-              {segs.map((seg, si) => seg.length >= 2 && (
-                <path key={si}
-                  d={seg.map((p,i)=>`${i===0?'M':'L'}${p[0]},${p[1]}`).join(' ')}
-                  fill="none" stroke={s.tracker.color} strokeWidth="1.5"
-                  strokeLinejoin="round" strokeLinecap="round"
-                  opacity={hover==null?0.9:0.55}
-                />
-              ))}
-            </g>
-          );
-        })}
-        {/* Hover vertical + dots */}
-        {hover != null && (
-          <g>
-            <line x1={xAt(hover)} x2={xAt(hover)} y1={PAD_T} y2={PAD_T+innerH} stroke="var(--ink)" strokeWidth="0.5" strokeDasharray="2 3" opacity="0.5" />
-            {series.map(s => s.norm[hover]?.value != null && (
-              <circle key={s.tracker.id} cx={xAt(hover)} cy={yAt(s.norm[hover].value)} r="3" fill={s.tracker.color} stroke="var(--bg)" strokeWidth="1.5" />
-            ))}
-          </g>
-        )}
-        {/* X ticks */}
-        {xTicks.map((t,i)=>(
-          <text key={i} className="chart-axis" x={xAt(t.i)} y={H-8} textAnchor={i===0?'start':i===xTicks.length-1?'end':'middle'}>{t.label}</text>
-        ))}
-      </svg>
-
-      {/* Legend / hover readouts */}
-      <div className="master-legend">
-        {series.map(s => {
-          const p = hover != null ? s.raw[hover] : s.raw[s.raw.length-1];
-          return (
-            <div key={s.tracker.id} className="lg-item">
-              <span className="lg-dot" style={{background:s.tracker.color}}></span>
-              <span className="lg-name">{s.tracker.name}</span>
-              <span className="lg-val mono">{p && p.value != null ? fmtValue(s.tracker, +(+p.value).toFixed(1)) : '—'}</span>
-            </div>
-          );
-        })}
-      </div>
-      {hover != null && points[hover] && (
-        <div className="hover-date">{new Date(points[hover].ts).toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'})}</div>
-      )}
-    </div>
-  );
-}
 
 /* ============================================================
    TrendChart — single line: average of normalized series
@@ -4992,7 +4955,22 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
               <Segmented wrap>
                 <button className={goodDirection==='up'?'on':''} onClick={()=>setGoodDirection('up')}>Monter = mieux</button>
                 <button className={goodDirection==='down'?'on':''} onClick={()=>setGoodDirection('down')}>Descendre = mieux</button>
-                <button className={goodDirection==='target'?'on':''} onClick={()=>setGoodDirection('target')}>Valeur cible</button>
+                {/* La cible s'écrit dans son option : choisie, elle s'élargit
+                    pour faire place au nombre plutôt que d'ouvrir une seconde
+                    ligne en dessous. Un <label> et pas un <button> — un champ
+                    dans un bouton ne se laisse pas taper — d'où `seg-opt`, qui
+                    lui rend l'allure d'une option de la piste. */}
+                {goodDirection === 'target' ? (
+                  <label className="seg-opt on">
+                    Cible
+                    <input type="number" step="any" value={targetValue} placeholder="—"
+                           aria-label="Valeur cible"
+                           onChange={e=>setTargetValue(e.target.value)} />
+                    {unit.trim() && <span className="np-unit">{unit.trim()}</span>}
+                  </label>
+                ) : (
+                  <button onClick={()=>setGoodDirection('target')}>Valeur cible</button>
+                )}
               </Segmented>
               <InfoBubble>
                 Décide de quel côté est le progrès dans les vues composites (Master, Tendance générale, Grille) —
@@ -5001,10 +4979,6 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
                 peu importe de quel côté on vient.
               </InfoBubble>
             </div>
-            {goodDirection === 'target' && (
-              <NumPill label="Valeur cible" unit={unit.trim() || null} value={targetValue}
-                onChange={e=>setTargetValue(e.target.value)} placeholder="ex. 0" style={{maxWidth:200}} />
-            )}
           </div>
         )}
 
@@ -5027,27 +5001,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         <div className="card fd-card">
         <p className="section-label">Couleur</p>
         <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:10,borderBottom:'none',paddingTop:0}}>
-          <div className="swatch-grid">
-            <div className="swatch-row">
-              {COLOR_NEUTRALS.map(c => (
-                <button key={c} type="button" className={`swatch ${color===c?'on':''}`} style={{background:c}}
-                        onClick={()=>setColor(c)} aria-label={`Couleur ${c}`} />
-              ))}
-              {/* Une couleur venue d'ailleurs (ancienne version, import) reste
-                  sélectionnée et cliquable plutôt que d'être ignorée. */}
-              {!COLORS.includes(color) && (
-                <button type="button" className="swatch on" style={{background:color}} title="Couleur actuelle" aria-label="Couleur actuelle" />
-              )}
-            </div>
-            {COLOR_ROWS.map((row, i) => (
-              <div className="swatch-row" key={i}>
-                {row.map(c => (
-                  <button key={c} type="button" className={`swatch ${color===c?'on':''}`} style={{background:c}}
-                          onClick={()=>setColor(c)} aria-label={`Couleur ${c}`} />
-                ))}
-              </div>
-            ))}
-          </div>
+          <SwatchGrid value={color} onChange={setColor} />
         </div>
         </div>
 
