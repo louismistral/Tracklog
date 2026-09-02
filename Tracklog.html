@@ -1008,8 +1008,12 @@
   .fd-primary{display:inline-flex;align-items:center;gap:9px;border:none;transition:all .35s var(--ease)}
   .fd-primary:hover{background:var(--accent-2)}
 
-  .fd-meal{margin-bottom:20px}
+  /* Un repas est une carte : quatre sections rectangulaires plutôt que quatre
+     titres qui coulent les uns dans les autres. La première ligne perd son
+     filet — le bord de la carte le dit déjà. */
+  .card.fd-card.fd-meal{margin-bottom:12px}
   .fd-meal-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
+  .fd-meal .fd-row:first-of-type{border-top:none;padding-top:2px}
   .fd-meal-kcal{font-size:11px;color:var(--ink-3)}
   .fd-row{display:flex;align-items:baseline;gap:14px;padding:11px 2px;border-top:1px solid var(--line)}
   .fd-row-main{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
@@ -1130,6 +1134,9 @@
     border:1px solid var(--line);border-radius:var(--radius);background:var(--bg-3);
     transition:border-color .35s var(--ease)}
   .fd-ai-text:focus{border-color:var(--line-2)}
+  /* La bascule de profondeur au-dessus de la rangée d'action : elle se choisit
+     AVANT de lancer, pas à côté du bouton qui lance. */
+  .fd-ai-mode{display:flex;align-items:center;gap:8px;margin:2px 0 10px}
   .fd-ai-actions{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;margin-top:2px}
   .fd-ai-actions-end{justify-content:flex-end}
   .fd-ai-hint{font-size:12px;color:var(--ink-3);flex:1}
@@ -1221,11 +1228,27 @@
   a.tk-edit.fd-src-link{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;display:inline-block}
 
   /* Le bloc Sources, en bas de la page Food */
-  .fd-sources{margin:44px 0 8px;padding-top:20px;border-top:1px solid var(--line);max-width:62ch}
-  .fd-sources p.serif{font-size:12px;line-height:1.7;color:var(--ink-3);margin:0 0 12px}
+  /* Le crédit reste écrit (la licence le demande) ; ce qui l'explique tient
+     dans sa bulle. La bulle est ancrée à gauche ici : posée à droite, elle
+     sortait de l'écran sur les crédits qui commencent près du bord. */
+  .fd-sources{position:relative;margin:44px 0 8px;padding-top:18px;border-top:1px solid var(--line);
+              display:flex;flex-wrap:wrap;align-items:center;gap:6px 20px}
+  .fd-src-credit{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3)}
+  .fd-src-lic{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-3);
+              border:1px solid var(--line-2);border-radius:999px;padding:2px 7px}
+  /* La bulle s'ouvre AU-DESSUS : les sources sont en pied de page, il n'y a
+     rien en dessous pour l'accueillir. Au large elle reste accrochée à son
+     « i » ; à l'étroit elle s'accroche à la barre (`position:static` sur
+     `.info` rend la barre positionnante), sans quoi celle du premier crédit
+     sortait de l'écran par la droite. */
+  .fd-sources .info-pop{top:auto;bottom:calc(100% - 8px);width:min(320px,calc(100vw - 44px))}
+  @media (max-width:700px){
+    .fd-sources .info{position:static}
+    .fd-sources .info-pop{left:0;right:auto}
+  }
   .fd-sources a{color:var(--ink-2);text-decoration:none;border-bottom:1px solid var(--line-2)}
   .fd-sources a:hover{color:var(--accent);border-color:var(--accent)}
-  .fd-source-links{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:10px;text-transform:uppercase;letter-spacing:0.1em}
+  .fd-source-links{display:flex;flex-direction:column;gap:8px;font-size:10px;text-transform:uppercase;letter-spacing:0.1em}
   .fd-source-links a{border-bottom:none;color:var(--ink-3)}
 
   /* Scanner : zoom, photo de secours, diagnostic */
@@ -1466,8 +1489,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=49"></script>
-<script type="text/babel" src="app.food.jsx?v=20"></script>
+<script type="text/babel" src="app.jsx?v=50"></script>
+<script type="text/babel" src="app.food.jsx?v=21"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>
