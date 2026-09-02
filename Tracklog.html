@@ -1090,10 +1090,9 @@
   /* Éditeur d'ingrédients — partagé par l'analyse IA et les repas enregistrés */
   .fd-ing-editor{margin:10px 0}
   .fd-ing{border-bottom:1px solid var(--line);padding:9px 0}
-  .fd-ing.open{background:var(--bg-3);border-radius:var(--radius);padding:9px 10px;margin:0 -10px}
   .fd-ing-main{display:flex;align-items:center;gap:8px}
-  .fd-ing-name{flex:1;min-width:0;font-size:13px;padding:5px 0;border:none;border-bottom:1px solid transparent;background:none}
-  .fd-ing-name:focus{border-bottom-color:var(--line-2);outline:none}
+  .fd-ing-name{flex:1;min-width:0;font-size:13px;padding:5px 0;color:var(--ink);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fd-ing-qty{display:inline-flex;align-items:baseline;gap:2px;flex-shrink:0}
   .fd-ing-qty input{width:58px;text-align:right;font-family:"Geist Mono",monospace;font-size:13px;padding:5px 4px}
   .fd-ing-qty>i{font-size:10px;color:var(--ink-3);font-style:normal}
@@ -1106,7 +1105,6 @@
   .fd-ing-macros>span>i{font-size:9px;margin-left:2px;font-style:normal;opacity:.7}
   .fd-ing-note{font-style:italic;font-size:11px;color:var(--ink-3);margin-left:auto;text-align:right;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%}
-  .fd-ing-edit{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
   .fd-ing-picker{margin-top:12px}
   .fd-ing-total{display:flex;gap:16px;align-items:baseline;margin-top:12px;padding-top:10px;
     border-top:1px solid var(--line-2);font-size:13px}
@@ -1159,6 +1157,21 @@
      réclame juste plus l'attention. */
   .fd-step.done .fd-step-txt{color:var(--ink-3)}
   .fd-step .fd-ing-btn{margin-top:3px}
+  /* Le minuteur d'une étape : une pastille de la hauteur du bouton d'à côté,
+     qui porte la durée au repos et le décompte quand ça tourne. */
+  .fd-step-timer{display:inline-flex;align-items:center;gap:3px;flex-shrink:0;height:26px;margin-top:3px;
+    padding:0 9px;border:1px solid var(--line);border-radius:999px;color:var(--ink-3);
+    font-size:11px;transition:color .3s var(--ease),border-color .3s var(--ease)}
+  .fd-step-timer:focus-within{border-color:var(--line-2);color:var(--ink-2)}
+  .fd-step-timer input{width:26px;text-align:right;font-size:11px;font-family:"Geist Mono",monospace;padding:0}
+  .fd-step-timer input::-webkit-outer-spin-button,
+  .fd-step-timer input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .fd-step-timer input[type=number]{-moz-appearance:textfield}
+  .fd-step-timer>i{font-style:normal;font-size:9px;letter-spacing:0.06em}
+  .fd-step-timer.running{color:var(--accent);border-color:var(--accent);font-size:12px;padding:0 11px}
+  /* Le rond bat pendant le décompte : de loin, on voit lequel tourne. */
+  .fd-step-n.ticking{color:var(--accent);border-color:var(--accent);animation:tickPulse 1s ease-in-out infinite}
+  @keyframes tickPulse{0%,100%{opacity:1}50%{opacity:.55}}
   .fd-scan-hint{font-size:12px;color:var(--ink-3);margin:10px 0 0;line-height:1.6}
 
   /* Recherche et listes de résultats */
@@ -1226,9 +1239,15 @@
      plutôt qu'une seule pleine largeur. `:last-of-type` retire déjà la
      bordure du dernier `.field` de chaque carte — nul besoin de la remettre
      à la main comme quand les sections n'étaient que des filets à la suite. */
+  /* La piste des sous-modes tient à ses options : dans une colonne flex elle
+     s'étirait sur toute la largeur, laissant un vide à droite des trois
+     boutons — un contour qui promettait une option de plus. */
+  .fd-manual-entry .fd-tabs{align-items:flex-start}
   .card.fd-card{padding:16px 18px;margin-bottom:14px}
   .card.fd-card .section-label{margin-bottom:12px}
   .fd-card-note{margin-top:10px;margin-bottom:0}
+  .fd-title-field{border-bottom:none;padding-top:0}
+  .fd-title-field input{font-size:16px}
   .fd-code-bar{margin:2px 0 10px}
   .fd-code-bar input{font-family:"Geist Mono",monospace;letter-spacing:0.06em}
   .fd-qty-inline{display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap}
@@ -1447,8 +1466,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=48"></script>
-<script type="text/babel" src="app.food.jsx?v=19"></script>
+<script type="text/babel" src="app.jsx?v=49"></script>
+<script type="text/babel" src="app.food.jsx?v=20"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>

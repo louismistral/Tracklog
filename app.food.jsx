@@ -281,11 +281,12 @@ function foodToRow(f, userId){
    le glisser-déposer désigne une ligne, pas son rang, et le rang change
    justement à chaque réordonnancement. Les repas enregistrés avant portaient
    de simples chaînes : elles sont relues telles quelles plutôt que perdues. */
-function mkStep(partial = {}){ return { id: uid('st_'), text:'', done:false, ...partial }; }
+function mkStep(partial = {}){ return { id: uid('st_'), text:'', done:false, mins:null, ...partial }; }
 function stepsFromRows(raw){
   return (Array.isArray(raw) ? raw : []).map(s => typeof s === 'string'
     ? mkStep({ text: s })
-    : mkStep({ ...s, text: String(s.text || ''), done: !!s.done }));
+    : mkStep({ ...s, text: String(s.text || ''), done: !!s.done,
+               mins: Number(s.mins) > 0 ? Number(s.mins) : null }));
 }
 
 /* Combien de portions la recette produit. La recette entière reste la vérité —
@@ -1386,8 +1387,10 @@ async function analyseRepas(description, { signal, image } = {}){
    ============================================================ */
 function FoodPage({ store, sub, onSub }){
   const [addOpen, setAddOpen] = useState(null);      // { meal, day } | null
-  const [editFood, setEditFood] = useState(null);    // aliment en cours d'édition
-  const [newFood, setNewFood] = useState(null);      // brouillon d'aliment (création)
+  // Un aliment ne se corrige pas après coup : ce qu'on garde est la fiche
+  // telle qu'elle vient de Ciqual, d'Open Food Facts ou de sa création. Il n'y
+  // a donc qu'un brouillon de création, jamais d'édition en cours.
+  const [newFood, setNewFood] = useState(null);
   // Régler des objectifs se fait toujours DEPUIS un jour : celui qu'on
   // regardait. C'est cette date qui devient la prise d'effet, donc on la garde
   // plutôt qu'un simple booléen ouvert/fermé.
@@ -1421,8 +1424,7 @@ function FoodPage({ store, sub, onSub }){
       ) : sub === 'aliments' ? (
         <FoodLibraryView
           store={store}
-          onEdit={setEditFood}
-          onDelete={(f)=>{ if (confirm(`Supprimer « ${f.name} » ? Les repas déjà notés gardent leurs valeurs.`)) store.removeFood(f.id); }}
+          onDelete={(f)=>{ if (confirm(`Oublier « ${f.name} » ? Il quitte tes items ; les repas déjà notés gardent leurs valeurs.`)) store.removeFood(f.id); }}
           onNew={()=>setNewFood({ id:uid('f_'), source:'custom', name:'', brand:'', basis:'g',
                                   servingG:null, imageUrl:'', nutriments:{}, barcode:null,
                                   favorite:false, lastUsedAt:null, createdAt:Date.now() })}
@@ -1445,13 +1447,11 @@ function FoodPage({ store, sub, onSub }){
           onNeedsFood={(draft)=>{ setAddOpen(null); setNewFood(draft); }}
         />
       )}
-      {(editFood || newFood) && (
+      {newFood && (
         <FoodEditModal
-          food={editFood || newFood}
-          isNew={!editFood}
-          onClose={()=>{ setEditFood(null); setNewFood(null); }}
-          onSave={async (f)=>{ await store.saveFood(f); setEditFood(null); setNewFood(null); }}
-          onDelete={editFood ? async ()=>{ await store.removeFood(editFood.id); setEditFood(null); } : null}
+          food={newFood}
+          onClose={()=>setNewFood(null)}
+          onSave={async (f)=>{ await store.saveFood(f); setNewFood(null); }}
         />
       )}
       {goalsDay && (
@@ -1746,45 +1746,31 @@ function MicroPanel({ totals }){
    qu'une estimation d'IA reste une estimation et qu'il faut
    pouvoir la reprendre sans repartir de zéro.
    ============================================================ */
+/* Un ingrédient n'est pas un brouillon : son nom et ses valeurs sont ceux de
+   l'aliment d'où il vient, et les retoucher ici ferait dire à « riz » deux
+   choses différentes selon la recette. Seul le POIDS se règle — ce n'est pas
+   une propriété de l'aliment mais la quantité qu'on en met. Pour autre chose,
+   l'onglet Créer fabrique l'aliment qu'on veut vraiment. */
 function IngredientRow({ item, onPatch, onRemove }){
-  const [open, setOpen] = useState(false);
   const n = itemNutriments(item);
-  const per = item.per100 || {};
-  const setPer = (k, v) => {
-    const num = parseFloat(String(v).replace(',', '.'));
-    onPatch({ per100: { ...per, [k]: isNaN(num) ? undefined : num } });
-  };
   return (
-    <div className={`fd-ing ${open?'open':''}`}>
+    <div className="fd-ing">
       <div className="fd-ing-main">
-        <input className="fd-ing-name" value={item.name}
-               onChange={e=>onPatch({ name: e.target.value })} placeholder="Ingrédient" />
+        <span className="fd-ing-name">{item.name || 'Ingrédient'}</span>
         <span className="fd-ing-qty">
           <input type="number" step="any" min="0" inputMode="decimal" value={item.grams}
-                 onChange={e=>onPatch({ grams: e.target.value })} />
+                 onChange={e=>onPatch({ grams: e.target.value })} aria-label={`Poids de ${item.name}`} />
           <i>g</i>
         </span>
         <span className="fd-ing-kcal mono">{fmtNum(n.kcal, 0)}<i>kcal</i></span>
-        <button className="icon-btn fd-ing-btn" onClick={()=>setOpen(o=>!o)} aria-expanded={open}
-                title="Valeurs pour 100 g">{open ? '×' : '···'}</button>
         <button className="icon-btn fd-ing-btn del" onClick={onRemove} title="Retirer">−</button>
       </div>
       <div className="fd-ing-macros mono">
         <span>{fmtMacro(n.protein)}<i>P</i></span>
         <span>{fmtMacro(n.carbs)}<i>G</i></span>
         <span>{fmtMacro(n.fat)}<i>L</i></span>
-        {item.note && !open && <em className="fd-ing-note">{item.note}</em>}
+        {item.note && <em className="fd-ing-note">{item.note}</em>}
       </div>
-      {open && (
-        <div className="fd-ing-edit">
-          <p className="fd-list-label">Valeurs pour 100 g</p>
-          {FOOD_MACROS.map(m => (
-            <NumField key={m.key} label={m.short} unit={m.unit}
-                      value={per[m.key]} onChange={v=>setPer(m.key, v)} />
-          ))}
-          {item.note && <p className="fd-note serif" style={{margin:'8px 0 0'}}>{item.note}</p>}
-        </div>
-      )}
     </div>
   );
 }
@@ -2011,7 +1997,7 @@ function AiAnalyseTab({ store, day, initialMeal, pickMode, onPickItems, onDone, 
           {!pickMode && (
             <div className="field" style={{borderBottom:'none'}}>
               <label>Repas</label>
-              <Segmented scrollx>
+              <Segmented size="small" scrollx>
                 {MEALS.map(m => (
                   <button key={m.id} className={mealSlot===m.id?'on':''} onClick={()=>setMealSlot(m.id)}>{m.label}</button>
                 ))}
@@ -2113,7 +2099,7 @@ function MealPortionModal({ meal, initialMeal, pickMode, onClose, onSubmit }){
         {!pickMode && (
           <div className="field" style={{borderBottom:'none'}}>
             <label>Repas</label>
-            <Segmented scrollx>
+            <Segmented size="small" scrollx>
               {MEALS.map(m => (
                 <button key={m.id} className={slot===m.id?'on':''} onClick={()=>setSlot(m.id)}>{m.label}</button>
               ))}
@@ -2261,28 +2247,67 @@ function RecipeSteps({ steps, onChange }){
     ids, (next) => onChange(next.map(id => byId[id]).filter(Boolean)));
   const downRef = useRef(null);
 
+  /* Le minuteur d'une étape. `mins` est une donnée du repas (« ce riz cuit en
+     10 minutes ») ; le décompte, lui, ne l'est pas — il n'existe que pendant
+     qu'on cuisine, donc il vit ici et meurt en fermant. Un seul à la fois :
+     une recette se suit dans l'ordre. */
+  const [timer, setTimer] = useState(null);   // { id, left } en secondes
+  useEffect(() => {
+    if (!timer) return;
+    const h = setInterval(() => {
+      setTimer(t => {
+        if (!t) return t;
+        if (t.left <= 1){
+          try { navigator.vibrate?.([90, 60, 90]); } catch {}
+          return null;                        // le temps est écoulé : à toi de cocher
+        }
+        return { ...t, left: t.left - 1 };
+      });
+    }, 1000);
+    return () => clearInterval(h);
+  }, [!!timer]);
+
   const patch = (id, p) => onChange(steps.map(s => s.id === id ? { ...s, ...p } : s));
+
+  // Un rond, deux histoires. Sans minuteur : un tap coche. Avec minuteur : le
+  // premier tap lance le décompte, le second l'arrête en validant l'étape.
+  const hitStep = (st) => {
+    const mins = Number(st.mins) || 0;
+    if (!mins) return patch(st.id, { done: !st.done });
+    if (timer && timer.id === st.id){
+      setTimer(null);
+      patch(st.id, { done: true });
+      return;
+    }
+    try { navigator.vibrate?.(12); } catch {}
+    setTimer({ id: st.id, left: Math.round(mins * 60) });
+  };
+
+  const clock = (sec) => `${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')}`;
 
   return (
     <div className="fd-steps">
       {order.map((id, i) => {
         const st = byId[id];
         if (!st) return null;
+        const running = timer && timer.id === id;
         return (
-          <div className={`fd-step ${st.done?'done':''} ${dragId===id?'dragging':''}`}
+          <div className={`fd-step ${st.done?'done':''} ${running?'running':''} ${dragId===id?'dragging':''}`}
                key={id} ref={setNodeRef(id)}>
             <button
               type="button"
-              className={`icon-btn fd-step-n ${st.done?'on':''}`}
+              className={`icon-btn fd-step-n ${st.done?'on':''} ${running?'ticking':''}`}
               onPointerDown={(e)=>{ downRef.current = { x:e.clientX, y:e.clientY }; startDrag(id)(e); }}
               onClickCapture={(e)=>{
                 const d = downRef.current;
                 const moved = d && (Math.abs(e.clientX-d.x) > 6 || Math.abs(e.clientY-d.y) > 6);
                 if (wasArmed() || moved){ e.preventDefault(); e.stopPropagation(); }
               }}
-              onClick={()=>patch(id, { done: !st.done })}
+              onClick={()=>hitStep(st)}
               aria-pressed={st.done}
-              title="Cliquer pour cocher · maintenir puis glisser pour réordonner">
+              title={Number(st.mins) > 0
+                ? 'Cliquer pour lancer le minuteur · encore une fois pour valider l’étape'
+                : 'Cliquer pour cocher · maintenir puis glisser pour réordonner'}>
               {i + 1}
             </button>
             <textarea
@@ -2290,8 +2315,20 @@ function RecipeSteps({ steps, onChange }){
               ref={el => { autoGrowStep(el); }}
               onInput={e=>autoGrowStep(e.target)}
               onChange={e=>patch(id, { text: e.target.value })} />
+            {/* La pastille dit la durée quand rien ne tourne, et le décompte
+                quand ça tourne : un seul endroit à regarder. */}
+            {running ? (
+              <span className="fd-step-timer running mono">{clock(timer.left)}</span>
+            ) : (
+              <span className="fd-step-timer">
+                <input type="number" step="1" min="0" inputMode="numeric" placeholder="—"
+                       value={st.mins ?? ''} aria-label="Durée de l’étape en minutes"
+                       onChange={e=>patch(id, { mins: e.target.value === '' ? null : Number(e.target.value) })} />
+                <i>min</i>
+              </span>
+            )}
             <button className="icon-btn fd-ing-btn del" title="Retirer l'étape"
-                    onClick={()=>onChange(steps.filter(s => s.id !== id))}>−</button>
+                    onClick={()=>{ if (running) setTimer(null); onChange(steps.filter(s => s.id !== id)); }}>−</button>
           </div>
         );
       })}
@@ -2350,8 +2387,9 @@ function MealEditModal({ meal, store, onClose, onSave, onDelete }){
       <div className="fd-add-body">
         <div className="card fd-card">
           <p className="section-label">Titre</p>
-          <div className="field">
-            <label>Nom</label>
+          {/* Pas de label « Nom » à côté : la section s'appelle déjà Titre, et
+              le répéter n'aide personne à savoir quoi écrire. */}
+          <div className="field fd-title-field">
             <input value={name} onChange={e=>setName(e.target.value)}
                    placeholder="Poke bowl du dimanche, porridge, salade César…" />
           </div>
@@ -2424,7 +2462,8 @@ function MealEditModal({ meal, store, onClose, onSave, onDelete }){
      Mes items   reprendre ce qui est déjà à soi : aliments ou repas, avec
                  l'étoile pour ne garder que les favoris des deux.
      IA          décrire, photographier, ou les deux, et laisser décomposer.
-     À la main   poser soi-même les chiffres (`QuickAddTab`, voir plus bas).
+     Créer       poser soi-même les chiffres — un correctif de journée, un
+                 aliment à soi, ou un repas entier (`QuickAddTab`, plus bas).
 
    L'ancienne modale en avait sept, sur deux rangées, qui mélangeaient « où je
    cherche » et « quoi je cherche » — le scan était un onglet à lui seul alors
@@ -2488,7 +2527,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
   const needsFood = useCallback((f) => {
     if (onNeedsFood){ onNeedsFood(f); return; }
     openQuick({ name: f.name, barcode: f.barcode || null,
-                mode: f.barcode ? 'codebarre' : 'ingredient' });
+                mode:'aliment' });
   }, [onNeedsFood, openQuick]);
 
   // Un code scanné : d'abord la bibliothèque locale (instantané, marche hors ligne),
@@ -2504,7 +2543,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
         setMsg('');
         setPicked(null);
         setBusy(false);
-        openQuick({ barcode: code, mode:'codebarre' });   // le code est gardé : reconnu au prochain scan
+        openQuick({ barcode: code, mode:'aliment' });   // le code est gardé : reconnu au prochain scan
         return;
       }
       if (!foodIsUsable(found)){
@@ -2704,7 +2743,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
           <button className={tab==='recherche'?'on':''} onClick={()=>setTab('recherche')}>Recherche</button>
           <button className={tab==='mesitems'?'on':''} onClick={()=>setTab('mesitems')}>Mes items</button>
           <button className={tab==='ia'?'on':''} onClick={()=>setTab('ia')}>IA</button>
-          <button className={tab==='rapide'?'on':''} onClick={()=>{ if (tab !== 'rapide') openQuick({ name: q }); }}>À la main</button>
+          <button className={tab==='rapide'?'on':''} onClick={()=>{ if (tab !== 'rapide') openQuick({ name: q }); }}>Créer</button>
         </Segmented>
       </div>
 
@@ -2759,7 +2798,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
             {results && !hits.length && !searching && (
               <p className="fd-note serif">
                 Aucun produit trouvé pour « {q} ».{' '}
-                <button className="fd-link" onClick={()=>openQuick({ name: q, mode:'ingredient' })}>Le saisir à la main</button>
+                <button className="fd-link" onClick={()=>openQuick({ name: q, mode:'aliment' })}>Le saisir à la main</button>
               </p>
             )}
             {searchErr && <p className="fd-note warn serif">{searchErr}</p>}
@@ -2831,7 +2870,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
                 pickMode={pick}
                 onPick={pick ? (m)=>onPickItems(m.items) : null}
                 onDone={onClose}
-                onNew={pick ? null : ()=>setMealDraft({ name:'', items:[], steps:[], source:'custom' })}
+                onNew={null}
                 onEdit={pick ? null : (m)=>setMealDraft(m)}
               />
             )}
@@ -2854,6 +2893,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
             seed={quickSeed}
             initialMeal={meal || defaultMealForNow()}
             pickMode={pick}
+            onNewMeal={()=>setMealDraft({ name:'', items:[], steps:[], source:'custom' })}
             onSubmit={submitQuickAdd}
             onCancel={onClose}
           />
@@ -2946,8 +2986,8 @@ function FoodPickRow({ food, onPick, showImage = false, favorite, onToggleFavori
   );
 }
 
-/* ---- Ajout rapide ----------------------------------------------------------
-   Poser des chiffres soi-même, quand ni la recherche ni l'IA ne servent à
+/* ---- Créer -----------------------------------------------------------------
+   Poser les chiffres soi-même, quand ni la recherche ni l'IA ne servent à
    rien. Trois choses différentes sortent d'ici, et la bascule du haut dit
    laquelle — parce que la question « est-ce que ça reste ? » n'a pas la même
    réponse dans les trois cas :
@@ -2957,26 +2997,28 @@ function FoodPickRow({ food, onPick, showImage = false, favorite, onToggleFavori
                    journée — le sandwich du midi dont on connaît l'étiquette
                    mais qu'on ne remangera jamais. Il n'a rien à faire dans la
                    bibliothèque.
-     Ingrédient    la même base, plus le poids mangé et ce que les macros
-                   décrivent (100 g, ou tout le poids). Ça fabrique un item :
-                   un aliment personnel, réutilisable.
-     À code-barres l'ingrédient, plus son code. Même item, mais reconnu au
-                   scan la prochaine fois — c'est tout ce que le code ajoute,
-                   et c'est ce qui en fait la peine.
+     Aliment       la même base, plus le poids mangé, ce que les macros
+                   décrivent (100 g ou tout le poids), et — facultatif — son
+                   code-barres. Ça fabrique un item : un aliment à soi,
+                   réutilisable, et reconnu au scan s'il porte un code. Le
+                   code n'est plus un mode à part : c'était le même formulaire
+                   avec un champ de plus.
+     Repas         une recette : plusieurs ingrédients d'un coup, avec ses
+                   portions et ses étapes. Ouvre l'éditeur de repas.
 
    Les trois partagent la même première section, dans le même ordre, au même
    endroit : passer de l'une à l'autre ne redispose rien, ça ajoute ou retire
    une section en dessous.                                                    */
 const QUICK_MODES = [
-  { id:'rapide',     label:'Ajout rapide' },
-  { id:'ingredient', label:'Ingrédient' },
-  { id:'codebarre',  label:'À code-barres' },
+  { id:'rapide',  label:'Ajout rapide' },
+  { id:'aliment', label:'Aliment' },
+  { id:'repas',   label:'Repas' },
 ];
 
-function QuickAddTab({ seed, initialMeal, pickMode, onSubmit, onCancel }){
+function QuickAddTab({ seed, initialMeal, pickMode, onNewMeal, onSubmit, onCancel }){
   // Un code déjà en main (scanné, inconnu de la base) ouvre directement le
-  // troisième mode : c'est le seul qui sache quoi en faire.
-  const [mode, setMode] = useState(seed?.mode || (seed?.barcode ? 'codebarre' : 'rapide'));
+  // mode Aliment : c'est le seul qui sache quoi en faire.
+  const [mode, setMode] = useState(seed?.mode || (seed?.barcode ? 'aliment' : 'rapide'));
   const [name, setName] = useState(seed?.name || '');
   const [vals, setVals] = useState({});
   const [grams, setGrams] = useState('100');
@@ -2987,7 +3029,7 @@ function QuickAddTab({ seed, initialMeal, pickMode, onSubmit, onCancel }){
   const [scanNonce, setScanNonce] = useState(0);
   const [meal, setMeal] = useState(initialMeal || defaultMealForNow());
 
-  const isItem = mode !== 'rapide';               // ce mode fabrique-t-il un aliment ?
+  const isItem = mode === 'aliment';             // ce mode fabrique-t-il un aliment ?
   const g = Number(grams) || 0;
 
   const entered = useMemo(() => {
@@ -3020,7 +3062,7 @@ function QuickAddTab({ seed, initialMeal, pickMode, onSubmit, onCancel }){
       per100: per100Values,
       basis,
       keep: isItem,
-      barcode: mode === 'codebarre' ? cleanCode(barcode) || null : null,
+      barcode: isItem ? cleanCode(barcode) || null : null,
     });
   };
 
@@ -3031,7 +3073,8 @@ function QuickAddTab({ seed, initialMeal, pickMode, onSubmit, onCancel }){
       <div className="fd-tabs">
         <Segmented size="small" scrollx>
           {QUICK_MODES.map(m => (
-            <button key={m.id} className={mode===m.id?'on':''} onClick={()=>setMode(m.id)}>{m.label}</button>
+            <button key={m.id} className={mode===m.id?'on':''}
+                    onClick={()=>{ setMode(m.id); if (m.id === 'repas') onNewMeal(); }}>{m.label}</button>
           ))}
         </Segmented>
       </div>
@@ -3041,13 +3084,25 @@ function QuickAddTab({ seed, initialMeal, pickMode, onSubmit, onCancel }){
           ? (pickMode
               ? "Des calories et trois macros, posées telles quelles dans la recette. Rien n'est enregistré comme aliment à part."
               : "Des calories et trois macros, versées dans la journée. Rien n'est enregistré comme aliment : c'est un correctif de journée, pas un item.")
-          : mode === 'ingredient'
+          : mode === 'aliment'
           ? (pickMode
-              ? "Un aliment personnel, gardé dans tes items — réutilisable ailleurs, et ajouté ici tout de suite."
-              : "Un aliment personnel, gardé dans tes items — réutilisable, corrigeable, et déjà noté pour aujourd'hui.")
-          : "Un aliment personnel avec son code-barres : le scanner le reconnaîtra tout seul la prochaine fois."}
+              ? "Un aliment à toi, gardé dans tes items — réutilisable ailleurs, et ajouté ici tout de suite."
+              : "Un aliment à toi, gardé dans tes items — réutilisable, et déjà noté pour aujourd'hui.")
+          : "Une recette : plusieurs ingrédients d'un coup, ses portions, ses étapes."}
       </p>
 
+      {mode === 'repas' ? (
+        <div className="card fd-card">
+          <p className="section-label">Nouveau repas</p>
+          <p className="fd-note serif fd-card-note" style={{marginTop:0}}>
+            Un repas rassemble plusieurs ingrédients — un petit-déjeuner habituel, un plat qui
+            revient — avec ce qu'il produit en portions et, si tu veux, sa recette. Son éditeur
+            s'ouvre par-dessus ; en le fermant tu reviens ici.
+          </p>
+          <button className="fd-add full" onClick={onNewMeal}>＋ Créer un repas</button>
+        </div>
+      ) : (
+      <>
       {/* Chaque section vit dans son propre cadre — la même carte que partout
           ailleurs dans l'app — plutôt qu'un simple filet horizontal : le
           regard sait où une question finit et où la suivante commence. */}
@@ -3100,10 +3155,12 @@ function QuickAddTab({ seed, initialMeal, pickMode, onSubmit, onCancel }){
         </div>
       )}
 
-      {/* Section 3 — le code, tapé ou scanné : les deux remplissent le même champ. */}
-      {mode === 'codebarre' && (
+      {/* Section 3 — le code, tapé ou scanné : les deux remplissent le même
+          champ. Facultative : sans code l'aliment existe pareil, il ne se
+          retrouve simplement pas au scan. */}
+      {isItem && (
         <div className="card fd-card">
-          <p className="section-label">Code-barres</p>
+          <p className="section-label">Code-barres — facultatif</p>
           {/* Barre à icône, forme intégrée : le champ EST la barre, le bouton
               rond qui sort la caméra n'y ajoute qu'une seconde façon de
               l'écrire — comme la recherche et son scanner. */}
@@ -3131,7 +3188,7 @@ function QuickAddTab({ seed, initialMeal, pickMode, onSubmit, onCancel }){
       {!pickMode && (
         <div className="card fd-card">
           <p className="section-label">Repas</p>
-          <Segmented scrollx>
+          <Segmented size="small" scrollx>
             {MEALS.map(m => (
               <button key={m.id} className={meal===m.id?'on':''} onClick={()=>setMeal(m.id)}>{m.label}</button>
             ))}
@@ -3146,6 +3203,8 @@ function QuickAddTab({ seed, initialMeal, pickMode, onSubmit, onCancel }){
                     : (isItem ? 'Créer et noter' : 'Noter')}
         </button>
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -3214,7 +3273,7 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pick
         {!pickMode && (
           <div className="field" style={{borderBottom:'none'}}>
             <label>Repas</label>
-            <Segmented scrollx>
+            <Segmented size="small" scrollx>
               {MEALS.map(m => (
                 <button key={m.id} className={meal===m.id?'on':''} onClick={()=>setMeal(m.id)}>{m.label}</button>
               ))}
@@ -3239,7 +3298,7 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pick
 
 /* ---- Aliments (la bibliothèque) ------------------------------------------- */
 
-function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, onEditMeal }){
+function FoodLibraryView({ store, onDelete, onNew, onScan, onNewMeal, onEditMeal }){
   const [q, setQ] = useState('');
   // Trois vues sur ce qui est déjà à soi, la même distinction que dans la modale
   // d'ajout : tous les aliments, ceux mis de côté, et les repas.
@@ -3372,8 +3431,7 @@ function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, on
                           onClick={()=>store.toggleFavorite(f.id)} aria-pressed={!!f.favorite}>
                     {f.favorite ? '★ Favori' : '☆ Favori'}
                   </button>
-                  <button className="tk-edit" onClick={()=>onEdit(f)}>Modifier</button>
-                  <button className="tk-edit danger-edit" onClick={()=>onDelete(f)}>Supprimer</button>
+                  <button className="tk-edit danger-edit" onClick={()=>onDelete(f)}>Oublier</button>
                   {foodSourceUrl(f, store.refByBarcode) && (
                     <a className="icon-btn fd-src-btn" href={foodSourceUrl(f, store.refByBarcode)}
                        target="_blank" rel="noopener noreferrer"
@@ -3391,8 +3449,14 @@ function FoodLibraryView({ store, onEdit, onDelete, onNew, onScan, onNewMeal, on
   );
 }
 
-/* ---- Créer / corriger un aliment ------------------------------------------ */
-function FoodEditModal({ food, isNew, onClose, onSave, onDelete }){
+/* ---- Créer un aliment ------------------------------------------------------
+   Uniquement créer : un aliment déjà enregistré ne se corrige plus. Ce qui
+   vient de Ciqual ou d'Open Food Facts est traité comme la fiche de l'aliment,
+   pas comme un brouillon à retoucher — sinon deux personnes qui scannent le
+   même produit ne parlent bientôt plus de la même chose. Pour un aliment à
+   soi, il y a l'onglet Créer ; pour se débarrasser d'une fiche, il y a
+   « oublier ».                                                               */
+function FoodEditModal({ food, onClose, onSave }){
   const [name, setName] = useState(food.name || '');
   const [brand, setBrand] = useState(food.brand || '');
   const [basis, setBasis] = useState(food.basis || 'g');
@@ -3435,7 +3499,7 @@ function FoodEditModal({ food, isNew, onClose, onSave, onDelete }){
   return (
     <div className="scrim" onClick={onClose}>
       <div className="modal fd-modal" onClick={e=>e.stopPropagation()}>
-        <h2>{isNew ? 'Nouvel aliment' : 'Modifier l’aliment'}</h2>
+        <h2>Nouvel aliment</h2>
         <div className="modal-sub">
           Les valeurs sont celles de l'étiquette, pour 100 {basis}.
           {food.barcode ? ` Code ${food.barcode}.` : ''}
@@ -3483,7 +3547,6 @@ function FoodEditModal({ food, isNew, onClose, onSave, onDelete }){
         </div>
 
         <div className="modal-actions">
-          {onDelete && <button className="danger" onClick={()=>{ if(confirm('Supprimer cet aliment ? Les repas déjà enregistrés ne changent pas.')) onDelete(); }}>Supprimer</button>}
           <button className="ghost" onClick={onClose}>Annuler</button>
           <button className="primary" disabled={!canSave} onClick={submit}>Enregistrer</button>
         </div>
