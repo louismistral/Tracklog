@@ -15,6 +15,12 @@
    recalculer les macros toute seule quand l'utilisateur corrige
    un poids, sans redemander quoi que ce soit au modèle.
 
+   Deux modes, demandés par le champ `mode` :
+     normal      — le modèle estime de tête. Rapide.
+     advanced    — il peut chercher sur le web (vraies références :
+                   la carte d'un restaurant nommé, la fiche d'un
+                   produit) et remplit aussi les micronutriments.
+
    Déploiement :
      supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
      supabase functions deploy analyse-repas
@@ -45,8 +51,46 @@ const json = (body: unknown, status = 200) =>
 /* ---- Le contrat de sortie -------------------------------------------------
    Un schéma strict plutôt qu'un « réponds en JSON » dans le prompt : le modèle
    ne peut alors structurellement pas rendre autre chose, et le front n'a aucun
-   texte à rattraper. Les valeurs sont pour 100 g, le poids est à part. */
-const SCHEMA = {
+   texte à rattraper. Les valeurs sont pour 100 g, le poids est à part.
+
+   Les micronutriments, dans les clés ET les unités de l'app (le front range
+   ce bloc tel quel dans les valeurs « pour 100 g » de l'ingrédient). Ils ne
+   sont demandés qu'en mode approfondi : de tête, un modèle rendrait quatorze
+   nombres dont aucun ne vaudrait mieux qu'un blanc. D'où « 0 si inconnu » —
+   un zéro est filtré côté app, une valeur inventée ne le serait pas. */
+const MICRO_FIELDS: Array<[string, string]> = [
+  ['sugars', 'Sucres, en g pour 100 g'],
+  ['sat', 'Acides gras saturés, en g pour 100 g'],
+  ['fiber', 'Fibres, en g pour 100 g'],
+  ['salt', 'Sel, en g pour 100 g'],
+  ['calcium', 'Calcium, en mg pour 100 g'],
+  ['iron', 'Fer, en mg pour 100 g'],
+  ['magnesium', 'Magnésium, en mg pour 100 g'],
+  ['potassium', 'Potassium, en mg pour 100 g'],
+  ['phosphorus', 'Phosphore, en mg pour 100 g'],
+  ['zinc', 'Zinc, en mg pour 100 g'],
+  ['sodium', 'Sodium, en mg pour 100 g'],
+  ['vitaminA', 'Vitamine A, en µg pour 100 g'],
+  ['vitaminC', 'Vitamine C, en mg pour 100 g'],
+  ['vitaminD', 'Vitamine D, en µg pour 100 g'],
+  ['vitaminE', 'Vitamine E, en mg pour 100 g'],
+  ['vitaminB6', 'Vitamine B6, en mg pour 100 g'],
+  ['vitaminB9', 'Vitamine B9 (folates), en µg pour 100 g'],
+  ['vitaminB12', 'Vitamine B12, en µg pour 100 g'],
+];
+const MICROS_SCHEMA = {
+  type: 'object',
+  description: 'Micronutriments POUR 100 g. Mets 0 partout où tu ne sais pas — un 0 est ignoré par l\'app, un chiffre inventé ne le serait pas.',
+  properties: Object.fromEntries(MICRO_FIELDS.map(([k, d]) => [k, { type: 'number', description: d }])),
+  required: MICRO_FIELDS.map(([k]) => k),
+  additionalProperties: false,
+};
+
+/* Le schéma dépend du mode, et c'est le seul endroit où les deux modes
+   diffèrent structurellement : en normal, les micros ne sont pas demandés du
+   tout (de tête, ce seraient dix-huit nombres inventés), et « sources » reste
+   un tableau vide puisque rien n'est consulté. */
+const schemaFor = (advanced: boolean) => ({
   type: 'object',
   properties: {
     plat: { type: 'string', description: 'Nom court du plat, tel qu\'on le dirait.' },
@@ -63,8 +107,10 @@ const SCHEMA = {
           glucides: { type: 'number', description: 'Glucides en g POUR 100 g.' },
           lipides: { type: 'number', description: 'Lipides en g POUR 100 g.' },
           hypothese: { type: 'string', description: 'Ce qui a été supposé pour ce composant, ou "" si rien. Ex. "15 g d\'huile de cuisson supposés".' },
+          ...(advanced ? { micros: MICROS_SCHEMA } : {}),
         },
-        required: ['nom', 'grammes', 'kcal', 'proteines', 'glucides', 'lipides', 'hypothese'],
+        required: ['nom', 'grammes', 'kcal', 'proteines', 'glucides', 'lipides', 'hypothese',
+                   ...(advanced ? ['micros'] : [])],
         additionalProperties: false,
       },
     },
@@ -73,16 +119,25 @@ const SCHEMA = {
       type: 'string',
       description: 'UNE question qui réduirait le plus la marge, ou "" si l\'estimation est déjà serrée.',
     },
+    sources: {
+      type: 'array',
+      description: 'Les URL réellement consultées, si tu as cherché. Tableau vide sinon — n\'invente jamais une source.',
+      items: { type: 'string' },
+    },
   },
-  required: ['plat', 'ingredients', 'marge', 'question'],
+  required: ['plat', 'ingredients', 'marge', 'question', 'sources'],
   additionalProperties: false,
-};
+});
 
 /* ---- La méthode ----------------------------------------------------------
    Portage du skill « estimation-macros » : la précision vient de quatre
-   inconnues, pas d'une procédure. Le modèle ne peut ni demander de précisions
-   ni chercher sur le web ici — il doit donc trancher, et surtout DIRE ce qu'il
-   a supposé, puisque c'est l'utilisateur qui corrigera les poids ensuite. */
+   inconnues, pas d'une procédure. Le modèle ne peut pas demander de précisions
+   — il doit donc trancher, et surtout DIRE ce qu'il a supposé, puisque c'est
+   l'utilisateur qui corrigera les poids ensuite.
+
+   En mode approfondi seulement, il peut chercher sur le web : c'est ce qui
+   transforme « une pizza de resto » en la pizza que ce restaurant-là sert,
+   quand l'utilisateur l'a nommé. Le reste de la méthode ne bouge pas. */
 const SYSTEM = `Tu estimes les calories et macros d'un repas, pour une app de suivi nutritionnel.
 
 Le message peut contenir une photo du repas, un texte qui le décrit, ou les deux. Quand une photo est
@@ -108,6 +163,18 @@ Règles de travail :
 
 Tout est en français.`;
 
+/* Ce qui s'ajoute au système en mode approfondi. Un bloc à part plutôt qu'un
+   « si » dans le texte : le mode normal ne doit pas lire des consignes de
+   recherche qu'il n'a pas les outils d'exécuter. */
+const SYSTEM_ADVANCED = `
+
+MODE APPROFONDI — tu disposes de la recherche web, et deux choses changent.
+
+1. CHERCHE quand il y a quelque chose à trouver. Un établissement nommé, une chaîne, un produit de marque, un plat régional précis : va lire les vraies valeurs plutôt que d'estimer de tête. Cherche la fiche nutritionnelle de l'enseigne en premier, une base publique (Open Food Facts, Ciqual, USDA) ensuite. Deux ou trois recherches ciblées valent mieux que dix vagues. Si rien de fiable ne sort, estime comme en mode normal et dis-le dans « hypothese ».
+2. REMPLIS les micronutriments, pour 100 g, dans les unités demandées par le schéma. Un composant simple (riz, poulet, huile d'olive) a des valeurs de table connues : utilise-les. Partout où tu ne sais pas, mets 0 — c'est traité comme « pas d'information ». N'invente jamais un micronutriment pour ne pas laisser un champ vide : un chiffre faux est pire qu'un blanc, il se cumule dans les totaux du jour de l'utilisateur.
+
+« sources » ne contient que les URL que tu as réellement ouvertes. Aucune source inventée, jamais.`;
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Méthode non autorisée.' }, 405);
@@ -131,10 +198,12 @@ Deno.serve(async (req: Request) => {
   }
 
   let description = '';
+  let advanced = false;
   let image: { data: string; mediaType: string } | null = null;
   try {
     const body = await req.json();
     description = String(body?.description ?? '').trim();
+    advanced = String(body?.mode ?? '') === 'advanced';
     if (body?.image){
       const data = String(body.image.data ?? '');
       const mediaType = String(body.image.mediaType ?? '');
@@ -157,49 +226,83 @@ Deno.serve(async (req: Request) => {
   content.push({ type: 'text', text: description || 'Décompose ce repas à partir de la photo.' });
 
   try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        // Sur un refus de politique, la requête est rejouée côté serveur sur un
-        // modèle de repli dans le même appel, au lieu de revenir les mains vides.
-        'anthropic-beta': 'server-side-fallback-2026-07-01',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 16000,
-        system: SYSTEM,
-        thinking: { type: 'adaptive' },
-        output_config: { format: { type: 'json_schema', schema: SCHEMA } },
-        fallbacks: 'default',
-        messages: [{ role: 'user', content }],
-      }),
-    });
+    /* Une recherche longue peut s'interrompre en cours de tour : l'API rend
+       alors `stop_reason: "pause_turn"` et attend qu'on lui renvoie le message
+       tel quel pour reprendre. Sans cette reprise, le mode approfondi
+       rendrait par moments une réponse sans JSON du tout. Deux reprises
+       suffisent largement pour cinq recherches ; au-delà, on s'arrête plutôt
+       que de boucler sur le compte de l'utilisateur. */
+    const messages: Array<Record<string, unknown>> = [{ role: 'user', content }];
+    // deno-lint-ignore no-explicit-any
+    let msg: any = null;
 
-    if (!r.ok){
-      const detail = await r.text();
-      console.error('anthropic', r.status, detail.slice(0, 500));
-      if (r.status === 429) return json({ error: "Trop de requêtes d'un coup — réessaie dans un instant." }, 429);
-      if (r.status === 401) return json({ error: "La clé API est refusée par Anthropic." }, 502);
-      return json({ error: `Le service d'analyse a répondu ${r.status}.` }, 502);
+    for (let turn = 0; turn < 3; turn++){
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          // Sur un refus de politique, la requête est rejouée côté serveur sur un
+          // modèle de repli dans le même appel, au lieu de revenir les mains vides.
+          'anthropic-beta': 'server-side-fallback-2026-07-01',
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          // Chercher, lire des pages et rendre dix-huit micros par ingrédient
+          // demande de la place ; estimer de tête, non.
+          max_tokens: advanced ? 32000 : 16000,
+          system: advanced ? SYSTEM + SYSTEM_ADVANCED : SYSTEM,
+          thinking: { type: 'adaptive' },
+          output_config: { format: { type: 'json_schema', schema: schemaFor(advanced) } },
+          fallbacks: 'default',
+          // La recherche web est un outil serveur : Anthropic l'exécute dans le
+          // même appel, la fonction n'a rien à orchestrer et aucune page ne
+          // transite par nous. Bridée à cinq usages — au-delà, le modèle creuse
+          // une précision que la pesée d'une assiette ne portera de toute façon pas.
+          ...(advanced ? { tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }] } : {}),
+          messages,
+        }),
+      });
+
+      if (!r.ok){
+        const detail = await r.text();
+        console.error('anthropic', r.status, detail.slice(0, 500));
+        if (r.status === 429) return json({ error: "Trop de requêtes d'un coup — réessaie dans un instant." }, 429);
+        if (r.status === 401) return json({ error: "La clé API est refusée par Anthropic." }, 502);
+        return json({ error: `Le service d'analyse a répondu ${r.status}.` }, 502);
+      }
+
+      msg = await r.json();
+      if (msg && msg.stop_reason === 'pause_turn'){
+        // On renvoie le tour de l'assistant TEL QUEL — les résultats de
+        // recherche y sont chiffrés, les retoucher invalide la requête.
+        messages.push({ role: 'assistant', content: msg.content });
+        continue;
+      }
+      break;
     }
+    if (!msg) return json({ error: "Le service d'analyse n'a rien renvoyé." }, 502);
 
-    const msg = await r.json();
     if (msg.stop_reason === 'refusal'){
       return json({ error: "L'analyse a été refusée pour cette description." }, 422);
     }
 
-    // Sortie structurée : le JSON arrive dans le bloc texte de la réponse.
-    const text = (msg.content || [])
+    /* Sortie structurée : le JSON arrive dans un bloc texte. Avec la recherche
+       web, la réponse en contient plusieurs — les tours intermédiaires du
+       modèle pendant qu'il cherche — et seul le DERNIER porte le résultat.
+       Les concaténer rendait un texte illisible dès qu'une recherche avait eu
+       lieu, donc on essaie le dernier d'abord, puis les précédents à rebours. */
+    const texts = (msg.content || [])
       .filter((b: { type: string }) => b.type === 'text')
-      .map((b: { text: string }) => b.text)
-      .join('');
-    let parsed;
-    try { parsed = JSON.parse(text); }
-    catch {
-      console.error('json illisible', text.slice(0, 500));
+      .map((b: { text: string }) => String(b.text || '').trim())
+      .filter((t: string) => t);
+    let parsed = null;
+    for (let i = texts.length - 1; i >= 0 && !parsed; i--){
+      try { parsed = JSON.parse(texts[i]); } catch { /* pas celui-là */ }
+    }
+    if (!parsed || typeof parsed !== 'object'){
+      console.error('json illisible', texts.join(' | ').slice(0, 500));
       return json({ error: "Réponse d'analyse illisible. Réessaie." }, 502);
     }
 
@@ -208,6 +311,12 @@ Deno.serve(async (req: Request) => {
       ingredients: Array.isArray(parsed.ingredients) ? parsed.ingredients : [],
       marge: String(parsed.marge || ''),
       question: String(parsed.question || ''),
+      // Les sources ne sortent que si ce sont des URL : le schéma demande des
+      // chaînes, rien n'empêche le modèle d'y mettre « la carte du resto ».
+      sources: (Array.isArray(parsed.sources) ? parsed.sources : [])
+        .map((u: unknown) => String(u || ''))
+        .filter((u: string) => /^https?:\/\//.test(u))
+        .slice(0, 6),
     });
   } catch (e){
     console.error(e);

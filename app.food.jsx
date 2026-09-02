@@ -1195,47 +1195,86 @@ function useFoodStore(userId){
     return () => { cancelled = true; };
   }, [userId]);
 
+  /* ---- Écrire d'abord dans l'écran, envoyer ensuite -------------------------
+     Attendre la base avant de refermer une page, c'est faire porter à
+     l'utilisateur un aller-retour réseau qu'il n'a aucune raison de voir : ce
+     qu'il vient de saisir est déjà connu, la base ne fait que le confirmer.
+     L'état local est donc posé tout de suite et l'écriture part derrière.
+
+     La contrepartie est qu'un échec n'a plus de « return » pour l'arrêter : il
+     doit défaire ce qu'il a affiché ET le dire. Un échec muet serait pire que
+     l'attente — c'est exactement ce qui laissait croire un objectif enregistré
+     alors qu'il ne l'était pas. */
+  const writeFailed = (what, error) => {
+    console.error('tracklog: écriture refusée —', what, error);
+    alert(`Impossible d'enregistrer ${what} : ${(error && error.message) || 'la base a refusé.'}`);
+  };
+
   // Un produit scanné deux fois ne fait qu'une ligne : le code-barres est unique
   // par compte (index côté base), on met donc à jour la fiche existante.
-  const saveFood = async (food) => {
+  const saveFood = (food) => {
     const known = food.barcode ? foods.find(f => f.barcode === food.barcode) : null;
     const merged = known ? { ...known, ...food, id:known.id, createdAt:known.createdAt } : food;
-    const { error } = await supabase.from('foods').upsert(foodToRow(merged, userId));
-    if (error) return null;
     setFoods(s => known ? s.map(f => f.id === merged.id ? merged : f) : [merged, ...s]);
+    supabase.from('foods').upsert(foodToRow(merged, userId)).then(({ error }) => {
+      if (!error) return;
+      setFoods(s => known ? s.map(f => f.id === merged.id ? known : f) : s.filter(f => f.id !== merged.id));
+      writeFailed(`« ${merged.name} »`, error);
+    });
     return merged;
   };
-  const updateFood = async (id, patch) => {
+  const updateFood = (id, patch) => {
     const current = foods.find(f => f.id === id);
     if (!current) return null;
     const updated = { ...current, ...patch };
-    const { error } = await supabase.from('foods').update(foodToRow(updated, userId)).eq('id', id);
-    if (error) return null;
     setFoods(s => s.map(f => f.id === id ? updated : f));
+    supabase.from('foods').update(foodToRow(updated, userId)).eq('id', id).then(({ error }) => {
+      if (!error) return;
+      setFoods(s => s.map(f => f.id === id ? current : f));
+      writeFailed(`« ${current.name} »`, error);
+    });
     return updated;
   };
-  const removeFood = async (id) => {
-    const { error } = await supabase.from('foods').delete().eq('id', id);
-    if (!error) setFoods(s => s.filter(f => f.id !== id));
+  const removeFood = (id) => {
+    const current = foods.find(f => f.id === id);
+    setFoods(s => s.filter(f => f.id !== id));
+    supabase.from('foods').delete().eq('id', id).then(({ error }) => {
+      if (!error) return;
+      if (current) setFoods(s => [current, ...s]);
+      writeFailed('la suppression', error);
+    });
   };
 
-  const addLog = async (log) => {
+  const addLog = (log) => {
     const l = { id: uid('fl_'), ts: Date.now(), unit:'g', ...log };
-    const { error } = await supabase.from('food_logs').insert(foodLogToRow(l, userId));
-    if (error) return;
     setLogs(s => [l, ...s]);
     if (l.foodId) updateFood(l.foodId, { lastUsedAt: Date.now() });
+    supabase.from('food_logs').insert(foodLogToRow(l, userId)).then(({ error }) => {
+      if (!error) return;
+      setLogs(s => s.filter(x => x.id !== l.id));
+      writeFailed(`« ${l.name} »`, error);
+    });
+    return l;
   };
-  const updateLog = async (id, patch) => {
+  const updateLog = (id, patch) => {
     const current = logs.find(l => l.id === id);
     if (!current) return;
     const updated = { ...current, ...patch };
-    const { error } = await supabase.from('food_logs').update(foodLogToRow(updated, userId)).eq('id', id);
-    if (!error) setLogs(s => s.map(l => l.id === id ? updated : l));
+    setLogs(s => s.map(l => l.id === id ? updated : l));
+    supabase.from('food_logs').update(foodLogToRow(updated, userId)).eq('id', id).then(({ error }) => {
+      if (!error) return;
+      setLogs(s => s.map(l => l.id === id ? current : l));
+      writeFailed(`« ${current.name} »`, error);
+    });
   };
-  const removeLog = async (id) => {
-    const { error } = await supabase.from('food_logs').delete().eq('id', id);
-    if (!error) setLogs(s => s.filter(l => l.id !== id));
+  const removeLog = (id) => {
+    const current = logs.find(l => l.id === id);
+    setLogs(s => s.filter(l => l.id !== id));
+    supabase.from('food_logs').delete().eq('id', id).then(({ error }) => {
+      if (!error) return;
+      if (current) setLogs(s => [current, ...s]);
+      writeFailed('la suppression', error);
+    });
   };
 
   const toggleFavorite = (id) => {
@@ -1244,49 +1283,78 @@ function useFoodStore(userId){
   };
 
   /* ---- Repas enregistrés ---- */
-  const saveMeal = async (meal) => {
+  const saveMeal = (meal) => {
     const m = { steps:[], items:[], source:'custom', favorite:false, portions:1,
                 createdAt:Date.now(), lastUsedAt:null, ...meal,
                 id: meal.id || uid('m_') };
-    const { error } = await supabase.from('meals').upsert(mealToRow(m, userId));
-    if (error) return null;
-    setMeals(s => s.some(x => x.id === m.id) ? s.map(x => x.id === m.id ? m : x) : [m, ...s]);
+    const known = meals.find(x => x.id === m.id) || null;
+    setMeals(s => known ? s.map(x => x.id === m.id ? m : x) : [m, ...s]);
+    supabase.from('meals').upsert(mealToRow(m, userId)).then(({ error }) => {
+      if (!error) return;
+      setMeals(s => known ? s.map(x => x.id === m.id ? known : x) : s.filter(x => x.id !== m.id));
+      writeFailed(`le repas « ${m.name} »`, error);
+    });
     return m;
   };
   // Un repas se met en favori exactement comme un aliment : ce sont deux items,
   // l'étoile ne peut pas vouloir dire deux choses.
-  const toggleMealFavorite = async (id) => {
+  const toggleMealFavorite = (id) => {
     const m = meals.find(x => x.id === id);
-    if (m) await saveMeal({ ...m, favorite: !m.favorite });
+    if (m) saveMeal({ ...m, favorite: !m.favorite });
   };
-  const removeMeal = async (id) => {
-    const { error } = await supabase.from('meals').delete().eq('id', id);
-    if (!error) setMeals(s => s.filter(m => m.id !== id));
+  const removeMeal = (id) => {
+    const current = meals.find(m => m.id === id);
+    setMeals(s => s.filter(m => m.id !== id));
+    supabase.from('meals').delete().eq('id', id).then(({ error }) => {
+      if (!error) return;
+      if (current) setMeals(s => [current, ...s]);
+      writeFailed('la suppression', error);
+    });
   };
   // Verser un repas au journal : une ligne par ingrédient, comme si on les avait
   // ajoutés un à un — chacune reste corrigeable et supprimable seule ensuite.
   // `share` est la fraction de la recette réellement mangée (une demi-portion
   // d'une recette qui en fait quatre = 0.125) : elle pèse chaque ingrédient,
   // plutôt que d'ajouter une ligne « ×0,5 » que personne ne saurait relire.
-  const addMealToDay = async (mealObj, day, mealSlot, share = 1) => {
-    for (const it of (mealObj.items || [])){
-      const grams = (Number(it.grams) || 0) * share;
-      if (grams <= 0) continue;
-      await addLog({ day, meal: mealSlot, foodId: it.foodId || null, name: it.name,
-                     brand:'', qty: grams, unit:'g', grams, nutriments: itemNutriments(it) });
+  //
+  // Les lignes partent en UNE insertion, pas une par ingrédient : une recette de
+  // huit composants faisait huit allers-retours réseau à la suite avant de
+  // rendre la main, et c'est ça qu'on sentait en refermant la page.
+  const addMealToDay = (mealObj, day, mealSlot, share = 1) => {
+    const now = Date.now();
+    const rows = (mealObj.items || [])
+      .map(it => ({ it, grams: (Number(it.grams) || 0) * share }))
+      .filter(x => x.grams > 0)
+      .map(({ it, grams }, i) => ({
+        id: uid('fl_'), ts: now + i, day, meal: mealSlot, foodId: it.foodId || null,
+        name: it.name, brand:'', qty: grams, unit:'g', grams, nutriments: itemNutriments(it),
+      }));
+    if (rows.length){
+      setLogs(s => [...rows, ...s]);
+      supabase.from('food_logs').insert(rows.map(l => foodLogToRow(l, userId))).then(({ error }) => {
+        if (!error) return;
+        const ids = new Set(rows.map(l => l.id));
+        setLogs(s => s.filter(l => !ids.has(l.id)));
+        writeFailed(`le repas « ${mealObj.name || 'sans nom'} »`, error);
+      });
     }
-    if (mealObj.id) saveMeal({ ...mealObj, lastUsedAt: Date.now() });
+    if (mealObj.id) saveMeal({ ...mealObj, lastUsedAt: now });
   };
 
   // Régler un objectif, c'est le poser À PARTIR d'un jour — celui qu'on
   // regardait en ouvrant la fenêtre. Les jours d'avant ne bougent pas ; ceux
   // d'après suivent, jusqu'à la prochaine consigne.
-  const saveGoals = async (g, fromDay) => {
+  const saveGoals = (g, fromDay) => {
     const day = fromDay || dayKey(Date.now());
-    const { error } = await supabase.from('nutrition_goals')
-      .upsert(goalToRow(g, userId, day), { onConflict: 'user_id,from_day' });
-    if (error) return;
+    const before = goalRows;
     setGoalRows(rows => sortGoals([...rows.filter(r => r.fromDay !== day), { ...g, fromDay: day }]));
+    supabase.from('nutrition_goals')
+      .upsert(goalToRow(g, userId, day), { onConflict: 'user_id,from_day' })
+      .then(({ error }) => {
+        if (!error) return;
+        setGoalRows(before);
+        writeFailed('les objectifs', error);
+      });
   };
 
   // Index jour → lignes, refait une seule fois par changement de log.
@@ -1335,7 +1403,12 @@ function useFoodStore(userId){
    ============================================================ */
 const ANALYSE_URL = `${SUPABASE_URL}/functions/v1/analyse-repas`;
 
-async function analyseRepas(description, { signal, image } = {}){
+// Les micros que l'app sait ranger. Ce qui revient de l'analyse est filtré sur
+// cette liste plutôt que recopié tel quel : une clé inventée par le modèle
+// n'aurait aucune ligne où s'afficher, et se promènerait dans les snapshots.
+const AI_MICRO_KEYS = [...FOOD_DETAILS, ...FOOD_MICROS].map(d => d.key);
+
+async function analyseRepas(description, { signal, image, mode } = {}){
   const { data } = await supabase.auth.getSession();
   const token = data?.session?.access_token;
   if (!token) throw new Error('Session expirée — reconnecte-toi.');
@@ -1349,7 +1422,7 @@ async function analyseRepas(description, { signal, image } = {}){
       // La photo voyage en base64 dans le même corps que la description — une
       // seule requête, le modèle voit les deux ensemble plutôt que de recouper
       // deux réponses séparées.
-      body: JSON.stringify(image ? { description, image } : { description }),
+      body: JSON.stringify({ description, ...(image ? { image } : {}), ...(mode ? { mode } : {}) }),
     });
   } catch(e){
     if (e.name === 'AbortError') throw e;
@@ -1377,9 +1450,17 @@ async function analyseRepas(description, { signal, image } = {}){
       protein: Number(ing.proteines) || 0,
       carbs: Number(ing.glucides) || 0,
       fat: Number(ing.lipides) || 0,
+      // Le mode approfondi rend en plus les micros, dans les mêmes unités que
+      // le reste de l'app (g pour le détail, mg/µg pour les micros) : ils se
+      // rangent donc dans le même `per100`, et se mettent à l'échelle du poids
+      // comme les macros sans que rien d'autre ait à savoir d'où ils viennent.
+      ...Object.fromEntries(AI_MICRO_KEYS
+        .filter(k => ing.micros && Number(ing.micros[k]) > 0)
+        .map(k => [k, Number(ing.micros[k])])),
     },
   }));
-  return { plat: body.plat || '', items, marge: body.marge || '', question: body.question || '' };
+  return { plat: body.plat || '', items, marge: body.marge || '', question: body.question || '',
+           sources: Array.isArray(body.sources) ? body.sources : [] };
 }
 
 /* ============================================================
@@ -1451,7 +1532,7 @@ function FoodPage({ store, sub, onSub }){
         <FoodEditModal
           food={newFood}
           onClose={()=>setNewFood(null)}
-          onSave={async (f)=>{ await store.saveFood(f); setNewFood(null); }}
+          onSave={(f)=>{ store.saveFood(f); setNewFood(null); }}
         />
       )}
       {goalsDay && (
@@ -1465,7 +1546,7 @@ function FoodPage({ store, sub, onSub }){
           isSet={store.goalsSetAt(goalsDay)}
           fromDay={goalsDay}
           onClose={()=>setGoalsDay(null)}
-          onSave={async (g)=>{ await store.saveGoals(g, goalsDay); setGoalsDay(null); }}
+          onSave={(g)=>{ store.saveGoals(g, goalsDay); setGoalsDay(null); }}
         />
       )}
       {mealDraft && (
@@ -1473,8 +1554,8 @@ function FoodPage({ store, sub, onSub }){
           meal={mealDraft.id ? mealDraft : null}
           store={store}
           onClose={()=>setMealDraft(null)}
-          onSave={async (m)=>{ await store.saveMeal({ ...mealDraft, ...m }); setMealDraft(null); }}
-          onDelete={mealDraft.id ? async ()=>{ await store.removeMeal(mealDraft.id); setMealDraft(null); } : null}
+          onSave={(m)=>{ store.saveMeal({ ...mealDraft, ...m }); setMealDraft(null); }}
+          onDelete={mealDraft.id ? ()=>{ store.removeMeal(mealDraft.id); setMealDraft(null); } : null}
         />
       )}
     </div>
@@ -1488,29 +1569,43 @@ function FoodPage({ store, sub, onSub }){
 function FoodSources(){
   return (
     <div className="fd-sources">
-      <p className="section-label">Sources</p>
-      <p className="serif">
-        Les produits scannés et cherchés viennent d'<a href={OFF_FR} target="_blank" rel="noopener noreferrer">Open
-        Food Facts</a>, base collaborative et ouverte (licence ODbL) — les valeurs y sont saisies par ses
-        contributeurs, donc parfois incomplètes ou fausses. Chaque produit garde son lien « ↗ » vers sa fiche
-        d'origine, et le bouton Modifier permet de corriger les valeurs dans ta bibliothèque sans toucher à la
-        fiche publique.
-      </p>
-      <p className="serif">
-        Les aliments simples — ceux qui n'ont pas d'étiquette : un blanc de poulet, une pomme de terre,
-        des framboises — viennent de la <b>table Ciqual 2025</b> de l'ANSES, livrée avec l'app et
-        consultable hors ligne : 3 341 aliments français, crus et cuits, avec leurs micronutriments,
-        sous Licence Ouverte. Ce sont des moyennes de référence, pas un produit précis : le poulet que
-        tu as acheté n'est pas exactement celui-là, mais l'ordre de grandeur est juste, et chaque valeur
-        reste corrigeable.
-      </p>
-      <div className="fd-source-links mono">
-        <a href="https://ciqual.anses.fr/" target="_blank" rel="noopener noreferrer">table ciqual ↗</a>
-        <a href={OFF_FR} target="_blank" rel="noopener noreferrer">fr.openfoodfacts.org ↗</a>
-        <a href={OFF_SEARCH} target="_blank" rel="noopener noreferrer">moteur de recherche ↗</a>
-        <a href="https://openfoodfacts.github.io/openfoodfacts-server/api/" target="_blank" rel="noopener noreferrer">l'API utilisée ↗</a>
-        <a href="https://world.openfoodfacts.org/data" target="_blank" rel="noopener noreferrer">la base complète ↗</a>
-      </div>
+      {/* Le crédit reste écrit — la licence d'Open Food Facts le demande, et il
+          tient sur une ligne. Ce qui passe derrière la bulle, c'est ce qui
+          l'explique : quinze lignes de texte au bas de chaque journée se
+          lisaient une fois et encombraient ensuite. Les bulles sont posées
+          `always` : elles ne portent pas une explication de réglage, elles
+          portent l'attribution elle-même. */}
+      <span className="fd-src-credit serif">
+        Open Food Facts <span className="fd-src-lic mono">ODbL</span>
+        <InfoBubble always>
+          Les produits scannés et cherchés viennent d'<a href={OFF_FR} target="_blank" rel="noopener noreferrer">Open
+          Food Facts</a>, base collaborative et ouverte (licence ODbL) — les valeurs y sont saisies par ses
+          contributeurs, donc parfois incomplètes ou fausses. Chaque produit garde son lien « ↗ » vers sa
+          fiche d'origine ; une fiche qui ne te convient pas s'oublie, et l'onglet Créer fabrique la tienne.
+        </InfoBubble>
+      </span>
+      <span className="fd-src-credit serif">
+        Ciqual 2025 — ANSES <span className="fd-src-lic mono">Licence Ouverte</span>
+        <InfoBubble always>
+          Les aliments simples — ceux qui n'ont pas d'étiquette : un blanc de poulet, une pomme de terre,
+          des framboises — viennent de la <b>table Ciqual 2025</b> de l'ANSES, livrée avec l'app et
+          consultable hors ligne : 3 341 aliments français, crus et cuits, avec leurs micronutriments.
+          Ce sont des moyennes de référence, pas un produit précis : le poulet que tu as acheté n'est pas
+          exactement celui-là, mais l'ordre de grandeur est juste.
+        </InfoBubble>
+      </span>
+      <span className="fd-src-credit serif">
+        Liens
+        <InfoBubble always>
+          <span className="fd-source-links mono">
+            <a href="https://ciqual.anses.fr/" target="_blank" rel="noopener noreferrer">table ciqual ↗</a>
+            <a href={OFF_FR} target="_blank" rel="noopener noreferrer">fr.openfoodfacts.org ↗</a>
+            <a href={OFF_SEARCH} target="_blank" rel="noopener noreferrer">moteur de recherche ↗</a>
+            <a href="https://openfoodfacts.github.io/openfoodfacts-server/api/" target="_blank" rel="noopener noreferrer">l'API utilisée ↗</a>
+            <a href="https://world.openfoodfacts.org/data" target="_blank" rel="noopener noreferrer">la base complète ↗</a>
+          </span>
+        </InfoBubble>
+      </span>
     </div>
   );
 }
@@ -1602,7 +1697,10 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
         const rows = byMeal[meal.id] || [];
         const kcal = rows.reduce((s, l) => s + (l.nutriments.kcal || 0), 0);
         return (
-          <div className="fd-meal" key={meal.id}>
+          /* Une carte par repas, comme partout ailleurs dans l'app : les quatre
+             moments de la journée sont quatre choses distinctes, et un simple
+             titre suivi de lignes les laissait couler les uns dans les autres. */
+          <div className="card fd-card fd-meal" key={meal.id}>
             <div className="fd-meal-head">
               <p className="section-label" style={{margin:0}}>{meal.label}</p>
               <span className="fd-meal-kcal mono">{rows.length ? `${fmtNum(kcal,0)} kcal` : '—'}</span>
@@ -1616,7 +1714,7 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
       })}
 
       {(byMeal.autre || []).length > 0 && (
-        <div className="fd-meal">
+        <div className="card fd-card fd-meal">
           <div className="fd-meal-head"><p className="section-label" style={{margin:0}}>Autre</p></div>
           {byMeal.autre.map(l => (
             <FoodLogRow key={l.id} log={l} onEdit={()=>setEditLog(l)} onDelete={()=>store.removeLog(l.id)} />
@@ -1873,6 +1971,15 @@ function AiAnalyseTab({ store, day, initialMeal, pickMode, onPickItems, onDone, 
   const [result, setResult] = useState(null);   // { plat, items, marge, question }
   const [items, setItems] = useState([]);
   const [mealSlot, setMealSlot] = useState(initialMeal || defaultMealForNow());
+  // Deux façons de demander, pas deux réglages : le mode normal estime de tête
+  // et répond vite ; le mode approfondi laisse le modèle chercher sur le web
+  // (la carte d'un restaurant nommé, la fiche d'un produit) et remplir les
+  // micronutriments — plus juste, plus lent, plus cher.
+  const [advanced, setAdvanced] = useState(false);
+  // Ce qui sort d'une analyse peut devenir un item, mais ça se demande : une
+  // assiette de resto qu'on ne remangera jamais n'a rien à faire dans Mes
+  // items. Même drapeau `keep` que l'ajout rapide, même intention.
+  const [keep, setKeep] = useState(true);
   const abortRef = useRef(null);
 
   useEffect(() => () => { try { abortRef.current && abortRef.current.abort(); } catch {} }, []);
@@ -1903,7 +2010,7 @@ function AiAnalyseTab({ store, day, initialMeal, pickMode, onPickItems, onDone, 
     abortRef.current = ctrl;
     try {
       const image = photo ? { data: photo.base64, mediaType: photo.mediaType } : null;
-      const out = await analyseRepas(d, { signal: ctrl.signal, image });
+      const out = await analyseRepas(d, { signal: ctrl.signal, image, mode: advanced ? 'advanced' : 'normal' });
       setResult(out);
       setItems(out.items);
       if (!out.items.length) setErr("L'analyse n'a rien pu décomposer. Reformule en détaillant le plat, ou précise la photo.");
@@ -1921,14 +2028,13 @@ function AiAnalyseTab({ store, day, initialMeal, pickMode, onPickItems, onDone, 
   // repas analysé est enregistré tel quel, marqué `source:'ai'`, et se retrouve
   // dans Mes items › Repas avec sa pastille. Sans ça, une analyse qu'on refait
   // deux fois par semaine serait à redemander au modèle deux fois par semaine.
-  const addToJournal = async () => {
+  const addToJournal = () => {
     // Ouverte depuis un repas en cours d'écriture, l'analyse ne note rien et
     // n'enregistre pas un second item : elle rend ses ingrédients à la recette
     // qui les a demandés.
     if (onPickItems){ onPickItems(items); return; }
-    const saved = { name: aiName(), items, steps: [], source: 'ai' };
-    await store.saveMeal(saved);
-    await store.addMealToDay({ items }, day, mealSlot);
+    if (keep) store.saveMeal({ name: aiName(), items, steps: [], source: 'ai' });
+    store.addMealToDay({ items }, day, mealSlot);
     onDone();
   };
 
@@ -1964,13 +2070,28 @@ function AiAnalyseTab({ store, day, initialMeal, pickMode, onPickItems, onDone, 
           placeholder="Poke bowl saumon, riz, avocat, edamame, sauce soja sucrée — bol moyen de resto"
         />
 
+        <div className="fd-ai-mode">
+          <Segmented size="small">
+            <button className={!advanced?'on':''} onClick={()=>setAdvanced(false)}>Normal</button>
+            <button className={advanced?'on':''} onClick={()=>setAdvanced(true)}>Approfondi</button>
+          </Segmented>
+          <InfoBubble>
+            <b>Normal</b> — le modèle estime de tête, à partir de ce que tu donnes. Rapide.<br/>
+            <b>Approfondi</b> — il cherche aussi sur le web de vraies références (la carte du
+            restaurant que tu nommes, la fiche d'un produit) et remplit les micronutriments.
+            Plus juste sur un plat identifiable, mais nettement plus lent.
+          </InfoBubble>
+        </div>
+
         <div className="fd-ai-actions">
           <span className="fd-ai-hint serif">
             Texte, photo, ou les deux — envoyés dans la même analyse. Plus tu donnes de détails —
             poids pesés, morceau de viande, huile de cuisson — plus l'estimation se resserre.
+            {advanced && <> En approfondi, <b>nomme l'établissement</b> : c'est ce qui lui donne
+            quelque chose à chercher.</>}
           </span>
           <button className="primary sm" disabled={!canRun} onClick={run}>
-            {busy ? 'Analyse…' : result ? 'Relancer' : 'Analyser'}
+            {busy ? (advanced ? 'Recherche…' : 'Analyse…') : result ? 'Relancer' : 'Analyser'}
           </button>
         </div>
       </div>
@@ -1991,25 +2112,50 @@ function AiAnalyseTab({ store, day, initialMeal, pickMode, onPickItems, onDone, 
               <b>Pour affiner :</b> {result.question} — précise-le dans la description et relance.
             </p>
           )}
+          {/* Ce que le mode approfondi a réellement lu. Une estimation qui dit
+              « d'après la carte du restaurant » sans dire laquelle n'est pas
+              plus vérifiable qu'une estimation de tête. */}
+          {result.sources && result.sources.length > 0 && (
+            <p className="fd-note serif">
+              <b>D'après :</b>{' '}
+              {result.sources.map((u, i) => (
+                <React.Fragment key={i}>
+                  {i > 0 && ' · '}
+                  <a className="fd-src-link" href={u} target="_blank" rel="noopener noreferrer">
+                    {(() => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } })()}
+                  </a>
+                </React.Fragment>
+              ))}
+            </p>
+          )}
 
           <IngredientEditor items={items} onChange={setItems} store={store} />
 
           {!pickMode && (
-            <div className="field" style={{borderBottom:'none'}}>
-              <label>Repas</label>
-              <Segmented size="small" scrollx>
-                {MEALS.map(m => (
-                  <button key={m.id} className={mealSlot===m.id?'on':''} onClick={()=>setMealSlot(m.id)}>{m.label}</button>
-                ))}
-              </Segmented>
-            </div>
+            <>
+              <div className="field">
+                <label>Repas</label>
+                <Segmented size="small" scrollx>
+                  {MEALS.map(m => (
+                    <button key={m.id} className={mealSlot===m.id?'on':''} onClick={()=>setMealSlot(m.id)}>{m.label}</button>
+                  ))}
+                </Segmented>
+              </div>
+              <div className="field" style={{borderBottom:'none'}}>
+                <label>En faire un item</label>
+                <BoolPill value={keep} onChange={setKeep} />
+              </div>
+            </>
           )}
 
           <p className="fd-note serif">
             {pickMode
               ? <>Les {items.length} ingrédient{items.length>1?'s':''} rejoignent la recette en cours, où ils restent corrigeables un par un.</>
-              : <>Ajouter note la journée <b>et</b> range l'analyse dans Mes items › Repas, marquée IA —
-                 de quoi la remettre en un geste sans redemander au modèle.</>}
+              : keep
+                ? <>La journée est notée <b>et</b> l'analyse rejoint Mes items › Repas, marquée IA —
+                   de quoi la remettre en un geste sans redemander au modèle.</>
+                : <>La journée est notée, et rien n'est gardé : une assiette qu'on ne remangera pas
+                   n'a pas à encombrer Mes items.</>}
           </p>
 
           <div className="modal-actions">
@@ -2207,7 +2353,7 @@ function MealsTab({ store, day, initialMeal, favOnly, query, pickMode, onPick, o
             // partent. Verser dans une journée : le magasin en fait une ligne
             // par ingrédient, et note le repas comme récemment utilisé.
             if (onPick){ onPick({ ...m, items }); return; }
-            await store.addMealToDay(m, day, slot, share);
+            store.addMealToDay(m, day, slot, share);
             onDone();
           }}
         />
@@ -2552,7 +2698,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
         needsFood(found);
         return;
       }
-      const saved = await store.saveFood(found);
+      const saved = store.saveFood(found);
       setScanOpen(false);
       setPicked(saved || found);
     } catch(e){
@@ -2607,7 +2753,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
   const submitQuickAdd = async ({ name, qty, unit, grams, meal:m, nutriments, per100, basis, keep, barcode }) => {
     let foodId = null;
     if (keep){
-      const saved = await store.saveFood({
+      const saved = store.saveFood({
         id: uid('f_'), source:'custom', barcode: barcode || null, name, brand:'',
         basis, servingG:null, imageUrl:'', nutriments: per100,
         favorite:false, lastUsedAt:Date.now(), createdAt:Date.now(),
@@ -2618,13 +2764,13 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
     // l'intérêt d'« ingrédient » et « à code-barres ») et remplace seulement
     // la ligne de journal par une ligne de recette.
     if (pick){ onPickItems([mkItem({ name, grams, per100, foodId })]); return; }
-    await store.addLog({ day, meal:m, foodId, name, brand:'', qty, unit, grams, nutriments });
+    store.addLog({ day, meal:m, foodId, name, brand:'', qty, unit, grams, nutriments });
     onClose();
   };
 
   const pickFromSearch = async (f) => {
     if (!foodIsUsable(f)){ needsFood(f); return; }
-    const saved = await store.saveFood(f);
+    const saved = store.saveFood(f);
     setPicked(saved || f);
   };
 
@@ -2632,7 +2778,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
   // ensuite il sort en tête, instantanément, même hors ligne. L'identifiant est
   // refait au passage — celui de la table est le même pour tout le monde.
   const pickFromRef = async (f) => {
-    const saved = await store.saveFood({ ...f, id: uid('f_'), lastUsedAt: Date.now() });
+    const saved = store.saveFood({ ...f, id: uid('f_'), lastUsedAt: Date.now() });
     setPicked(saved || f);
   };
 
@@ -2908,8 +3054,8 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
           meal={mealDraft.id ? mealDraft : null}
           store={store}
           onClose={()=>setMealDraft(null)}
-          onSave={async (m)=>{ await store.saveMeal({ ...mealDraft, ...m }); setMealDraft(null); setTab('mesitems'); setMine('repas'); }}
-          onDelete={mealDraft.id ? async ()=>{ await store.removeMeal(mealDraft.id); setMealDraft(null); } : null}
+          onSave={(m)=>{ store.saveMeal({ ...mealDraft, ...m }); setMealDraft(null); setTab('mesitems'); setMine('repas'); }}
+          onDelete={mealDraft.id ? ()=>{ store.removeMeal(mealDraft.id); setMealDraft(null); } : null}
         />
       )}
     </div>
@@ -3580,6 +3726,27 @@ function GoalsModal({ goals, isSet, fromDay, onClose, onSave }){
   const setRaw = (key, raw) => setMacro(s => ({ ...s, [key]: { ...s[key], raw } }));
 
   const grams = Object.fromEntries(MACRO_GOAL_KEYS.map(k => [k, macroGrams(k)]));
+
+  /* Ce qu'il resterait à mettre dans la troisième macro pour tomber sur la
+     cible calorique. Deux macros posées et des calories visées laissent une
+     seule inconnue : autant l'afficher plutôt que de faire sortir la
+     calculette. C'est une suggestion, pas une valeur — d'où le placeholder :
+     tant qu'on n'a rien tapé, rien n'est enregistré.
+
+     Elle est rendue dans l'unité du mode choisi pour CE champ : le nombre
+     change de forme quand on bascule en % ou en g/kg, parce que c'est le même
+     objectif dit autrement. */
+  const suggestion = (key) => {
+    if (!kcalNum || macroNum(key) != null) return '';
+    const others = MACRO_GOAL_KEYS.filter(k => k !== key);
+    if (others.some(k => grams[k] == null)) return '';
+    const left = kcalNum - others.reduce((sum, k) => sum + grams[k] * MACRO_KCAL_FACTOR[k], 0);
+    if (left <= 0) return '';
+    const mode = macro[key].mode;
+    if (mode === 'percent') return fmtNum((left / kcalNum) * 100, 0);
+    if (mode === 'perkg') return weightNum ? fmtNum(left / MACRO_KCAL_FACTOR[key] / weightNum, 1) : '';
+    return fmtNum(left / MACRO_KCAL_FACTOR[key], 0);
+  };
   // 4 kcal/g pour les protéines et les glucides, 9 pour les lipides : de quoi
   // voir tout de suite si les trois macros tiennent dans l'objectif calorique,
   // quel que soit le mode qui les a produites.
@@ -3653,6 +3820,7 @@ function GoalsModal({ goals, isSet, fromDay, onClose, onSave }){
               </div>
               <div style={{display:'flex',alignItems:'baseline',gap:8}}>
                 <input type="number" step="any" min="0" style={{width:'100%'}}
+                  placeholder={suggestion(key)}
                   value={macro[key].raw} onChange={e=>setRaw(key, e.target.value)} />
                 <span className="unit">{modeDef.unit(m)}</span>
                 {mode !== 'grams' && (
@@ -3669,6 +3837,9 @@ function GoalsModal({ goals, isSet, fromDay, onClose, onSave }){
           <p className="fd-note serif">
             Ces macros font <span className="mono">{fmtNum(implied,0)} kcal</span>
             {kcalNum ? ` pour un objectif de ${fmtNum(kcalNum,0)} kcal.` : '.'}
+            {kcalNum && MACRO_GOAL_KEYS.every(k => grams[k] != null) && Math.abs(kcalNum - implied) >= 5
+              ? ` Il ${kcalNum > implied ? 'manque' : 'dépasse de'} ${fmtNum(Math.abs(kcalNum - implied),0)} kcal.`
+              : ''}
           </p>
         )}
         <div className="modal-actions">

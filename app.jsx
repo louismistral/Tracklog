@@ -492,7 +492,11 @@ function Help({ children }){
   return <p className="settings-hint">{children}</p>;
 }
 
-function InfoBubble({ children }){
+// `always` is the same deliberate exception Help makes for the explanations
+// switch itself: a bubble that carries something other than an explanation —
+// the source credits Open Food Facts' licence requires — must not vanish with
+// the switch that hides explanations.
+function InfoBubble({ children, always = false }){
   const infoEnabled = useContext(InfoVisibilityContext);
   const [open, setOpen] = useState(false);
   const ref = useRef();
@@ -503,7 +507,7 @@ function InfoBubble({ children }){
     document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') setOpen(false); });
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
-  if (!infoEnabled) return null;
+  if (!infoEnabled && !always) return null;
   return (
     <span className="info" ref={ref}>
       <button type="button" className={`icon-btn sm info-btn ${open?'on':''}`} onClick={()=>setOpen(o=>!o)} aria-label="Plus d'infos">i</button>
