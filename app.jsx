@@ -62,50 +62,36 @@ const { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useC
    nuancier, ils n'ont pas l'air d'être hors palette. Et si une couleur stockée
    n'y est vraiment pas (import, ancienne version), TrackerModal l'ajoute en fin
    de grille plutôt que de faire semblant que rien n'est sélectionné. */
-/* Le nuancier ne fait plus varier qu'UNE chose : la teinte. Luminosité et
-   chroma sont posées au maximum utilisable et ne bougent plus — quatre paliers
-   de luminosité par teinte donnaient 48 pastilles dont beaucoup se
-   ressemblaient, alors que ce qu'on choisit vraiment en cliquant, c'est une
-   couleur, pas une nuance. Qui veut une nuance précise ouvre l'éditeur.
+/* Le nuancier tient sur UNE ligne de dix ronds : sept teintes, un gris, une
+   encre, et le « + » qui ouvre l'éditeur. C'est tout — et c'est délibéré.
+   Trente-deux pastilles demandaient de choisir entre des voisines qu'on ne
+   distinguait qu'en les comparant, pour une décision qui n'en vaut pas la
+   peine : une couleur de tracker sert à séparer deux courbes, pas à assortir
+   une identité. Qui veut une nuance précise ouvre l'éditeur, qui donne tout.
 
-   24 teintes, pas 12 ni 36. Le repère classique est la roue à 12 (un pas de
-   30°) : tout y est nommable, mais on n'y trouve ni turquoise ni indigo. Les
-   systèmes de design courants tournent autour de 14 (Material) à 22 (Tailwind)
-   teintes. En OKLCH les pas de teinte sont perceptuellement réguliers, ce qui
-   n'est pas le cas en HSL : à 15° deux voisines restent distinguables côte à
-   côte, à 10° elles ne le sont plus vraiment. 24 est donc le dernier cran utile
-   — et il tient en deux rangées de douze, sans rétrécir les pastilles.
+   Les sept teintes sont espacées d'environ 50° et nommables d'un mot chacune
+   (orange, jaune, vert, cyan, bleu, violet, rose). La première est à 35° :
+   c'est exactement celle de l'orange de Tracklog (#e2542f = oklch(0.63 0.184 35)),
+   donc la couleur d'origine de l'app est dans la grille, pas à côté.
 
-   Le décalage de 5° n'est pas arbitraire : il place une teinte pile sur 35°,
-   celle de l'orange de Tracklog (#e2542f = oklch(0.63 0.184 35)). La couleur
-   d'accent d'origine est donc dans la grille, pas à côté. */
-const COLOR_HUE_STEP = 15;
-const COLOR_HUE_OFFSET = 5;
-const COLOR_HUES = Array.from({ length: 360 / COLOR_HUE_STEP }, (_, i) => COLOR_HUE_OFFSET + i * COLOR_HUE_STEP);
+   L'encre n'est pas « du noir » mais `var(--ink)` : elle est presque noire sur
+   le fond clair et presque blanche sur le fond sombre. Une couleur de tracker
+   doit rester visible quel que soit le style, et c'est la seule façon d'avoir
+   « la couleur du texte » plutôt qu'une valeur qui disparaît dans un thème. */
+const COLOR_HUES = [35, 90, 145, 195, 250, 300, 350];
 const COLOR_LIGHT = 0.63;
 // Au-delà du gamut sRGB pour la plupart des teintes : le navigateur ramène la
 // chroma au maximum affichable, ce qui est exactement « saturation à fond ».
 const COLOR_CHROMA = 0.20;
-// Un dégradé du noir au blanc pour compléter — une couleur de tracker n'est pas
-// toujours une couleur.
-const COLOR_GREY_STEPS = 8;
-const COLOR_NEUTRALS = Array.from({ length: COLOR_GREY_STEPS }, (_, i) =>
-  `oklch(${(0.15 + (0.97 - 0.15) * (i / (COLOR_GREY_STEPS - 1))).toFixed(2)} 0 0)`);
-/* Deux familles, pas deux rangées : c'est la grille qui décide combien de
-   pastilles tiennent sur une ligne (douze au large, huit sur un téléphone —
-   en dessous, la pastille passe sous les 24 px et devient introuvable au
-   doigt). 8 et 24 se divisent par les deux, donc aucune ligne bancale d'un
-   écran à l'autre. */
-const COLOR_ROWS = [
-  COLOR_NEUTRALS,
-  COLOR_HUES.map(h => `oklch(${COLOR_LIGHT} ${COLOR_CHROMA} ${h})`),
+const COLOR_GREY = 'oklch(0.62 0 0)';
+const COLOR_INK = 'var(--ink)';
+const COLORS = [
+  ...COLOR_HUES.map(h => `oklch(${COLOR_LIGHT} ${COLOR_CHROMA} ${h})`),
+  COLOR_GREY, COLOR_INK,
 ];
-const COLORS = COLOR_ROWS.flat();
-// La couleur proposée à la création : le vert de toujours, à la teinte du
-// nuancier qui en est la plus proche.
-const DEFAULT_COLOR = `oklch(${COLOR_LIGHT} ${COLOR_CHROMA} 155)`;
-// L'accent d'origine, tel qu'il vit dans les jetons CSS — et la pastille du
-// nuancier qui lui correspond, à la teinte près.
+// La couleur proposée à la création : le vert du nuancier.
+const DEFAULT_COLOR = `oklch(${COLOR_LIGHT} ${COLOR_CHROMA} 145)`;
+// L'accent d'origine de l'app, et la pastille du nuancier qui lui correspond.
 const TRACKLOG_ACCENT = `oklch(${COLOR_LIGHT} ${COLOR_CHROMA} 35)`;
 
 const TYPES = [
@@ -1004,25 +990,20 @@ function SwatchGrid({ value, onChange }){
   const custom = value && !COLORS.includes(value);
   return (
     <div className="swatch-grid">
-      {COLOR_ROWS.map((row, i) => (
-        <div className="swatch-row" key={i}>
-          {row.map(c => (
-            <button key={c} type="button" className={`swatch ${value===c?'on':''}`} style={{background:c}}
-                    onClick={()=>{ onChange(c); setEditing(false); }} aria-label={`Couleur ${c}`} />
-          ))}
-        </div>
-      ))}
-      <div className="swatch-row swatch-row-end">
-        {/* Une couleur qui n'est pas dans la grille — venue d'une version
-            précédente, d'un import, ou de l'éditeur — reste sélectionnée et
-            cliquable plutôt que d'être ignorée. */}
-        {custom && (
-          <button type="button" className="swatch on" style={{background:value}}
-                  onClick={()=>setEditing(v=>!v)} title="Couleur personnalisée" aria-label="Couleur personnalisée" />
-        )}
-        <button type="button" className={`swatch swatch-custom ${editing?'open':''}`}
+      <div className="swatch-row">
+        {COLORS.map(c => (
+          <button key={c} type="button" className={`swatch ${value===c?'on':''}`} style={{background:c}}
+                  onClick={()=>{ onChange(c); setEditing(false); }} aria-label={`Couleur ${c}`} />
+        ))}
+        {/* Le « + » est un rond comme les autres : dix ronds font une ligne, un
+            bouton d'une autre forme au bout en ferait neuf et un intrus. */}
+        <button type="button" className={`swatch swatch-custom ${editing||custom?'open':''}`}
                 onClick={()=>setEditing(v=>!v)} aria-expanded={editing}
-                title="Composer une couleur" aria-label="Composer une couleur">+</button>
+                style={custom ? { background:value } : undefined}
+                title={custom ? 'Couleur personnalisée' : 'Composer une couleur'}
+                aria-label={custom ? 'Couleur personnalisée' : 'Composer une couleur'}>
+          {!custom && '+'}
+        </button>
       </div>
       {editing && <ColorEditor value={value} onChange={onChange} />}
     </div>
@@ -4177,9 +4158,11 @@ function MasterStrip({ master, trackerById, entries, dayTs, containerRef, draggi
     <div ref={containerRef} className={`master-strip ${dragging?'dragging':''}`}>
       <div className="ms-head">
         {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
-        <span className="master-mark" style={{background:master.color}}></span>
-        <span className="ms-name">{master.name}</span>
-        <span className="master-tag">master</span>
+        {/* Plus de losange ni de pastille « master » à côté du nom : c'est le
+            NOM qui porte le contour, en une seule chose au lieu de trois. Le
+            reste de la carte — une jauge et un indice sur 100 — dit déjà assez
+            qu'on ne remplit pas ça comme un tracker. */}
+        <span className="ms-name" style={{color:master.color, borderColor:master.color}}>{master.name}</span>
         {partial && (
           <span className="ms-partial" title={`${today.filled} membre(s) renseigné(s) sur ${today.total}`}>
             {today.filled}/{today.total}
@@ -4795,7 +4778,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         <div className="card fd-card">
         <p className="section-label">Cœur</p>
 
-        <div className="field">
+        <div className="field spread">
           <label>Genre</label>
           <div className="ctl-with-info">
             <Segmented size="compact" scrollx>
@@ -4889,7 +4872,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         <p className="section-label">Paramètres</p>
 
         {!isMasterKind && (
-          <div className="field">
+          <div className="field spread">
             <label>Fréquence</label>
             <div className="ctl-with-info">
               <Segmented size="compact" scrollx>
@@ -4905,7 +4888,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         )}
 
         {!isMasterKind && !daily && (
-          <div className="field">
+          <div className="field spread">
             <label>Case joker</label>
             <div className="ctl-with-info">
               <BoolPill value={jokerEnabled} onChange={setJokerEnabled} />
@@ -4919,7 +4902,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         )}
 
         {showAggregate && (
-          <div className="field">
+          <div className="field spread">
             <label>Calcul</label>
             <div className="ctl-with-info">
               <Segmented wrap>
@@ -4936,7 +4919,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         )}
 
         {!isMasterKind && type === 'choice' && (
-          <div className="field">
+          <div className="field spread">
             <label>Sélection</label>
             <div className="ctl-with-info">
               <Segmented>
@@ -5020,7 +5003,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         <div className="card fd-card">
         <p className="section-label">Vues</p>
 
-        <div className="field">
+        <div className="field spread">
           <label>Courbe</label>
           <div className="ctl-with-info">
             <Segmented size="compact" scrollx>
@@ -5038,7 +5021,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           </div>
         </div>
 
-        <div className="field">
+        <div className="field spread">
           <label>Granularité</label>
           <div className="ctl-with-info">
             <Segmented size="compact" scrollx>
@@ -5090,7 +5073,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         )}
 
         {!isMasterKind && (type === 'number' || type === 'duration') && (
-          <div className="field">
+          <div className="field spread">
             <label>Graphe cumulatif</label>
             <div className="ctl-with-info">
               <BoolPill value={cumulative} onChange={setCumulative} />
