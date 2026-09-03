@@ -116,16 +116,19 @@
   input,select,textarea{font-family:inherit;font-size:14px;color:inherit;background:transparent;border:none;outline:none}
   /* Ce qui se tape doit se voir. Un champ transparent et sans bordure est
      indiscernable d'un chiffre affiché — or dans la même fenêtre on corrige les
-     grammes et pas les calories, écrits exactement pareil. Toute saisie porte
-     donc un fond léger et un trait ; ce qui n'est pas modifiable reste du texte
-     nu. Posé ICI, tôt : les composants qui apportent déjà leur propre cadre
-     (pastilles, barres à icône, éditeur de couleur) le reposent plus bas. */
+     grammes et pas les calories, écrits exactement pareil. Un simple trait sous
+     la saisie suffit à le dire, sans ajouter de matière : le champ pèse ce que
+     pèse son texte, pas un fond de plus dans une carte qui en a déjà un.
+     `:not([type=range])` (déjà là) laisse les curseurs intacts — un slider n'a
+     rien d'un champ à souligner. Posé ICI, tôt : les composants qui apportent
+     déjà leur propre cadre (pastilles, barres à icône, éditeur de couleur) le
+     reposent plus bas. */
   .field input:not([type=range]):not([type=color]):not([type=checkbox]),
   .field textarea,.field select,
   .fd-qty input,.tc-input input,.tc-input textarea,.choice-row input{
-    background:var(--bg-3);border:1px solid transparent;border-bottom-color:var(--line-2);
-    border-radius:5px;padding:5px 8px;
-    transition:border-color .3s var(--ease),background .3s var(--ease)}
+    background:none;border:none;border-bottom:1px solid var(--line-2);
+    border-radius:0;padding:5px 2px;
+    transition:border-color .3s var(--ease)}
   .field input:focus,.field textarea:focus,.field select:focus,
   .fd-qty input:focus,.tc-input input:focus,.tc-input textarea:focus,.choice-row input:focus{
     border-color:var(--accent)}
@@ -825,8 +828,12 @@
     transition:grid-template-rows .35s var(--ease),margin-top .35s var(--ease)}
   .info-panel.open{grid-template-rows:1fr;margin-top:10px}
   .info-panel-in{overflow:hidden;min-height:0}
-  .info-panel-box{display:block;background:var(--bg-3);border:1px solid var(--line);
-    border-left:2px solid var(--accent);border-radius:var(--radius);padding:11px 13px;
+  /* Pas de fond à soi : le cadre vit sur la même surface que ce qu'il explique
+     (une carte de paramètres, une ligne de modale…) plutôt que d'ouvrir une
+     boîte visiblement différente dedans. Le filet d'accent à gauche suffit à
+     dire « ceci est une explication », sans changer de plan. */
+  .info-panel-box{display:block;background:none;border:none;
+    border-left:2px solid var(--accent);border-radius:0;padding:2px 0 2px 13px;
     text-transform:none;letter-spacing:0;font-weight:400;text-align:left}
   /* Le nom par lequel on désigne la chose expliquée — c'est le mot à retenir,
      celui qu'on retrouvera dans le reste de l'app et dans une conversation. */
@@ -1485,8 +1492,15 @@
   /* Aligné sur la ligne du TITRE, pas centré entre les deux lignes : les
      chiffres et le nom se lisent d'un même regard, et la barre tombe alors
      naturellement au niveau de la rangée des actions. */
+  /* `align-self:baseline` retombe à `start` pour un item qui enjambe deux
+     lignes de la grille (hors spec pour les items multi-rangées) : mesuré, ça
+     ne change rien. Le décalage vertical est donc posé à la main, pour que la
+     première ligne des chiffres (12.5px) tombe sur la même assise visuelle que
+     le titre (13px) — les deux tailles de police n'ont pas le même vide sous
+     la ligne de base, `align-self:start` seul les cale par le haut de leur
+     boîte, pas par leur texte. */
   .fd-item-nums{grid-area:nums;padding:0;border:none;background:none;color:inherit;font:inherit;
-    display:block;flex-shrink:0;align-self:start}
+    display:block;flex-shrink:0;align-self:start;margin-top:3px}
 
   /* Les chiffres : une ligne, et des COLONNES de largeur fixe. Ce ne sont pas
      les valeurs qui décident de la largeur — les chiffres sont tabulaires et
@@ -1600,6 +1614,13 @@
   .fd-qty{display:flex;align-items:center;gap:10px;margin:6px 0 16px;flex-wrap:wrap}
   .fd-qty input{width:120px;font-size:20px;font-family:"Geist Mono",monospace;text-align:right}
   .fd-qty input::placeholder{font-family:"Geist",ui-sans-serif,sans-serif;font-size:13px}
+  /* La bascule d'unité (g / portion) est un Segmented par défaut — ses chips
+     dans une modale de choix (18px de haut en plus) sont pensées pour porter
+     un mot seules sur leur ligne, pas pour voisiner un champ et des raccourcis.
+     Resserrée ici à une taille qui n'est ni la sienne ni celle des raccourcis
+     d'origine, mais entre les deux — c'est elle que les raccourcis reprennent
+     juste en dessous, pour que toute la rangée parle le même gabarit. */
+  .fd-qty .seg-track button{padding:6px 11px;font-size:11px}
   /* Les raccourcis de quantité : sur la même ligne que le champ et son unité,
      après eux. Une seule ligne, jamais deux — c'est pour ça qu'il y en a quatre
      au maximum. */
@@ -1608,16 +1629,16 @@
     border-radius:999px;overflow:hidden;transition:border-color .3s var(--ease)}
   .fd-preset:hover{border-color:var(--line-2)}
   .fd-preset>button{font-family:"Geist Mono",monospace;font-size:11px;color:var(--ink-2);
-    background:none;border:none;padding:5px 4px 5px 10px;cursor:pointer}
+    background:none;border:none;padding:6px 4px 6px 11px;cursor:pointer}
   .fd-preset>button:hover{color:var(--ink)}
-  .fd-preset-x{font-size:8px;color:var(--ink-3);background:none;border:none;padding:5px 8px 5px 3px;cursor:pointer}
+  .fd-preset-x{font-size:8px;color:var(--ink-3);background:none;border:none;padding:6px 9px 6px 3px;cursor:pointer}
   .fd-preset-x:hover{color:var(--warn)}
   .fd-preset-add{font-size:13px;line-height:1;color:var(--ink-3);border:1px dashed var(--line-2);
-    border-radius:999px;width:26px;height:26px;background:none;cursor:pointer;flex-shrink:0;
+    border-radius:999px;width:27px;height:27px;background:none;cursor:pointer;flex-shrink:0;
     transition:color .3s var(--ease),border-color .3s var(--ease)}
   .fd-preset-add:hover{color:var(--accent);border-color:var(--accent);border-style:solid}
   .fd-preset-all{font-size:11px;color:var(--ink-2);border:1px solid var(--line);border-radius:999px;
-    padding:6px 12px;background:transparent;white-space:nowrap;transition:all .35s var(--ease)}
+    padding:6px 11px;background:transparent;white-space:nowrap;transition:all .35s var(--ease)}
   .fd-preset-all:hover{border-color:var(--line-2);color:var(--ink)}
   /* Les mêmes cases que sur une carte d'item, en plus grand : c'est le même
      objet — quatre chiffres qui vont ensemble — vu de plus près. */
