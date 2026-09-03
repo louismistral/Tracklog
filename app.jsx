@@ -3488,7 +3488,7 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
 /* ============================================================
    Chart card — line chart with axes
    ============================================================ */
-function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, dragging, onDragStart, onEdit, onOpenDay }){
+function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, dragging, onDragStart, onEdit, onOpenDay, goalAt = null }){
   const detail = chartDetail(perRow);
   const compact = perRow >= 2;
   const now = Date.now();
@@ -3562,6 +3562,13 @@ function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, drag
   const numericValues = points.map(p=>p.value).filter(v=>v!=null);
   const hasData = numericValues.length > 0;
 
+  /* Une consigne à atteindre, quand le tracker en a une qui change dans le
+     temps (les objectifs de Food) : une marche, jamais un trait droit d'un bout
+     à l'autre — la cible a pu bouger en route, et une ligne unique dirait que
+     celle d'aujourd'hui valait déjà il y a deux mois. Elle entre dans l'échelle,
+     sinon un objectif au-dessus du plus haut jour sortirait du cadre. */
+  const goalValues = goalAt ? points.map(p => goalAt(p.ts)).filter(v => v != null && v > 0) : [];
+
   // Stats
   const latest = useMemo(() => {
     const sorted = entries.slice().sort((a,b)=>b.ts-a.ts);
@@ -3591,8 +3598,8 @@ function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, drag
     // units, an 863-wide one into steps of 200, and a 1.3-wide one into
     // halves — fewer ticks and the step jumps to the next coarser rung.
     : niceDomain(
-        Math.min(...numericValues, Infinity),
-        Math.max(...numericValues, -Infinity),
+        Math.min(...numericValues, ...goalValues, Infinity),
+        Math.max(...numericValues, ...goalValues, -Infinity),
         detail.yTicks,
         tracker.type
       );
@@ -3634,6 +3641,19 @@ function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, drag
   ].filter(t => points[t.i]);
 
   const yTicks = domain.ticks;
+
+  // Le stylo reste au niveau de la consigne jusqu'au jour où elle change, où il
+  // monte ou descend sur place. Un jour sans consigne coupe le trait.
+  let goalPath = '', prevGoalY = null;
+  if (goalAt) points.forEach((p, i) => {
+    const g = goalAt(p.ts);
+    if (g == null || g <= 0){ prevGoalY = null; return; }
+    const y = yAt(g), x = xAt(i);
+    if (prevGoalY == null) goalPath += `M${x} ${y}`;
+    else if (prevGoalY !== y) goalPath += `L${x} ${prevGoalY}L${x} ${y}`;
+    else goalPath += `L${x} ${y}`;
+    prevGoalY = y;
+  });
 
   // Scrub the chart with a mouse or a finger: `active` is the hovered/touched
   // day index, kept until the pointer leaves (mouse) or the close button is
@@ -3785,6 +3805,10 @@ function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, drag
                 </circle>
               ))}
             </>
+          )}
+          {goalPath && (
+            <path d={goalPath} fill="none" stroke="var(--ink-2)" strokeWidth="1"
+              strokeDasharray="4 4" opacity="0.7" />
           )}
           {/* X ticks */}
           {detail.axisLabels && xTicks.map((t,i)=>(
@@ -4674,8 +4698,16 @@ function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
 /* ============================================================
    Tracker modal (create / edit)
    ============================================================ */
-function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, onArchive, onUnarchive }){
+/* `scope='display'` : la même page, réduite à ce qui a un sens pour un tracker
+   qu'on ne remplit pas soi-même — les graphes de Food. Ce qu'ils suivent est
+   décidé par ce qu'on mange, pas par un réglage : leur genre, leur type, leur
+   fréquence et leur période n'ont donc rien à proposer, et ce qui reste (le
+   nom, la courbe, la granularité, le cumul, la couleur) est exactement ce qui
+   reste vrai pour eux. Une seconde page de réglages n'aurait dit qu'une
+   variante de celle-ci — c'est le même objet. */
+function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, onArchive, onUnarchive, scope = 'full' }){
   const isEdit = !!tracker;
+  const display = scope === 'display';
   // — Cœur : ce que le tracker mesure —
   const [kind, setKind] = useState(tracker?.type === 'master' ? 'master' : 'data'); // data | master
   const [name, setName] = useState(tracker?.name || '');
@@ -4729,6 +4761,10 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
 
   const submit = () => {
     if (!canSave) return;
+    if (display){
+      onSave({ name: name.trim(), color, curveStyle, chartGrain, cumulative });
+      return;
+    }
     const t = { name: name.trim(), color };
     t.windowEnabled = windowEnabled;
     t.startDate = windowEnabled ? (startDate || null) : null;
@@ -4767,8 +4803,10 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
     <div className="fd-add-page">
       <div className="fd-add-head">
         <div className="fd-add-head-txt">
-          <h2>{isEdit ? 'Modifier le tracker' : 'Nouveau tracker'}</h2>
-          <div className="modal-sub">Le cœur définit ce que vous mesurez, les paramètres comment.</div>
+          <h2>{display ? 'Réglages du graphe' : isEdit ? 'Modifier le tracker' : 'Nouveau tracker'}</h2>
+          <div className="modal-sub">{display
+            ? 'Un graphe de Food est un tracker : ce qu’il suit vient de ce que vous mangez, seule sa lecture se règle.'
+            : 'Le cœur définit ce que vous mesurez, les paramètres comment.'}</div>
         </div>
         <button className="icon-btn fd-add-close" onClick={onClose} aria-label="Fermer">✕</button>
       </div>
@@ -4778,7 +4816,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         <div className="card fd-card">
         <p className="section-label">Cœur</p>
 
-        <div className="field spread">
+        {!display && <div className="field spread">
           <label>Genre</label>
           <div className="ctl-with-info">
             <Segmented size="compact" scrollx>
@@ -4790,15 +4828,15 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
               <span className="k">Master</span> : ne se remplit pas — c’est la moyenne normalisée (0–100) de la performance de plusieurs trackers choisis.
             </InfoBubble>
           </div>
-        </div>
+        </div>}
 
-        <div className="field" style={{borderBottom: isMasterKind ? '1px solid var(--line)' : undefined}}>
+        <div className="field" style={{borderBottom: display ? 'none' : isMasterKind ? '1px solid var(--line)' : undefined}}>
           <label>Nom</label>
           <input ref={nameRef} value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') submit();}}
             placeholder={isMasterKind ? 'ex: Forme, Bien-être, Discipline…' : 'ex: Caféine, Humeur, Sport…'} />
         </div>
 
-        {isMasterKind ? (
+        {display ? null : isMasterKind ? (
           <div className="field" style={{borderBottom:'none',flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
             <label style={{width:'auto'}}>Trackers membres</label>
             {memberCandidates.length === 0 ? (
@@ -4868,7 +4906,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         </div>
 
         {/* ============ PARAMÈTRES ============ */}
-        <div className="card fd-card">
+        {!display && <div className="card fd-card">
         <p className="section-label">Paramètres</p>
 
         {!isMasterKind && (
@@ -4997,7 +5035,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           )}
         </div>
 
-        </div>
+        </div>}
 
         {/* ============ VUES ============ */}
         <div className="card fd-card">
@@ -5038,7 +5076,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           </div>
         </div>
 
-        {!isMasterKind && (type === 'number' || type === 'scale' || type === 'duration') && (
+        {!display && !isMasterKind && (type === 'number' || type === 'scale' || type === 'duration') && (
           <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
             <label style={{width:'auto'}}>Sens de l’amélioration</label>
             <div className="ctl-with-info">
@@ -5096,7 +5134,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         </div>
 
         <div className="modal-actions">
-          {isEdit && <button className="danger" onClick={()=>{ if(confirm(isMaster(tracker) ? 'Supprimer ce master ?' : 'Supprimer ce tracker et toutes ses entrées ?')) onDelete(); }}>Supprimer</button>}
+          {isEdit && !display && <button className="danger" onClick={()=>{ if(confirm(isMaster(tracker) ? 'Supprimer ce master ?' : 'Supprimer ce tracker et toutes ses entrées ?')) onDelete(); }}>Supprimer</button>}
           <button className="ghost" onClick={onClose}>Annuler</button>
           <button className="primary" disabled={!canSave} onClick={submit}>{isEdit ? 'Enregistrer' : 'Créer'}</button>
         </div>

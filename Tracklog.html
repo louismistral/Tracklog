@@ -536,6 +536,16 @@
   .range-custom-date{font-size:11px;color:var(--ink);background:var(--bg-2);border:1px solid var(--line-2);
     border-radius:6px;padding:3px 6px;letter-spacing:normal;text-transform:none}
 
+  /* Le filtre des micros : les mêmes chips que partout (`Segmented wrap`), et
+     le raccourci qui ne garde que ceux qui ont de la matière — quatorze graphes
+     d'un coup ne se lisent pas, mais la pastille d'un micro vide reste là :
+     savoir qu'il n'est renseigné nulle part est une information. */
+  .fd-micro-pick{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-bottom:18px}
+  .fd-micro-pick .seg-track{width:100%}
+  .fd-micro-pick .seg-track button{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;font-size:11px}
+  .fd-micro-pick .seg-track button .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  .fd-micro-pick-acts{display:flex;flex-wrap:wrap;gap:14px}
+
   /* Chart layout bar */
   .layout-bar{display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin-bottom:18px}
   .layout-label{font-size:10px;text-transform:uppercase;letter-spacing:0.18em;color:var(--ink-3);font-weight:500}
@@ -1847,8 +1857,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=59"></script>
-<script type="text/babel" src="app.food.jsx?v=28"></script>
+<script type="text/babel" src="app.jsx?v=60"></script>
+<script type="text/babel" src="app.food.jsx?v=29"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>

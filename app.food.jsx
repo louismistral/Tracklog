@@ -1508,7 +1508,6 @@ function FoodPage({ store, sub, onSub }){
       <div className="log-subnav">
         <Segmented size="compact">
           <button className={sub==='jour'?'on':''} onClick={()=>onSub('jour')}>Jour</button>
-          <button className={sub==='aliments'?'on':''} onClick={()=>onSub('aliments')}>Aliments</button>
           <button className={sub==='vues'?'on':''} onClick={()=>onSub('vues')}>Vues</button>
         </Segmented>
       </div>
@@ -1521,19 +1520,12 @@ function FoodPage({ store, sub, onSub }){
           onAdd={(meal)=>setAddOpen({ meal, day })}
           onGoals={(d)=>setGoalsDay(d || dayKey(Date.now()))}
         />
-      ) : sub === 'aliments' ? (
-        <FoodLibraryView
-          store={store}
-          onDelete={(f)=>{ if (confirm(`Oublier « ${f.name} » ? Il quitte tes items ; les repas déjà notés gardent leurs valeurs.`)) store.removeFood(f.id); }}
-          onNew={()=>setNewFood({ id:uid('f_'), source:'custom', name:'', brand:'', basis:'g',
-                                  servingG:null, imageUrl:'', nutriments:{}, barcode:null,
-                                  favorite:false, lastUsedAt:null, createdAt:Date.now() })}
-          onScan={()=>setAddOpen({ meal:null, day })}
-          onNewMeal={()=>setMealDraft({ name:'', items:[], steps:[], source:'custom' })}
-          onEditMeal={setMealDraft}
-        />
       ) : (
-        <FoodVuesView store={store} onGoals={()=>setGoalsDay(dayKey(Date.now()))} />
+        /* Plus d'onglet « Aliments » : ce qui est à soi se gère dans la page
+           d'ajout, onglet « Mes items » — c'est là qu'on le cherche pour s'en
+           servir, et une seconde liste ailleurs demandait de retenir laquelle
+           des deux savait quoi. */
+        <FoodVuesView store={store} />
       )}
 
       <FoodSources />
@@ -1691,8 +1683,17 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
                 <span className="u">{m.unit}</span>
               </span>
               <span className="fd-meter"><span className={`fd-fill ${bad?'over':''}`} style={{width:`${pct}%`, background:m.color}} /></span>
+              {/* Ce qu'il reste, pas ce qu'on a mangé : le chiffre au-dessus dit
+                  déjà ce qui est passé, et la question qu'on se pose devant un
+                  frigo est « combien puis-je encore ». Au-delà de la cible, la
+                  ligne dit le dépassement plutôt qu'un « 0 restant » qui
+                  cacherait de combien on est parti trop loin. */}
               <span className="fd-total-goal mono">
-                {goal > 0 ? `${amount(v)} / ${amount(goal)}` : 'sans objectif'}
+                {goal > 0
+                  ? (v > goal
+                      ? `${amount(v - goal)} de trop sur ${amount(goal)}`
+                      : `${amount(goal - v)} restant sur ${amount(goal)}`)
+                  : 'sans objectif'}
               </span>
             </div>
           );
@@ -3550,159 +3551,6 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pick
   );
 }
 
-/* ---- Aliments (la bibliothèque) ------------------------------------------- */
-
-function FoodLibraryView({ store, onDelete, onNew, onScan, onNewMeal, onEditMeal }){
-  const [q, setQ] = useState('');
-  // Trois vues sur ce qui est déjà à soi, la même distinction que dans la modale
-  // d'ajout : tous les aliments, ceux mis de côté, et les repas.
-  const [tab, setTab] = useState('aliments');   // aliments | favoris | repas
-  const list = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    let arr = tab === 'favoris' ? store.foods.filter(f => f.favorite) : store.foods;
-    if (needle) arr = arr.filter(f => foodLabel(f).toLowerCase().includes(needle) || (f.barcode || '').includes(needle));
-    return [...arr].sort((a,b) => (b.lastUsedAt || b.createdAt) - (a.lastUsedAt || a.createdAt));
-  }, [store.foods, q, tab]);
-  const mealList = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    const arr = needle ? store.meals.filter(m => m.name.toLowerCase().includes(needle)) : store.meals;
-    return [...arr].sort((a,b) => (b.lastUsedAt || b.createdAt) - (a.lastUsedAt || a.createdAt));
-  }, [store.meals, q]);
-
-  const favCount = store.foods.filter(f => f.favorite).length;
-
-
-  if (tab === 'repas'){
-    return (
-      <div>
-        <div className="trackers-head">
-          <Segmented size="small">
-            <button onClick={()=>setTab('aliments')}>Mes aliments</button>
-            <button onClick={()=>setTab('favoris')}>Mes favoris</button>
-            <button className="on">Mes repas · {store.meals.length}</button>
-          </Segmented>
-          <div className="fd-lib-actions">
-            <input className="fd-lib-search" placeholder="filtrer…" value={q} onChange={e=>setQ(e.target.value)} />
-            <button className="pill add" onClick={onNewMeal}>+ Repas</button>
-          </div>
-        </div>
-        {!mealList.length ? (
-          <div className="empty">
-            <span className="em-serif">Aucun repas.</span>
-            Un repas est un ensemble d'ingrédients qu'on ajoute d'un coup — un petit-déjeuner
-            habituel, un plat qui revient. Une recette peut y être attachée.
-          </div>
-        ) : (
-          <div className="trackers-grid">
-            {mealList.map(m => {
-              const t = itemsTotals(m.items);
-              return (
-                <div className="tk-card fd-food-card" key={m.id}>
-                  <div className="tk-info">
-                    <div className="tk-name"><span>{m.name}</span></div>
-                    <div className="tk-meta">
-                      <OriginTag item={m} />
-                      <span className="tk-chip">{m.items.length} ingrédient{m.items.length>1?'s':''}</span>
-                      {mealPortions(m) > 1 && <span className="tk-chip">{fmtNum(mealPortions(m), 0)} portions</span>}
-                      {m.steps && m.steps.length > 0 && <span className="tk-type">recette · {m.steps.length} étapes</span>}
-                    </div>
-                    <div className="fd-food-nums mono">
-                      {fmtNum(t.kcal,0)} kcal · P {fmtMacro(t.protein)} · G {fmtMacro(t.carbs)} · L {fmtMacro(t.fat)}
-                      <span className="fd-per"> au total</span>
-                      {mealPortions(m) > 1 && (
-                        <span className="fd-per"> · {fmtNum(t.kcal / mealPortions(m), 0)} kcal par portion</span>
-                      )}
-                    </div>
-                  </div>
-                  {/* Un repas est un item : il porte la même étoile qu'un aliment. */}
-                  <div className="tk-actions fd-food-actions">
-                    <button className={`tk-edit fd-fav-btn ${m.favorite?'on':''}`}
-                            onClick={()=>store.toggleMealFavorite(m.id)} aria-pressed={!!m.favorite}>
-                      {m.favorite ? '★ Favori' : '☆ Favori'}
-                    </button>
-                    <button className="tk-edit" onClick={()=>onEditMeal(m)}>Modifier</button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div className="trackers-head">
-        <Segmented size="small">
-          <button className={tab==='aliments'?'on':''} onClick={()=>setTab('aliments')}>
-            Mes aliments · {store.foods.length}
-          </button>
-          <button className={tab==='favoris'?'on':''} onClick={()=>setTab('favoris')}>
-            Mes favoris{favCount ? ` · ${favCount}` : ''}
-          </button>
-          <button onClick={()=>setTab('repas')}>Mes repas · {store.meals.length}</button>
-        </Segmented>
-        <div className="fd-lib-actions">
-          <input className="fd-lib-search" placeholder="filtrer…" value={q} onChange={e=>setQ(e.target.value)} />
-          <button className="pill add" onClick={onScan}>Ajouter à ma journée</button>
-          <button className="pill add" onClick={onNew}>+ Aliment</button>
-        </div>
-      </div>
-
-      {!list.length ? (
-        <div className="empty">
-          <span className="em-serif">Aucun aliment.</span>
-          Scannez une étiquette, ou cherchez un aliment simple — poulet, riz, framboise : tout ce que
-          vous utilisez atterrit ici, et y reste disponible même hors ligne.
-        </div>
-      ) : (
-        <div className="trackers-grid fd-foods-grid">
-          {list.map(f => {
-            const n = f.nutriments || {};
-            return (
-              <div className="tk-card fd-food-card" key={f.id}>
-                <div className="tk-info">
-                  <div className="tk-name"><span>{f.name}</span></div>
-                  <div className="tk-meta">
-                    <OriginTag item={f} />
-                    {itemSub(f, store.refByBarcode) && <span className="tk-chip">{itemSub(f, store.refByBarcode)}</span>}
-                    {f.barcode && !String(f.barcode).startsWith('ciqual:') && <span className="tk-count mono">{f.barcode}</span>}
-                  </div>
-                  <div className="fd-food-nums mono">
-                    {n.kcal != null ? `${fmtNum(n.kcal,0)} kcal` : 'sans valeurs'}
-                    {n.protein != null ? ` · P ${fmtMacro(n.protein)}` : ''}
-                    {n.carbs != null ? ` · G ${fmtMacro(n.carbs)}` : ''}
-                    {n.fat != null ? ` · L ${fmtMacro(n.fat)}` : ''}
-                    <span className="fd-per"> / 100 {f.basis}</span>
-                  </div>
-                </div>
-                {/* Une seule ligne d'actions : favori, modifier, supprimer, puis la
-                    source — celle-ci réduite à sa flèche, parce qu'elle sort de
-                    l'app et n'a pas à peser autant que ce qu'on fait dedans. */}
-                <div className="tk-actions fd-food-actions">
-                  <button className={`tk-edit fd-fav-btn ${f.favorite?'on':''}`}
-                          onClick={()=>store.toggleFavorite(f.id)} aria-pressed={!!f.favorite}>
-                    {f.favorite ? '★ Favori' : '☆ Favori'}
-                  </button>
-                  <button className="tk-edit danger-edit" onClick={()=>onDelete(f)}>Oublier</button>
-                  {foodSourceUrl(f, store.refByBarcode) && (
-                    <a className="icon-btn fd-src-btn" href={foodSourceUrl(f, store.refByBarcode)}
-                       target="_blank" rel="noopener noreferrer"
-                       aria-label="Voir la fiche d'origine" title="Voir la fiche d'origine">
-                      <ExternalIcon />
-                    </a>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ---- Créer un aliment ------------------------------------------------------
    Uniquement créer : un aliment déjà enregistré ne se corrige plus. Ce qui
    vient de Ciqual ou d'Open Food Facts est traité comme la fiche de l'aliment,
@@ -3959,187 +3807,333 @@ function GoalsModal({ goals, isSet, fromDay, onClose, onSave }){
   );
 }
 
-/* ---- Vues ----------------------------------------------------------------- */
-const FOOD_RANGES = [7, 14, 30, 90];
+/* ---- Vues ------------------------------------------------------------------
+   Trois façons de regarder ce qu'on a mangé, sur la même période : les quatre
+   macros une par une, leur répartition jour après jour, et les micros.
 
-function FoodVuesView({ store, onGoals }){
-  const [rangeDays, setRangeDays] = useState(14);
-  const [metric, setMetric] = useState('kcal');
+   Rien n'est redessiné ici : une carte de graphe de Food est la `ChartCard` de
+   l'onglet Vues, avec le même curseur de densité, les mêmes échelles de
+   période et le même engrenage. Un nutriment EST un tracker — seule la nature
+   de ce qu'il suit change, et ce n'est pas une raison pour en refaire un.
+   ---------------------------------------------------------------------------- */
 
-  // Une barre par jour, y compris les jours vides : un trou dans le suivi est
-  // une information, pas un jour à sauter. Chaque jour porte AUSSI l'objectif
-  // qui était le sien : sur 90 jours, la cible a pu changer en route, et une
-  // seule ligne d'objectif mentirait sur les deux tiers du graphe.
-  const series = useMemo(() => {
+const FOOD_CHART_ID = (key) => 'food:' + key;
+
+/* Les micros n'ont pas, comme les macros, une couleur qu'on apprend une fois :
+   on leur en distribue une du nuancier de l'app pour que deux graphes voisins
+   ne se confondent pas — et elle se change comme celle d'un tracker. */
+const MICRO_LABELS = { sugars:'Sucres', sat:'Acides gras saturés' };
+const FOOD_MICRO_SPECS = [...FOOD_DETAILS, ...FOOD_MICROS].map((d, i) => ({
+  key: d.key,
+  label: MICRO_LABELS[d.key] || d.label,
+  unit: d.unit,
+  rda: d.rda || null,
+  color: COLORS[i % COLORS.length],
+}));
+
+/* Les réglages d'affichage de ces trackers virtuels vivent dans les
+   préférences de compte (`prefs.foodCharts`), pas dans la table `trackers` : ce
+   ne sont pas des trackers qu'on crée, ce sont ceux que Food a toujours eus —
+   les faire apparaître dans le Log, le rail et les filtres serait mentir sur
+   ce qu'ils sont. Ils suivent quand même le compte, comme tout réglage. */
+function useFoodCharts(){
+  const accountPrefs = useContext(AccountPrefsContext) || LOCAL_ONLY_PREFS;
+  const saved = accountPrefs.prefs.foodCharts || {};
+  const trackerFor = useCallback((spec) => ({
+    id: FOOD_CHART_ID(spec.key),
+    name: spec.label, color: spec.color, type: 'number', unit: spec.unit,
+    // Ce qu'on mange est noté à la journée : un point = un jour, tous les jours
+    // comptent, et il n'y a ni joker ni fenêtre d'activité à faire respecter.
+    daily: true, aggregate: 'avg', multiple: false, choices: null, members: null,
+    windowEnabled: false, jokerEnabled: false, goodDirection: 'up', targetValue: null,
+    curveStyle: 'line', chartGrain: 'day', cumulative: false,
+    ...(saved[spec.key] || {}),
+  }), [saved]);
+  const saveChart = useCallback((key, patch) => {
+    accountPrefs.savePrefs({ foodCharts: { ...saved, [key]: { ...(saved[key] || {}), ...patch } } });
+  }, [accountPrefs, saved]);
+  return { trackerFor, saveChart };
+}
+
+// Les totaux jour par jour sur la période — la matière première des trois
+// onglets. Un jour sans repas noté reste dans la liste : un trou dans le suivi
+// est une information, pas un jour à sauter.
+function useFoodDays(store, rangeDays){
+  return useMemo(() => {
     const out = [];
     const today = startOfDay(Date.now());
     for (let i = rangeDays - 1; i >= 0; i--){
       const ts = today - i * 86400000;
       const dk = dayKey(ts);
       const rows = store.logsByDay[dk] || [];
-      out.push({ dk, ts, logged: rows.length > 0, totals: sumNutriments(rows.map(l => l.nutriments)),
-                 goals: store.effectiveGoalsAt(dk) });
+      out.push({ dk, ts, logged: rows.length > 0,
+                 totals: rows.length ? sumNutriments(rows.map(l => l.nutriments)) : {} });
     }
     return out;
-  }, [store.logsByDay, store.effectiveGoalsAt, rangeDays]);
+  }, [store.logsByDay, rangeDays]);
+}
 
-  const loggedDays = series.filter(d => d.logged);
-  const avg = loggedDays.length
-    ? loggedDays.reduce((s,d) => s + (d.totals[metric] || 0), 0) / loggedDays.length
-    : null;
-  // L'objectif affiché en statistique est celui de la fin de période — celui
-  // qui court aujourd'hui. « Dans la cible », lui, compare chaque jour à SON
-  // objectif du moment, pas au dernier en date.
-  const goal = (series.length ? series[series.length-1].goals[metric] : 0) || 0;
-  const goalsVaried = series.some(d => (d.goals[metric] || 0) !== goal);
-  const inRange = loggedDays.filter(d => {
-    const g = d.goals[metric] || 0;
-    return g > 0 && Math.abs((d.totals[metric] || 0) - g) <= g * 0.1;
-  }).length;
+// Une entrée par jour noté : exactement ce qu'attend `ChartCard`, qui n'a donc
+// pas à savoir que celles-ci sont calculées plutôt que saisies. Midi comme
+// horodatage — le jour est ce qui compte, et un bord de journée se ferait
+// ranger dans le mauvais si un fuseau bougeait.
+function foodEntries(days, key){
+  return days
+    .filter(d => d.logged && typeof d.totals[key] === 'number')
+    .map(d => ({ id: `${key}@${d.dk}`, trackerId: FOOD_CHART_ID(key),
+                 value: +d.totals[key].toFixed(2), ts: d.ts + 43200000 }));
+}
 
-  // Répartition calorique moyenne sur les jours notés.
-  const split = useMemo(() => {
-    if (!loggedDays.length) return null;
-    const p = loggedDays.reduce((s,d) => s + (d.totals.protein || 0), 0) * 4;
-    const c = loggedDays.reduce((s,d) => s + (d.totals.carbs || 0), 0) * 4;
-    const f = loggedDays.reduce((s,d) => s + (d.totals.fat || 0), 0) * 9;
-    const tot = p + c + f;
-    if (tot <= 0) return null;
-    return { protein:(p/tot)*100, carbs:(c/tot)*100, fat:(f/tot)*100 };
-  }, [loggedDays]);
+function FoodVuesView({ store }){
+  const [mode, setMode] = useState('macros');       // macros | split | micros
+  const [rangeMode, setRangeMode] = useState('30'); // '7'|'30'|'90'|'365'|'ytd'|'all'|'custom'
+  const [customStart, setCustomStart] = useState('');
+  const [perRow, setPerRow] = useState(1);
+  const [editKey, setEditKey] = useState(null);     // le nutriment dont on règle le graphe
+  const { trackerFor, saveChart } = useFoodCharts();
 
-  const m = MACRO_BY_KEY[metric];
+  // « Tout » remonte au premier jour noté — pas plus loin, il n'y aurait rien à
+  // montrer avant.
+  const earliestKey = useMemo(() => {
+    const keys = Object.keys(store.logsByDay || {});
+    return keys.length ? keys.sort()[0] : dayKey(Date.now());
+  }, [store.logsByDay]);
+
+  const rangeDays = useMemo(() => {
+    const daysSince = (ts) => Math.max(1, Math.floor((startOfDay(Date.now()) - startOfDay(ts)) / 86400000) + 1);
+    if (rangeMode === 'ytd'){
+      const jan1 = new Date(); jan1.setMonth(0, 1); jan1.setHours(0,0,0,0);
+      return daysSince(jan1.getTime());
+    }
+    if (rangeMode === 'all') return daysSince(dayKeyToTs(earliestKey));
+    if (rangeMode === 'custom') return customStart ? daysSince(dayKeyToTs(customStart)) : 30;
+    return parseInt(rangeMode, 10);
+  }, [rangeMode, customStart, earliestKey]);
+
+  const days = useFoodDays(store, rangeDays);
+  const specs = mode === 'micros' ? FOOD_MICRO_SPECS : FOOD_MACROS;
+  const specByKey = useMemo(() => Object.fromEntries(
+    [...FOOD_MACROS, ...FOOD_MICRO_SPECS].map(x => [x.key, x])), []);
+
+  // Le filtre des micros : quatorze graphes d'un coup ne se lisent pas. Rien
+  // d'enregistré au départ = ceux qui ont de la matière sur la période, ce qui
+  // est la seule sélection par défaut qui ne cache rien d'utile.
+  const withData = useMemo(
+    () => new Set(FOOD_MICRO_SPECS.filter(sp => days.some(d => d.totals[sp.key] != null)).map(sp => sp.key)),
+    [days]);
+  const [microPick, setMicroPick] = useState(null); // null = « ceux qui ont de la matière »
+  const microKeys = microPick || FOOD_MICRO_SPECS.filter(sp => withData.has(sp.key)).map(sp => sp.key);
+
+  const shownSpecs = mode === 'micros'
+    ? FOOD_MICRO_SPECS.filter(sp => microKeys.includes(sp.key))
+    : specs;
 
   return (
     <div>
       <div className="vue-controls">
-        <Segmented size="compact">
-          {FOOD_MACROS.map(x => (
-            <button key={x.key} className={metric===x.key?'on':''} onClick={()=>setMetric(x.key)}>{x.label}</button>
-          ))}
+        <Segmented size="compact" scrollx>
+          <button className={mode==='macros'?'on':''} onClick={()=>setMode('macros')}>Macros</button>
+          <button className={mode==='split'?'on':''} onClick={()=>setMode('split')}>Répartition</button>
+          <button className={mode==='micros'?'on':''} onClick={()=>setMode('micros')}>Micros</button>
         </Segmented>
         <div className="range">
-          {FOOD_RANGES.map(r => (
-            <button key={r} className={rangeDays===r?'on':''} onClick={()=>setRangeDays(r)}>{r}j</button>
+          {['7','30','90','365'].map(r => (
+            <button key={r} className={rangeMode===r?'on':''} onClick={()=>setRangeMode(r)}>{r}j</button>
           ))}
+          <button className={rangeMode==='ytd'?'on':''} onClick={()=>setRangeMode('ytd')}>YTD</button>
+          <button className={rangeMode==='all'?'on':''} onClick={()=>setRangeMode('all')}>Tout</button>
+          <button className={rangeMode==='custom'?'on':''} onClick={()=>setRangeMode('custom')}>Personnalisé</button>
+          {rangeMode === 'custom' && (
+            <input type="date" className="range-custom-date" value={customStart}
+              max={dayKey(Date.now())} onChange={e=>setCustomStart(e.target.value)} />
+          )}
         </div>
       </div>
 
-      <div className="chart-card">
-        <div className="chart-head">
-          <div className="name"><span className="dot" style={{background:m.color}}></span>{m.label} par jour</div>
-          <div className="chart-head-right">
-            <div className="stats">
-              <div>moyenne <span className="v">{avg != null ? `${fmtNum(avg,0)} ${m.unit}` : '—'}</span></div>
-              <div>objectif <span className="v">
-                {goal > 0 ? `${fmtNum(goal,0)} ${m.unit}` : '—'}{goalsVaried ? ' *' : ''}
-              </span></div>
-              <div>jours notés <span className="v">{loggedDays.length}</span></div>
-              <div>dans la cible <span className="v">{inRange}</span></div>
+      {mode === 'split' ? (
+        <MacroSplitCard days={days} />
+      ) : (
+        <>
+          <div className="layout-bar">
+            <span className="layout-label">Densité</span>
+            <div className="per-row">
+              <span className="per-row-end" aria-hidden="true">−</span>
+              <input type="range" min="1" max={MAX_PER_ROW} step="1" value={perRow}
+                onChange={e=>setPerRow(parseInt(e.target.value, 10))}
+                aria-label="Cartes par ligne"
+                title={`${perRow} carte${perRow>1?'s':''} par ligne`}
+                style={{'--fill': `${((perRow-1)/(MAX_PER_ROW-1))*100}%`}} />
+              <span className="per-row-end" aria-hidden="true">+</span>
+              <span className="per-row-n mono">{perRow}</span>
             </div>
-            <button className="icon-btn chart-edit-btn" onClick={onGoals} title="Objectifs" aria-label="Objectifs">
-              <GearIcon />
-            </button>
+            <InfoBubble title="Densité">
+              Combien de cartes par ligne — le même curseur que dans l'onglet Vues. Chaque cran
+              retire à la carte ses statistiques secondaires, puis ses graduations, jusqu'à la
+              <span className="k"> sparkline</span>. <span className="k">C'est sur un grand écran
+              qu'il change vraiment quelque chose</span> : le téléphone ne tient qu'une colonne.
+            </InfoBubble>
           </div>
-        </div>
-        <NutritionBars series={series} metric={metric} color={m.color} />
-        {goalsVaried && (
-          <p className="fd-note serif" style={{margin:'10px 0 0'}}>
-            * l'objectif a changé sur la période — la ligne en pointillés suit celui de chaque
-            jour, et « dans la cible » compare chaque jour au sien.
-          </p>
-        )}
-      </div>
 
-      {split && (
-        <div className="chart-card" style={{marginTop:14}}>
-          <div className="chart-head">
-            <div className="name">Répartition des calories</div>
-            <div className="stats"><div>sur {loggedDays.length} jour{loggedDays.length>1?'s':''} noté{loggedDays.length>1?'s':''}</div></div>
-          </div>
-          <div className="fd-split">
-            {['protein','carbs','fat'].map(k => (
-              <span key={k} className="fd-split-part" style={{width:`${split[k]}%`, background:MACRO_BY_KEY[k].color}}
-                title={`${MACRO_BY_KEY[k].label} ${Math.round(split[k])}%`} />
+          {mode === 'micros' && (
+            <MicroPicker specs={FOOD_MICRO_SPECS} withData={withData}
+              selected={microKeys} onSelect={setMicroPick} />
+          )}
+
+          <div className="chart-grid-layout" data-per={perRow}>
+            {shownSpecs.map(sp => (
+              <ChartCard key={sp.key} perRow={perRow}
+                tracker={trackerFor(sp)}
+                entries={foodEntries(days, sp.key)}
+                rangeDays={rangeDays}
+                /* La consigne du jour, pas celle d'aujourd'hui appliquée à tout
+                   le graphe : les objectifs sont datés, et une ligne droite d'un
+                   bout à l'autre mentirait sur la moitié de la période. Les
+                   micros n'ont pas d'objectif réglable — leur repère est l'AJR
+                   européen, le même tous les jours. */
+                goalAt={sp.rda != null
+                  ? () => sp.rda
+                  : MACRO_BY_KEY[sp.key]
+                    ? (ts) => store.effectiveGoalsAt(dayKey(ts))[sp.key] || null
+                    : null}
+                onEdit={()=>setEditKey(sp.key)} />
             ))}
           </div>
-          <div className="master-legend">
-            {['protein','carbs','fat'].map(k => (
-              <span className="lg-item" key={k}>
-                <span className="lg-dot" style={{background:MACRO_BY_KEY[k].color}} />
-                <span className="lg-name">{MACRO_BY_KEY[k].label}</span>
-                <span className="lg-val">{Math.round(split[k])}%</span>
-              </span>
-            ))}
-          </div>
-        </div>
+
+          {mode === 'micros' && !shownSpecs.length && (
+            <div className="empty"><span className="em-serif">
+              Aucun micronutriment sur la période — c'est la limite des étiquettes.
+            </span></div>
+          )}
+        </>
+      )}
+
+      {editKey && (
+        <TrackerModal
+          scope="display"
+          tracker={trackerFor(specByKey[editKey])}
+          onClose={()=>setEditKey(null)}
+          onSave={(patch)=>{ saveChart(editKey, patch); setEditKey(null); }}
+        />
       )}
     </div>
   );
 }
 
-function NutritionBars({ series, metric, color }){
-  const W = 680, H = 170, PAD_L = 38, PAD_R = 8, PAD_T = 10, PAD_B = 20;
+/* Le filtre des micros : une pastille par nutriment, celles sans matière sur la
+   période éteintes mais toujours là — savoir qu'un micro n'est renseigné nulle
+   part est une information, la masquer laisserait croire qu'il n'existe pas. */
+function MicroPicker({ specs, withData, selected, onSelect }){
+  const on = new Set(selected);
+  const toggle = (key) => {
+    const next = on.has(key) ? selected.filter(k => k !== key) : [...selected, key];
+    onSelect(next);
+  };
+  return (
+    <div className="fd-micro-pick">
+      <Segmented wrap>
+        {specs.map(sp => (
+          <button key={sp.key} className={on.has(sp.key) ? 'on' : ''}
+            onClick={()=>toggle(sp.key)}
+            title={withData.has(sp.key) ? sp.label : `${sp.label} — rien de renseigné sur la période`}>
+            <span className="dot" style={{background:sp.color, opacity: withData.has(sp.key) ? 1 : 0.3}} />
+            {sp.label}
+          </button>
+        ))}
+      </Segmented>
+      <div className="fd-micro-pick-acts">
+        <button className="fd-link" onClick={()=>onSelect(specs.map(sp=>sp.key))}>Tout</button>
+        <button className="fd-link" onClick={()=>onSelect(specs.filter(sp=>withData.has(sp.key)).map(sp=>sp.key))}>
+          Ceux qui ont des valeurs
+        </button>
+        <button className="fd-link" onClick={()=>onSelect([])}>Aucun</button>
+      </div>
+    </div>
+  );
+}
+
+/* Répartition : la barre d'un jour fait toujours la même hauteur — elle ne dit
+   pas combien on a mangé, elle dit en quoi. C'est le partage des couleurs qui
+   change d'un jour à l'autre, et le comparer d'un coup d'œil est précisément ce
+   que des barres de hauteurs différentes rendaient impossible. */
+function MacroSplitCard({ days }){
+  const split = (d) => {
+    const p = (d.totals.protein || 0) * 4, c = (d.totals.carbs || 0) * 4, f = (d.totals.fat || 0) * 9;
+    const tot = p + c + f;
+    if (tot <= 0) return null;
+    return { protein: p/tot, carbs: c/tot, fat: f/tot };
+  };
+  const shown = days.map(d => ({ ...d, split: split(d) }));
+  const withSplit = shown.filter(d => d.split);
+
+  const avg = useMemo(() => {
+    if (!withSplit.length) return null;
+    const s = { protein:0, carbs:0, fat:0 };
+    for (const d of withSplit) for (const k in s) s[k] += d.split[k];
+    for (const k in s) s[k] = (s[k] / withSplit.length) * 100;
+    return s;
+  }, [withSplit.length, days]);
+
+  const W = 800, H = 170, PAD_L = 8, PAD_R = 8, PAD_T = 8, PAD_B = 20;
   const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
-  const values = series.map(d => d.totals[metric] || 0);
-  const goalOf = (d) => d.goals ? (d.goals[metric] || 0) : 0;
-  const max = Math.max(...series.map(goalOf), ...values, 1);
-  const dom = niceDomain(0, max, 4, 'number');
-  const yAt = (v) => PAD_T + innerH - ((v - dom.min) / (dom.max - dom.min)) * innerH;
-  const slot = innerW / series.length;
-  const barW = Math.max(2, Math.min(26, slot * 0.62));
-
-  // Une marche par jour, reliée verticalement quand la consigne change. Le
-  // stylo termine chaque jour au bord droit de son créneau, donc la marche
-  // suivante n'a qu'à monter ou descendre sur place.
-  let goalPath = '', prevY = null;
-  series.forEach((d, i) => {
-    const g = goalOf(d);
-    const x0 = PAD_L + slot * i, x1 = x0 + slot;
-    if (g <= 0){ prevY = null; return; }
-    const y = yAt(g);
-    if (prevY == null) goalPath += `M${x0} ${y}`;
-    else if (prevY !== y) goalPath += `L${x0} ${y}`;
-    goalPath += `L${x1} ${y}`;
-    prevY = y;
-  });
-
-  if (!series.some(d => d.logged)){
-    return <div style={{padding:'30px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucun repas noté sur la période</div>;
-  }
+  const slot = innerW / Math.max(1, shown.length);
+  const barW = Math.max(1.5, Math.min(26, slot * 0.7));
+  const KEYS = ['protein', 'carbs', 'fat'];
 
   return (
-    <svg className="chart-svg" style={{height:H+'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
-      {dom.ticks.map((v,i) => (
-        <g key={i}>
-          <line className="chart-grid" x1={PAD_L} x2={W-PAD_R} y1={yAt(v)} y2={yAt(v)} />
-          <text className="chart-axis" x={PAD_L-6} y={yAt(v)+3} textAnchor="end">{fmtNum(v,0)}</text>
-        </g>
-      ))}
-      {series.map((d,i) => {
-        const v = d.totals[metric] || 0;
-        const x = PAD_L + slot*i + (slot - barW)/2;
-        const y = yAt(v);
-        return (
-          <rect key={d.dk} x={x} y={Math.min(y, PAD_T+innerH-1)} width={barW}
-            height={Math.max(d.logged ? 1 : 0, PAD_T + innerH - y)}
-            fill={color} opacity={d.logged ? 0.85 : 0.15} rx="1">
-            <title>{shortDate(d.ts)} · {fmtNum(v,0)}{goalOf(d) > 0 ? ` / ${fmtNum(goalOf(d),0)}` : ''}</title>
-          </rect>
-        );
-      })}
-      {/* L'objectif est une marche, pas un trait : il a pu changer en cours de
-          période, et une ligne droite d'un bout à l'autre dirait que la cible
-          d'il y a deux mois était celle d'aujourd'hui. */}
-      {goalPath && (
-        <path d={goalPath} fill="none"
-          stroke="var(--ink-2)" strokeWidth="1" strokeDasharray="4 4" opacity="0.7" />
+    <div className="chart-card">
+      <div className="chart-head">
+        <div className="name">Répartition des calories</div>
+        <div className="chart-head-right">
+          <div className="stats">
+            {avg
+              ? KEYS.map(k => (
+                  <div key={k}>{MACRO_BY_KEY[k].short} <span className="v" style={{color:MACRO_BY_KEY[k].color}}>{Math.round(avg[k])}%</span></div>
+                ))
+              : <div>aucun jour noté</div>}
+          </div>
+        </div>
+      </div>
+      {withSplit.length ? (
+        <svg className="chart-svg" style={{height:H+'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+          {[0, 0.25, 0.5, 0.75, 1].map(f => (
+            <line key={f} className="chart-grid" x1={PAD_L} x2={W-PAD_R}
+              y1={PAD_T + innerH*f} y2={PAD_T + innerH*f} />
+          ))}
+          {shown.map((d, i) => {
+            if (!d.split) return null;
+            const x = PAD_L + slot*i + (slot - barW)/2;
+            let y = PAD_T;
+            return (
+              <g key={d.dk}>
+                {KEYS.map(k => {
+                  const h = d.split[k] * innerH;
+                  const rect = <rect key={k} x={x} y={y} width={barW} height={Math.max(0.5, h)}
+                                     fill={MACRO_BY_KEY[k].color} opacity="0.9" />;
+                  y += h;
+                  return rect;
+                })}
+                <title>{shortDate(d.ts)} · {KEYS.map(k => `${MACRO_BY_KEY[k].short} ${Math.round(d.split[k]*100)}%`).join(' · ')}</title>
+              </g>
+            );
+          })}
+          {shown.map((d,i) => (i === 0 || i === shown.length-1 || i === Math.floor(shown.length/2)) && (
+            <text key={`x${i}`} className="chart-axis" x={PAD_L + slot*i + slot/2} y={H-5}
+              textAnchor={i===0?'start':i===shown.length-1?'end':'middle'}>{shortDate(d.ts)}</text>
+          ))}
+        </svg>
+      ) : (
+        <div style={{padding:'30px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucun repas noté sur la période</div>
       )}
-      {series.map((d,i) => (i === 0 || i === series.length-1 || i === Math.floor(series.length/2)) && (
-        <text key={`x${i}`} className="chart-axis" x={PAD_L + slot*i + slot/2} y={H-5}
-          textAnchor={i===0?'start':i===series.length-1?'end':'middle'}>{shortDate(d.ts)}</text>
-      ))}
-    </svg>
+      <div className="master-legend">
+        {KEYS.map(k => (
+          <span className="lg-item" key={k}>
+            <span className="lg-dot" style={{background:MACRO_BY_KEY[k].color}} />
+            <span className="lg-name">{MACRO_BY_KEY[k].label}</span>
+            {avg && <span className="lg-val">{Math.round(avg[k])}%</span>}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -4192,11 +4186,17 @@ function FoodDaySummary({ store, onOpen, containerRef, dragging, onDragStart }){
                 <span className="u">{m.unit}</span>
               </div>
               <span className="fd-meter"><span className={`fd-fill ${bad?'over':''}`} style={{width:`${pct}%`,background:m.color}} /></span>
+              {/* Ce qu'il reste, comme sur le dashboard de Food : les deux
+                  cartes disent le même nombre, elles ne peuvent pas le
+                  raconter de deux façons. */}
               <div className="fd-card-goal mono">
                 {goal > 0
-                  ? (m.key === 'kcal'
-                      ? `${fmtNum(v,0)} kcal / ${fmtNum(goal,0)} kcal`
-                      : `${fmtMacro(v)}g / ${fmtMacro(goal)}g`)
+                  ? (() => {
+                      const amount = (n) => m.key === 'kcal' ? `${fmtNum(n,0)} kcal` : `${fmtMacro(n)}g`;
+                      return v > goal
+                        ? `${amount(v - goal)} de trop sur ${amount(goal)}`
+                        : `${amount(goal - v)} restant sur ${amount(goal)}`;
+                    })()
                   : 'sans objectif'}
               </div>
             </div>
