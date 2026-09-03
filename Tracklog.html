@@ -173,10 +173,19 @@
      différent selon la longueur du nom — une colonne qui ondule au lieu de
      s'aligner. C'est la même règle pour toute la page : deux lignes de la même
      carte ne peuvent pas se ranger différemment. */
-  .field.spread{gap:12px}
-  .field.spread>label,.field.spread>label.label-drag{width:auto;flex:0 1 auto}
-  .field.spread>:last-child{margin-left:auto}
-  .field.spread .ctl-with-info{flex:0 1 auto;justify-content:flex-end}
+  /* Le contrôle ne descend sous son intitulé que quand il n'y a plus la place à
+     côté — jamais par principe. C'est le `flex-shrink:0` qui obtient ça : le
+     contrôle ne peut pas se comprimer, donc il reste sur la ligne tant qu'il y
+     rentre et bascule sur la suivante sinon, où il s'étend alors sur toute la
+     largeur. Une piste compacte n'a ainsi jamais à se replier en deux. */
+  .field.spread{gap:8px 12px;flex-wrap:wrap}
+  /* Cadre ouvert : l'intitulé remonte en tête de rangée. Centré, il flottait à
+     mi-hauteur d'un bloc de texte qui n'est pas le sien. */
+  .field:has(.info-panel.open){align-items:flex-start}
+  .field:has(.info-panel.open)>label{padding-top:7px}
+  .field.spread>label,.field.spread>label.label-drag{width:auto;flex:0 0 auto}
+  .field.spread .ctl-with-info{flex:1 0 auto;justify-content:flex-end}
+  .field.spread>:last-child:not(.ctl-with-info){margin-left:auto}
   .lab-info{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
   /* Une ligne réordonnable : la poignée fait partie du libellé, elle ne pousse
      pas le contrôle plus loin que sur les lignes qui n'en ont pas. */
@@ -275,7 +284,7 @@
      accueillent un cadre d'explication) : sur une `.field` mise en colonne —
      nuancier, choix, période — `flex-wrap` fait déborder le contenu au lieu de
      l'empiler, la hauteur de la boîte ne suivant plus. */
-  .field.field-info{flex-wrap:wrap}
+  .field.field-info{flex-wrap:wrap;column-gap:10px}
   .field:last-of-type{border-bottom:none}
   .field label{font-size:10px;color:var(--ink-3);width:82px;flex-shrink:0;text-transform:uppercase;letter-spacing:0.12em}
   .field input,.field select,.field textarea{flex:1;font-size:14px}
@@ -768,7 +777,10 @@
 
   /* Le contrôle d'une rangée, son « i », et le cadre que le « i » déplie —
      lequel prend une ligne entière (d'où `flex-wrap`), sous le contrôle. */
-  .ctl-with-info{flex:1;display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-width:0}
+  /* `row-gap:0` : le cadre replié occupe déjà sa propre ligne de la rangée, et
+     un interligne l'aurait fait peser 10 px de vide sur chaque réglage, ouvert
+     ou non. Son écart, il le pose lui-même quand il s'ouvre. */
+  .ctl-with-info{flex:1;display:flex;flex-wrap:wrap;align-items:center;column-gap:10px;row-gap:0;min-width:0}
 
   /* L'explication n'est pas un calque au-dessus de la page : elle se déplie
      DANS le corps, sous la chose expliquée, et pousse ce qui suit. Un calque
@@ -778,7 +790,11 @@
      la seule façon d'animer vers une hauteur automatique. */
   .info-btn{font-size:11px;font-style:italic;font-family:"Instrument Serif",serif;flex-shrink:0}
   .info-btn:hover,.info-btn.on{border-color:var(--accent);color:var(--accent)}
-  .info-panel{flex:1 0 100%;display:grid;grid-template-rows:0fr;margin-top:0;
+  /* `contain:inline-size` : sans ça, le cadre replié pèse quand même sa largeur
+     de texte dans le calcul de la rangée qui l'héberge — et une rangée qui se
+     croit large de 400 px renvoie son contrôle à la ligne alors qu'il y avait
+     la place. Le cadre se dimensionne donc sur son conteneur, jamais l'inverse. */
+  .info-panel{flex:1 0 100%;display:grid;grid-template-rows:0fr;margin-top:0;contain:inline-size;
     transition:grid-template-rows .35s var(--ease),margin-top .35s var(--ease)}
   .info-panel.open{grid-template-rows:1fr;margin-top:10px}
   .info-panel-in{overflow:hidden;min-height:0}
@@ -1222,11 +1238,10 @@
     width:100%;text-align:left;background:none;color:inherit;font:inherit;border-left:none;border-right:none;
     border-bottom:none;cursor:pointer;transition:background .3s var(--ease)}
   .fd-row:hover{background:var(--bg-3)}
-  .fd-row-main{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
-  .fd-row-name{font-size:13px;color:var(--ink)}
+  .fd-row-main{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px}
+  .fd-row-name{font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   .fd-row-brand{font-size:11px;color:var(--ink-3)}
-  .fd-row-qty{font-size:11px;color:var(--ink-2);flex-shrink:0;padding:1px 7px;border-radius:999px;
-    border:1px solid var(--line-2)}
+  .fd-row-qty{font-size:11px;color:var(--ink-3);flex-shrink:0}
   .fd-row-macros{display:flex;gap:10px;font-size:11px;color:var(--ink-3);flex-shrink:0}
   .fd-row-macros i{font-style:normal;opacity:.6;margin-left:2px}
   .fd-row-kcal{font-family:"Geist Mono",monospace;font-size:13px;color:var(--ink);flex-shrink:0}
@@ -1585,27 +1600,6 @@
   @media (max-width: 640px){
     .app{padding:22px 18px 80px}
 
-    /* Une bascule ne doit JAMAIS se replier sur deux lignes : la piste compacte
-       a un fond qui glisse d'une option à l'autre, et il n'a pas de sens sur
-       deux lignes. Premier remède, avant tout autre : rendre au contrôle toute
-       la largeur. L'intitulé passe donc au-dessus, le contrôle occupe la ligne
-       entière, et une piste d'une ou deux options y tient largement.
-       (Le second remède, quand ça ne suffit pas, est dans `.seg-track.scrollx`
-       plus haut : une ligne qui glisse plutôt qu'une ligne qui se replie.) */
-    .settings-card .field,.fd-add-page .field{flex-direction:column;align-items:stretch;gap:9px}
-    .settings-card .field>label,.fd-add-page .field>label,
-    .settings-card .field.spread>label.label-drag{width:auto;flex:none}
-    .settings-card .field.spread>:last-child{margin-left:0}
-    .settings-card .field.spread .ctl-with-info,
-    .fd-add-page .field .ctl-with-info{justify-content:flex-start}
-    /* La piste prend la largeur restante, pas toute la ligne : le « i » doit
-       rester à côté d'elle, pas descendre sur une ligne à lui. */
-    .settings-card .field .seg-track.scrollx,.fd-add-page .field .seg-track.scrollx{flex:1 1 auto;min-width:0}
-
-    /* Un champ numérique garde sa saisie à droite : c'est une valeur, pas une
-       bascule, et l'étirer sur toute la largeur ne la rend pas plus lisible. */
-    .fd-add-page .field .field-num{align-self:flex-end}
-
     /* Inputs must stay >=16px or iOS Safari zooms in on focus */
     input,select,textarea,
     .field input,.field select,.field textarea,
@@ -1659,9 +1653,10 @@
     .fd-total.lead .fd-total-v{font-size:24px}
     .fd-total-label{letter-spacing:0.08em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .fd-total-goal{font-size:9px}
-    .fd-row{flex-wrap:wrap;gap:8px 12px}
-    .fd-row-main{flex:1 1 100%}
-    .fd-row-qty{margin-right:auto}
+    /* Une entrée du jour reste sur UNE ligne : c'est le nom qui se coupe si la
+       place manque, pas la ligne qui se scinde en deux. */
+    .fd-row{gap:8px}
+    .fd-row-macros{gap:7px}
     .fd-micros{grid-template-columns:1fr}
     .fd-lib-search{max-width:none;flex:1 1 100%;order:-1}
     .fd-macros-wide .mc b{font-size:15px}
@@ -1743,8 +1738,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=56"></script>
-<script type="text/babel" src="app.food.jsx?v=25"></script>
+<script type="text/babel" src="app.jsx?v=57"></script>
+<script type="text/babel" src="app.food.jsx?v=26"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>

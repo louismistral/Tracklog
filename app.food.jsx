@@ -1790,8 +1790,7 @@ function foodForLog(store, log){
 /* Une ligne de journal : la ligne entière ouvre sa fenêtre de modification, et
    c'est là-dedans qu'on la supprime. Deux mots d'action au bout de chaque ligne
    répétaient « modifier » et « suppr. » autant de fois qu'il y avait de lignes,
-   pour un geste qu'on fait rarement — et la quantité, collée au nom, se lisait
-   comme une partie de ce nom. */
+   pour un geste qu'on fait rarement. */
 function FoodLogRow({ log, onEdit }){
   const n = log.nutriments || {};
   return (
@@ -1799,8 +1798,8 @@ function FoodLogRow({ log, onEdit }){
       <span className="fd-row-main">
         <span className="fd-row-name">{log.name}</span>
         {log.brand && <span className="fd-row-brand">{log.brand}</span>}
+        <span className="fd-row-qty mono">{fmtNum(log.qty, 1)} {log.unit === 'portion' ? (log.qty > 1 ? 'portions' : 'portion') : log.unit}</span>
       </span>
-      <span className="fd-row-qty mono">{fmtNum(log.qty, 1)} {log.unit === 'portion' ? (log.qty > 1 ? 'portions' : 'portion') : log.unit}</span>
       <span className="fd-row-macros mono">
         <span>{fmtMacro(n.protein)}<i>P</i></span>
         <span>{fmtMacro(n.carbs)}<i>G</i></span>
@@ -2317,7 +2316,10 @@ function MealsTab({ store, day, initialMeal, favOnly, query, pickMode, onPick, o
               douter de celui qui compte. */}
           <div className="fd-list">
             {list.map(m => {
-              const t = itemsTotals(m.items);
+              // Ce qu'on en prend, pas ce que la recette produit : les
+              // ingrédients pèsent le plat entier, la carte montre une part.
+              const parts = mealPortions(m);
+              const t = itemsTotals(m.items.map(it => ({ ...it, grams: (Number(it.grams) || 0) / parts })));
               return (
                 /* Exactement la carte d'un aliment : un repas est un item, il
                    n'a pas de raison de se présenter autrement. Il s'ouvre au
@@ -2344,7 +2346,7 @@ function MealsTab({ store, day, initialMeal, favOnly, query, pickMode, onPick, o
                     )}
                   </span>
                   <button className="fd-item-nums" onClick={()=>setPortioning(m)} tabIndex={-1} aria-hidden="true">
-                    <MacroStrip n={t} per={null} compBar={compBar} />
+                    <MacroStrip n={t} per={parts > 1 ? 'part' : null} compBar={compBar} />
                   </button>
                 </div>
               );

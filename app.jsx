@@ -1881,10 +1881,9 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
         <div className="field spread">
           <label>Bulles infos</label>
           <div className="ctl-with-info">
-            <Segmented size="small" scrollx>
-              <button className={infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(true)}>Affichées</button>
-              <button className={!infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(false)}>Masquées</button>
-            </Segmented>
+            {/* Oui / Non, pas « Affichées / Masquées » : la carte s'appelle déjà
+                Affichage, et les mots longs renvoyaient la bascule à la ligne. */}
+            <BoolPill value={infoEnabled} onChange={onSetInfoEnabled} />
             {/* La seule bulle qui ne se masque pas : c'est elle qui dit comment
                 rallumer les autres, elle ne peut pas partir avec elles. */}
             <InfoBubble title="Bulles infos" always>
@@ -1898,20 +1897,14 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
         <div className="field spread">
           <label>Numéro de semaine</label>
           <div className="ctl-with-info">
-            <Segmented size="small" scrollx>
-              <button className={showWeek?'on':''} onClick={()=>onSetShowWeek(true)}>Affiché</button>
-              <button className={!showWeek?'on':''} onClick={()=>onSetShowWeek(false)}>Masqué</button>
-            </Segmented>
+            <BoolPill value={showWeek} onChange={onSetShowWeek} />
             <InfoBubble title="Numéro de semaine">À côté de la date du jour, dans le Log et l'Historique.</InfoBubble>
           </div>
         </div>
         <div className="field spread" style={{borderBottom:'none'}}>
           <label>Barre de composition</label>
           <div className="ctl-with-info">
-            <Segmented size="small" scrollx>
-              <button className={compBar?'on':''} onClick={()=>onSetCompBar(true)}>Affichée</button>
-              <button className={!compBar?'on':''} onClick={()=>onSetCompBar(false)}>Masquée</button>
-            </Segmented>
+            <BoolPill value={compBar} onChange={onSetCompBar} />
             <InfoBubble title="Barre de composition">
               Sur chaque carte d'aliment de la page Food, une barre qui découpe ses calories en
               <span className="k"> protéines, glucides et lipides</span> — et qui colore ses chiffres.
