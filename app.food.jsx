@@ -186,12 +186,13 @@ function NumField({ label, unit, value, onChange, onKeyDown, placeholder = '—'
    Tout le reste (sucres, sel, vitamines…) est du détail affiché quand
    l'étiquette le porte. */
 /* Une couleur par macro, prises dans le nuancier de l'app (mêmes paliers de
-   luminosité, même chroma que les couleurs de tracker) : vert les calories,
-   rouge les protéines, bleu les glucides, jaune les lipides. Elles ne suivent
+   luminosité, même chroma que les couleurs de tracker) : rouge les protéines,
+   bleu les glucides, jaune les lipides — et les calories en encre neutre, parce
+   que ce n'est pas une quatrième macro mais leur somme. Elles ne suivent
    pas l'accent — ce sont quatre repères qu'on apprend une fois, et qui doivent
    rester les mêmes quelle que soit la couleur choisie pour l'app. */
 const FOOD_MACROS = [
-  { key:'kcal',    label:'Calories',  short:'kcal', unit:'kcal', color:'oklch(0.62 0.11 150)' },
+  { key:'kcal',    label:'Calories',  short:'kcal', unit:'kcal', color:'var(--ink-2)' },
   { key:'protein', label:'Protéines', short:'prot', unit:'g',    color:'oklch(0.60 0.13 25)'  },
   { key:'carbs',   label:'Glucides',  short:'gluc', unit:'g',    color:'oklch(0.62 0.11 250)' },
   { key:'fat',     label:'Lipides',   short:'lip',  unit:'g',    color:'oklch(0.75 0.12 90)'  },
@@ -1259,8 +1260,17 @@ function useFoodStore(userId){
     });
   };
 
+  /* Une ligne de journal peut pointer vers un item — c'est un simple raccourci
+     vers sa fiche, jamais la source des valeurs (chaque ligne garde son propre
+     instantané). Mais Postgres, lui, exige que ce pointeur désigne un item qui
+     existe : un ingrédient venu d'une recherche Open Food Facts, ou d'un item
+     oublié depuis, porte un `foodId` qui n'est dans aucune table, et toute
+     l'insertion échouait sur la clé étrangère — un repas entier refusé pour un
+     lien décoratif. On ne garde donc le lien que s'il mène quelque part. */
+  const knownFoodId = (id) => (id && foods.some(f => f.id === id)) ? id : null;
+
   const addLog = (log) => {
-    const l = { id: uid('fl_'), ts: Date.now(), unit:'g', ...log };
+    const l = { id: uid('fl_'), ts: Date.now(), unit:'g', ...log, foodId: knownFoodId(log.foodId) };
     setLogs(s => [l, ...s]);
     if (l.foodId) updateFood(l.foodId, { lastUsedAt: Date.now() });
     supabase.from('food_logs').insert(foodLogToRow(l, userId)).then(({ error }) => {
@@ -1340,7 +1350,7 @@ function useFoodStore(userId){
       .map(it => ({ it, grams: (Number(it.grams) || 0) * share }))
       .filter(x => x.grams > 0)
       .map(({ it, grams }, i) => ({
-        id: uid('fl_'), ts: now + i, day, meal: mealSlot, foodId: it.foodId || null,
+        id: uid('fl_'), ts: now + i, day, meal: mealSlot, foodId: knownFoodId(it.foodId),
         name: it.name, brand:'', qty: grams, unit:'g', grams, nutriments: itemNutriments(it),
       }));
     if (rows.length){
@@ -1493,10 +1503,6 @@ function FoodPage({ store, sub, onSub }){
   const [mealDraft, setMealDraft] = useState(null);   // repas en cours de création/édition
   const [day, setDay] = useState(() => dayKey(Date.now()));
 
-  const hint = sub === 'jour' ? 'ce que vous avez mangé'
-             : sub === 'aliments' ? 'vos items — aliments simples, produits à code, IA, perso'
-             : 'calories et macros dans le temps';
-
   return (
     <div>
       <div className="log-subnav">
@@ -1505,7 +1511,6 @@ function FoodPage({ store, sub, onSub }){
           <button className={sub==='aliments'?'on':''} onClick={()=>onSub('aliments')}>Aliments</button>
           <button className={sub==='vues'?'on':''} onClick={()=>onSub('vues')}>Vues</button>
         </Segmented>
-        <span className="log-subhint serif">{hint}</span>
       </div>
 
       {!store.ready ? (
@@ -2217,7 +2222,7 @@ function AiAnalyseTab({ store, day, initialMeal, pickMode, onPickItems, onDone, 
    corrigeable seule — la règle ne change pas parce qu'on a mangé une demie. */
 function MealPortionModal({ meal, initialMeal, pickMode, onClose, onSubmit }){
   const portions = mealPortions(meal);
-  const [eaten, setEaten] = useState('1');
+  const [eaten, setEaten] = useState('');
   const [slot, setSlot] = useState(initialMeal || defaultMealForNow());
 
   const n = parseFloat(String(eaten).replace(',', '.'));
@@ -2238,17 +2243,15 @@ function MealPortionModal({ meal, initialMeal, pickMode, onClose, onSubmit }){
         </div>
 
         <div className="fd-qty">
-          <input type="number" step="any" min="0" inputMode="decimal" value={eaten}
+          <input type="number" step="any" min="0" inputMode="decimal" value={eaten} placeholder="combien ?"
+                 aria-label="Portions prises"
                  onChange={e=>setEaten(e.target.value)}
                  onKeyDown={e=>{ if (e.key === 'Enter' && canSave) onSubmit({ items: scaled, meal: slot, share }); }} />
           <span className="fd-qty-unit">portion{eatenPortions > 1 ? 's' : ''}</span>
-        </div>
-
-        <div className="fd-chips">
-          {['0.5', '1', '2'].map(v => (
-            <button key={v} onClick={()=>setEaten(v)}>{v.replace('.', ',')} portion{v === '0.5' ? '' : 's'}</button>
-          ))}
-          <button onClick={()=>setEaten(String(portions))}>toute la recette</button>
+          <QtyPresets unit="portion" value={eaten} onPick={setEaten} />
+          <button type="button" className="fd-preset-all" onClick={()=>setEaten(String(portions))}>
+            toute la recette
+          </button>
         </div>
 
         {/* Les mêmes cases que sur une carte d'item — mais ici les chiffres
@@ -3116,23 +3119,60 @@ function MacroStrip({ n = {}, per = '100 g', compBar = false, className = '' }){
       <b>{fmtMacro(n[key])}</b>{!compBar && <u>{lab}</u>}
     </span>
   );
+  const bar = share && (
+    <span className="comp" aria-hidden="true">
+      <i style={{width:`${share.p}%`, background:MACRO_BY_KEY.protein.color}} />
+      <i style={{width:`${share.g}%`, background:MACRO_BY_KEY.carbs.color}} />
+      <i style={{width:`${share.l}%`, background:MACRO_BY_KEY.fat.color}} />
+    </span>
+  );
   return (
     <span className={`fd-macros ${className}`}>
-      {share && (
-        <span className="comp" aria-hidden="true">
-          <i style={{width:`${share.p}%`, background:MACRO_BY_KEY.protein.color}} />
-          <i style={{width:`${share.g}%`, background:MACRO_BY_KEY.carbs.color}} />
-          <i style={{width:`${share.l}%`, background:MACRO_BY_KEY.fat.color}} />
-        </span>
-      )}
       <span className="fd-macro-row">
-        <span className="mc mc-kcal" style={compBar ? { color: MACRO_BY_KEY.kcal.color } : undefined}>
+        {/* Les calories restent en encre neutre, barre ou pas : c'est le total,
+            pas une quatrième macro, et les trois couleurs ne se lisent comme un
+            découpage que si le tout n'en porte aucune. */}
+        <span className="mc mc-kcal">
           <b>{fmtNum(n.kcal, 0)}</b><u>{per ? `kcal/${per.replace(/\s+/g,'')}` : 'kcal'}</u>
         </span>
         {macro('protein', 'P')}
         {macro('carbs', 'G')}
         {macro('fat', 'L')}
       </span>
+      {bar}
+    </span>
+  );
+}
+
+/* Les raccourcis de quantité. Il n'y en a AUCUN au départ : « 50 g / 100 g /
+   200 g » étaient des devinettes, et personne ne pèse ses aliments par nombres
+   ronds. C'est l'usage qui les fabrique — le « + » enregistre la valeur qu'on
+   vient de taper, la croix la retire. Ils sont rangés par unité (g, ml,
+   portion) et suivent le compte, comme tout réglage.
+   Quatre au maximum : au-delà, la rangée passerait sur deux lignes, et une
+   liste de raccourcis qu'il faut parcourir n'est plus un raccourci. */
+const QTY_PRESET_MAX = 4;
+function QtyPresets({ unit, value, onPick }){
+  const accountPrefs = useContext(AccountPrefsContext) || LOCAL_ONLY_PREFS;
+  const all = (accountPrefs.prefs && accountPrefs.prefs.qtyPresets) || {};
+  const list = Array.isArray(all[unit]) ? all[unit] : [];
+  const cur = parseFloat(String(value).replace(',', '.'));
+  const known = !isNaN(cur) && list.includes(cur);
+  const write = (next) => accountPrefs.savePrefs({ qtyPresets: { ...all, [unit]: next } });
+  return (
+    <span className="fd-presets">
+      {list.map(v => (
+        <span className="fd-preset" key={v}>
+          <button type="button" onClick={()=>onPick(String(v))}>{fmtNum(v, v % 1 ? 1 : 0)}</button>
+          <button type="button" className="fd-preset-x" onClick={()=>write(list.filter(x => x !== v))}
+                  aria-label={`Retirer le raccourci ${v}`} title="Retirer ce raccourci">✕</button>
+        </span>
+      ))}
+      {!known && !isNaN(cur) && cur > 0 && list.length < QTY_PRESET_MAX && (
+        <button type="button" className="fd-preset-add" title="Garder cette quantité en raccourci"
+                aria-label="Garder cette quantité en raccourci"
+                onClick={()=>write([...list, cur].sort((a,b)=>a-b))}>＋</button>
+      )}
     </span>
   );
 }
@@ -3425,16 +3465,15 @@ function QuickAddTab({ seed, initialMeal, pickMode, onNewMeal, onSubmit, onCance
 function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pickMode, onClose, onBack, onSubmit, onDelete }){
   const hasServing = !!(food.servingG && food.servingG > 0);
   const [unit, setUnit] = useState(initialUnit || (hasServing ? 'portion' : (food.basis || 'g')));
-  const [qty, setQty] = useState(initialQty != null ? String(initialQty) : (hasServing ? '1' : '100'));
+  // Vide à l'ouverture : un champ pré-rempli fait croire que la valeur est déjà
+  // la bonne, et il faut l'effacer avant de taper la sienne. On ne pré-remplit
+  // que pour corriger une ligne déjà notée.
+  const [qty, setQty] = useState(initialQty != null ? String(initialQty) : '');
   const [meal, setMeal] = useState(initialMeal || defaultMealForNow());
 
   const grams = resolveGrams(qty, unit, food);
   const nutriments = useMemo(() => scaleNutriments(food.nutriments || {}, grams), [food, grams]);
   const canSave = grams > 0;
-
-  const chips = hasServing
-    ? [['1 portion', 1, 'portion'], ['2 portions', 2, 'portion'], ['100 ' + food.basis, 100, food.basis]]
-    : [['50 ' + food.basis, 50, food.basis], ['100 ' + food.basis, 100, food.basis], ['200 ' + food.basis, 200, food.basis]];
 
   return (
     <div className="scrim" onClick={onClose}>
@@ -3449,9 +3488,12 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pick
           )}
         </div>
 
+        {/* Le chiffre, son unité, puis les raccourcis — dans cet ordre, sur la
+            même ligne : on tape d'abord, on range ensuite. */}
         <div className="fd-qty">
           <input
-            type="number" step="any" min="0" value={qty}
+            type="number" step="any" min="0" inputMode="decimal" value={qty} placeholder="combien ?"
+            aria-label="Quantité"
             onChange={e=>setQty(e.target.value)}
             onKeyDown={e=>{ if(e.key==='Enter' && canSave) onSubmit({ qty:Number(qty), unit, grams, meal, nutriments }); }}
           />
@@ -3463,12 +3505,7 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pick
               </button>
             )}
           </Segmented>
-        </div>
-
-        <div className="fd-chips">
-          {chips.map(([label, v, u]) => (
-            <button key={label} onClick={()=>{ setQty(String(v)); setUnit(u); }}>{label}</button>
-          ))}
+          <QtyPresets unit={unit} value={qty} onPick={setQty} />
         </div>
 
         {/* Les mêmes cases que sur une carte d'item — mais ici les chiffres

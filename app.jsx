@@ -3143,8 +3143,6 @@ function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
 function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder,
                   chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono, onUpdateChrono, onResetAllChronos, onReorderChronos, chronoExclusive, onSetChronoExclusive,
                   foodSummary, historyJump, onAddTracker, onEditTracker, showWeek, groupMode, sectionOrder, onReorderSections }){
-  const hint = logSub === 'historique' ? "ouvrez n’importe quel jour pour l’éditer"
-             : "chronométrez vos sessions, puis enregistrez-les";
   return (
     <div>
       <div className="log-subnav">
@@ -3153,15 +3151,15 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
           <button className={logSub==='historique'?'on':''} onClick={()=>onLogSub('historique')}>Historique</button>
           <button className={logSub==='chrono'?'on':''} onClick={()=>onLogSub('chrono')}>Chrono</button>
         </Segmented>
-        {logSub === 'jour'
-          ? (
-            <button className="pill add subnav-add" onClick={onAddTracker} title="Nouveau tracker">
-              <span className="add-full">＋ Nouveau tracker</span>
-              <span className="add-mid">＋ Tracker</span>
-              <span className="add-min">＋</span>
-            </button>
-          )
-          : <span className="log-subhint serif">{hint}</span>}
+        {/* Rien à droite de la bascule sauf ce qui AGIT : la phrase qui décrivait
+            l'onglet ouvert répétait ce que la page montre déjà juste en dessous. */}
+        {logSub === 'jour' && (
+          <button className="pill add subnav-add" onClick={onAddTracker} title="Nouveau tracker">
+            <span className="add-full">＋ Nouveau tracker</span>
+            <span className="add-mid">＋ Tracker</span>
+            <span className="add-min">＋</span>
+          </button>
+        )}
       </div>
       {logSub === 'chrono' ? (
         <ChronoView
@@ -4895,7 +4893,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
             <label>Fréquence</label>
             <div className="ctl-with-info">
               <Segmented size="compact" scrollx>
-                <button className={daily?'on':''} onClick={()=>setDaily(true)}>Une / jour</button>
+                <button className={daily?'on':''} onClick={()=>setDaily(true)}>1 / jour</button>
                 <button className={!daily?'on':''} onClick={()=>setDaily(false)}>Plusieurs / jour</button>
               </Segmented>
               <InfoBubble title="Fréquence">

@@ -114,6 +114,22 @@
   .serif{font-family:"Instrument Serif",serif;font-style:italic;font-weight:400}
   button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;padding:0}
   input,select,textarea{font-family:inherit;font-size:14px;color:inherit;background:transparent;border:none;outline:none}
+  /* Ce qui se tape doit se voir. Un champ transparent et sans bordure est
+     indiscernable d'un chiffre affiché — or dans la même fenêtre on corrige les
+     grammes et pas les calories, écrits exactement pareil. Toute saisie porte
+     donc un fond léger et un trait ; ce qui n'est pas modifiable reste du texte
+     nu. Posé ICI, tôt : les composants qui apportent déjà leur propre cadre
+     (pastilles, barres à icône, éditeur de couleur) le reposent plus bas. */
+  .field input:not([type=range]):not([type=color]):not([type=checkbox]),
+  .field textarea,.field select,
+  .fd-qty input,.tc-input input,.tc-input textarea,.choice-row input{
+    background:var(--bg-3);border:1px solid transparent;border-bottom-color:var(--line-2);
+    border-radius:5px;padding:5px 8px;
+    transition:border-color .3s var(--ease),background .3s var(--ease)}
+  .field input:focus,.field textarea:focus,.field select:focus,
+  .fd-qty input:focus,.tc-input input:focus,.tc-input textarea:focus,.choice-row input:focus{
+    border-color:var(--accent)}
+  ::placeholder{color:var(--ink-3);opacity:1}
   input::placeholder,textarea::placeholder{color:var(--ink-3)}
   select option{background:var(--bg-2);color:var(--ink)}
 
@@ -415,7 +431,15 @@
   .boot-fallback p{max-width:440px;margin:0 auto;line-height:1.6;font-size:13px}
 
   /* Vues */
-  .vue-controls{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
+  .vue-controls{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;gap:12px}
+  /* Quatre vues, et elles doivent tenir sur une ligne sans glisser : la piste se
+     resserre plutôt que de renvoyer « Grille » hors champ. C'est le seul endroit
+     où le nombre d'options est fixe et connu — on peut donc serrer sans risque. */
+  .vue-controls>.seg-track.compact{flex-shrink:0}
+  .vue-controls>.seg-track.compact button{padding:6px 9px;letter-spacing:0.04em}
+  @media (max-width:420px){
+    .vue-controls>.seg-track.compact button{padding:6px 7px;font-size:10px;letter-spacing:0.02em}
+  }
 
   /* ------------------------------------------------------------------
      Segmented — le seul mécanisme de bascule de l'app. Un fond qui glisse
@@ -781,6 +805,11 @@
      un interligne l'aurait fait peser 10 px de vide sur chaque réglage, ouvert
      ou non. Son écart, il le pose lui-même quand il s'ouvre. */
   .ctl-with-info{flex:1;display:flex;flex-wrap:wrap;align-items:center;column-gap:10px;row-gap:0;min-width:0}
+  /* La piste garde sa largeur naturelle tant qu'elle rentre, et se borne sinon à
+     la place qui reste une fois le « i » posé — elle glisse alors, plutôt que de
+     renvoyer le « i » sur une ligne à lui. `max-width:100%` seul la laissait
+     occuper toute la rangée, et le « i » tombait dessous. */
+  .ctl-with-info>.seg-track{flex:0 1 auto;min-width:0;max-width:calc(100% - 30px)}
 
   /* L'explication n'est pas un calque au-dessus de la page : elle se déplie
      DANS le corps, sous la chose expliquée, et pousse ce qui suit. Un calque
@@ -1059,8 +1088,6 @@
      rule, and what gives when the room runs out is the button's label (see the
      breakpoints below), then the gap — never a second row. */
   .log-subnav{display:flex;align-items:center;gap:22px;margin-bottom:26px;flex-wrap:nowrap}
-  .log-subhint{font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.08em;
-    min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* La hauteur n'est pas un nombre à tenir à jour : `align-self:stretch` la prend
      sur la ligne, dont la hauteur est celle du groupe Jour/Historique/Chrono. Le
      jour où ce groupe change de taille, le bouton suit sans qu'on y touche.
@@ -1077,8 +1104,11 @@
      La largeur vient du même jeton que la hauteur de la barre (--ctl-h), pas d'un
      `aspect-ratio` : une hauteur héritée d'un `stretch` n'est pas assez définie
      pour qu'un ratio en déduise la largeur, et le rond restait un rectangle. */
-  @media (max-width:440px){
-    .log-subnav{gap:8px}
+  @media (max-width:440px){ .log-subnav{gap:8px} }
+  /* Le cran du rond seul descend à 355 px : la phrase qui occupait la droite de
+     la barre est partie, et « ＋ Tracker » tient donc largement sur un téléphone
+     courant. Un bouton qui garde son mot se vise mieux qu'un signe. */
+  @media (max-width:355px){
     /* `height` en dur, pas seulement la largeur : `align-self:stretch` cale la
        hauteur sur la ligne, qui peut différer d'un pixel de --ctl-h selon la
        police réellement rendue — assez pour qu'un cercle cense devienne un
@@ -1354,7 +1384,11 @@
   .fd-ai-text:focus{border-color:var(--line-2)}
   /* La bascule de profondeur au-dessus de la rangée d'action : elle se choisit
      AVANT de lancer, pas à côté du bouton qui lance. */
-  .fd-ai-mode{display:flex;align-items:center;gap:8px;margin:2px 0 10px}
+  /* `flex-wrap` : le cadre d'explication prend une ligne entière sous le
+     contrôle, et sans repli il restait coincé sur la même ligne que la bascule,
+     large de ce qu'il en restait. Même règle que toutes les rangées qui portent
+     un « i ». */
+  .fd-ai-mode{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:2px 0 10px}
   .fd-ai-actions{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;margin-top:2px}
   .fd-ai-actions-end{justify-content:flex-end}
   .fd-ai-hint{font-size:12px;color:var(--ink-3);flex:1}
@@ -1444,8 +1478,11 @@
      valeur ronde choisie au hasard. En dessous, la pastille reprend sa largeur
      naturelle et les trois ronds se décalent d'une carte à l'autre. */
   .fd-item-foot .item-tag{min-width:56px;text-align:center;flex-shrink:0;padding:4px 6px}
+  /* Aligné sur la ligne du TITRE, pas centré entre les deux lignes : les
+     chiffres et le nom se lisent d'un même regard, et la barre tombe alors
+     naturellement au niveau de la rangée des actions. */
   .fd-item-nums{grid-area:nums;padding:0;border:none;background:none;color:inherit;font:inherit;
-    display:block;flex-shrink:0}
+    display:block;flex-shrink:0;align-self:start}
 
   /* Les chiffres : une ligne, et des COLONNES de largeur fixe. Ce ne sont pas
      les valeurs qui décident de la largeur — les chiffres sont tabulaires et
@@ -1454,30 +1491,36 @@
      la barre de composition mesure partout la même chose : comparer deux barres
      redevient légitime. Aucun trait dessiné : c'est l'alignement qui fait le
      tableau. */
-  .fd-macros{display:flex;flex-direction:column;gap:4px;flex:none}
+  /* Largeur FIXE, pas « au contenu » : la légende des calories change de
+     longueur selon l'aliment (kcal/100g, kcal/100ml, kcal/part) et le bloc
+     changeait de taille d'une carte à l'autre. Fixé, il ne bouge plus et la
+     barre mesure partout la même chose. */
+  .fd-macros{display:flex;flex-direction:column;gap:5px;flex:none;width:172px}
   .comp{display:flex;height:3px;overflow:hidden;background:var(--bg-3)}
   .comp i{display:block;height:100%}
   .fd-macro-row{display:flex;align-items:baseline;gap:6px}
   /* Les calories calées à gauche du bloc, les trois macros en colonnes fixes à
      droite. La lettre est sur la même ligne que son chiffre, pas dessous. */
-  .mc{display:flex;align-items:baseline;gap:3px;justify-content:flex-end;
-    width:32px;flex:none;color:var(--ink-2)}
+  .mc{display:flex;align-items:baseline;gap:2px;justify-content:flex-end;
+    width:27px;flex:none;color:var(--ink-2)}
   /* Deux classes, pas une : la règle étroite plus bas repose la largeur des
      colonnes de macro, et à spécificité égale c'est la dernière écrite qui
      gagne — la colonne des calories se retrouvait large de 28 px avec son
      unité qui débordait sur les protéines. */
-  .fd-macro-row .mc-kcal{width:auto;justify-content:flex-start;color:var(--ink);margin-right:auto}
-  .mc b{font-family:"Geist Mono",monospace;font-feature-settings:"tnum";font-size:12px;
+  .fd-macro-row .mc-kcal{width:auto;flex:1 1 auto;min-width:0;justify-content:flex-start;color:var(--ink)}
+  .mc b{font-family:"Geist Mono",monospace;font-feature-settings:"tnum";font-size:11px;
     font-weight:400;color:currentColor;line-height:1.2;text-align:right}
-  .mc-kcal b{font-size:13px;min-width:3.4ch;text-align:left}
-  .mc u{font-size:7.5px;letter-spacing:0.08em;text-transform:uppercase;text-decoration:none;
+  .mc-kcal b{font-size:12.5px;min-width:3.2ch;text-align:left}
+  .mc u{font-size:7px;letter-spacing:0.02em;text-transform:uppercase;text-decoration:none;
     color:var(--ink-3);line-height:1;white-space:nowrap}
+  .mc-kcal u{letter-spacing:0.04em}
   /* Sur un écran étroit tout le bloc se resserre — pour toutes les cartes à la
      fois, donc les colonnes restent alignées entre elles. */
   @media (max-width:390px){
-    .mc{width:28px;gap:2px}
-    .mc u{font-size:7px;letter-spacing:0.03em}
-    .fd-macro-row{gap:5px}
+    .fd-macros{width:158px}
+    .mc{width:24px}
+    .mc u{font-size:6.5px;letter-spacing:0}
+    .fd-macro-row{gap:4px}
     .fd-item-foot{gap:3px}
     .fd-item-foot .item-tag{min-width:54px}
   }
@@ -1550,11 +1593,28 @@
 
   /* Quantité */
   .fd-qty-unit{font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.1em}
-  .fd-qty{display:flex;align-items:center;gap:12px;margin:6px 0 12px;flex-wrap:wrap}
-  .fd-qty input{width:96px;font-size:20px;font-family:"Geist Mono",monospace;text-align:right}
-  .fd-chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
-  .fd-chips button{font-size:11px;color:var(--ink-2);border:1px solid var(--line);border-radius:999px;padding:6px 12px;background:transparent;transition:all .35s var(--ease)}
-  .fd-chips button:hover{border-color:var(--line-2);color:var(--ink)}
+  .fd-qty{display:flex;align-items:center;gap:10px;margin:6px 0 16px;flex-wrap:wrap}
+  .fd-qty input{width:120px;font-size:20px;font-family:"Geist Mono",monospace;text-align:right}
+  .fd-qty input::placeholder{font-family:"Geist",ui-sans-serif,sans-serif;font-size:13px}
+  /* Les raccourcis de quantité : sur la même ligne que le champ et son unité,
+     après eux. Une seule ligne, jamais deux — c'est pour ça qu'il y en a quatre
+     au maximum. */
+  .fd-presets{display:flex;align-items:center;gap:6px;flex-wrap:nowrap}
+  .fd-preset{display:inline-flex;align-items:center;border:1px solid var(--line);
+    border-radius:999px;overflow:hidden;transition:border-color .3s var(--ease)}
+  .fd-preset:hover{border-color:var(--line-2)}
+  .fd-preset>button{font-family:"Geist Mono",monospace;font-size:11px;color:var(--ink-2);
+    background:none;border:none;padding:5px 4px 5px 10px;cursor:pointer}
+  .fd-preset>button:hover{color:var(--ink)}
+  .fd-preset-x{font-size:8px;color:var(--ink-3);background:none;border:none;padding:5px 8px 5px 3px;cursor:pointer}
+  .fd-preset-x:hover{color:var(--warn)}
+  .fd-preset-add{font-size:13px;line-height:1;color:var(--ink-3);border:1px dashed var(--line-2);
+    border-radius:999px;width:26px;height:26px;background:none;cursor:pointer;flex-shrink:0;
+    transition:color .3s var(--ease),border-color .3s var(--ease)}
+  .fd-preset-add:hover{color:var(--accent);border-color:var(--accent);border-style:solid}
+  .fd-preset-all{font-size:11px;color:var(--ink-2);border:1px solid var(--line);border-radius:999px;
+    padding:6px 12px;background:transparent;white-space:nowrap;transition:all .35s var(--ease)}
+  .fd-preset-all:hover{border-color:var(--line-2);color:var(--ink)}
   /* Les mêmes cases que sur une carte d'item, en plus grand : c'est le même
      objet — quatre chiffres qui vont ensemble — vu de plus près. */
   .fd-preview{padding:14px 0 16px}
@@ -1762,8 +1822,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=57"></script>
-<script type="text/babel" src="app.food.jsx?v=27"></script>
+<script type="text/babel" src="app.jsx?v=58"></script>
+<script type="text/babel" src="app.food.jsx?v=28"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>
