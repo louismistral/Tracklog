@@ -163,7 +163,7 @@
   .settings-view{max-width:480px}
   .settings-card{margin-bottom:20px}
   .settings-section-title{font-family:"Instrument Serif",serif;font-style:italic;font-size:19px;margin:0 0 6px;
-    display:flex;align-items:center;gap:8px}
+    display:flex;flex-wrap:wrap;align-items:center;gap:8px}
   .settings-value{font-size:13px;color:var(--ink-2)}
   .settings-value.dim{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.1em}
   .settings-hint{font-size:12px;color:var(--ink-3);line-height:1.6;margin:12px 0 0}
@@ -177,13 +177,7 @@
   .field.spread>label,.field.spread>label.label-drag{width:auto;flex:0 1 auto}
   .field.spread>:last-child{margin-left:auto}
   .field.spread .ctl-with-info{flex:0 1 auto;justify-content:flex-end}
-  /* Une bulle posée en tête de ligne (dans un intitulé, dans un titre de carte)
-     s'ouvrirait vers la gauche, donc hors de l'écran sur un téléphone : c'est
-     alors le bloc entier qui lui sert d'ancre, et elle s'aligne sur son bord
-     droit. Même correctif que pour les sources de la page Food. */
-  .settings-section-title,.field{position:relative}
-  .settings-section-title>.info,.field>label .info{position:static}
-  .lab-info{display:inline-flex;align-items:center;gap:6px}
+  .lab-info{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
   /* Une ligne réordonnable : la poignée fait partie du libellé, elle ne pousse
      pas le contrôle plus loin que sur les lignes qui n'en ont pas. */
   .field label.label-drag{display:flex;align-items:center;gap:6px;margin-left:-24px;width:106px}
@@ -277,6 +271,11 @@
   .qa h3{margin:0 0 4px;font-family:"Instrument Serif",serif;font-style:italic;font-weight:400;font-size:22px;letter-spacing:0}
   .qa .sub{font-size:12px;color:var(--ink-3);margin-bottom:16px;text-transform:uppercase;letter-spacing:0.1em}
   .field{display:flex;align-items:center;border-bottom:1px solid var(--line);padding:12px 0}
+  /* Le repli n'est posé que sur les rangées qui en ont besoin (celles qui
+     accueillent un cadre d'explication) : sur une `.field` mise en colonne —
+     nuancier, choix, période — `flex-wrap` fait déborder le contenu au lieu de
+     l'empiler, la hauteur de la boîte ne suivant plus. */
+  .field.field-info{flex-wrap:wrap}
   .field:last-of-type{border-bottom:none}
   .field label{font-size:10px;color:var(--ink-3);width:82px;flex-shrink:0;text-transform:uppercase;letter-spacing:0.12em}
   .field input,.field select,.field textarea{flex:1;font-size:14px}
@@ -453,7 +452,13 @@
      est réduit à son rond. Un `min-height` plutôt qu'un `height` — si une police
      rend plus haut que prévu, la piste grandit au lieu de rogner son texte. */
   :root{--ctl-h:33px}
-  .seg-track.compact,.seg-track.small{gap:2px;background:var(--bg-2);padding:3px;border-radius:999px;border:1px solid var(--line);flex-wrap:nowrap}
+  /* Filet de sécurité : une piste compacte ne se replie pas (son fond glissant
+     n'aurait aucun sens sur deux lignes) — donc elle ne doit pas non plus
+     déborder. Elle glisse. `scrollx` reste utile pour ce qu'il ajoute : les
+     options qui remplissent la largeur et le recentrage de l'option choisie. */
+  .seg-track.compact,.seg-track.small{gap:2px;background:var(--bg-2);padding:3px;border-radius:999px;border:1px solid var(--line);
+    flex-wrap:nowrap;max-width:100%;overflow-x:auto;scrollbar-width:none}
+  .seg-track.compact::-webkit-scrollbar,.seg-track.small::-webkit-scrollbar{display:none}
   /* `wrap` doit gagner sur le `nowrap` de la piste compacte : à égalité de
      spécificité (.seg-track.wrap vs .seg-track.small) c'est la dernière règle
      écrite qui l'emportait, et une piste de quatre options débordait de son
@@ -472,7 +477,12 @@
      carte (le repas, dans Créer), elle sortait du cadre. */
   .seg-track.scrollx{flex-wrap:nowrap;overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch;scrollbar-width:none}
   .seg-track.scrollx::-webkit-scrollbar{display:none}
-  .seg-track.scrollx button{flex-shrink:0}
+  /* Une piste `scrollx` remplit la largeur qu'on lui donne et glisse seulement
+     quand son contenu la dépasse : `flex:1 0 auto` (grandir oui, rétrécir non)
+     donne les deux d'un coup. C'est la réponse générale à « une bascule ne doit
+     jamais passer sur deux lignes » — la piste compacte, avec son fond qui
+     glisse, a l'air cassée dès qu'elle se replie. */
+  .seg-track.scrollx>button{flex:1 0 auto}
   .seg-track.compact{min-height:var(--ctl-h)}
   .seg-track.compact button,.seg-track.small button{border:none;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.1em;white-space:nowrap}
   .seg-track.compact button{padding:6px 14px;font-size:11px}
@@ -491,8 +501,7 @@
     border-radius:6px;padding:3px 6px;letter-spacing:normal;text-transform:none}
 
   /* Chart layout bar */
-  .layout-bar{display:flex;align-items:center;gap:16px;margin-bottom:18px;position:relative}
-  .layout-bar>.info{position:static}
+  .layout-bar{display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin-bottom:18px}
   .layout-label{font-size:10px;text-transform:uppercase;letter-spacing:0.18em;color:var(--ink-3);font-weight:500}
   /* Combien de cartes par ligne — le curseur écrit `data-per`, une valeur par
      règle plutôt qu'un `repeat()` calculé : la fonction repeat() n'accepte pas
@@ -501,12 +510,10 @@
   .chart-grid-layout{display:grid;gap:14px;margin-bottom:14px;grid-template-columns:1fr}
   .chart-grid-layout[data-per="2"]{grid-template-columns:repeat(2,minmax(0,1fr))}
   .chart-grid-layout[data-per="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .chart-grid-layout[data-per="4"]{grid-template-columns:repeat(4,minmax(0,1fr))}
   /* La carte porte déjà sa marge basse quand elle vit hors grille ; ici le gap
      s'en charge, sinon les lignes s'écartent de 28 px au lieu de 14. */
   .chart-grid-layout>.chart-card{margin-bottom:0}
-  @media (max-width:1100px){ .chart-grid-layout[data-per="4"]{grid-template-columns:repeat(3,minmax(0,1fr))} }
-  @media (max-width:880px){ .chart-grid-layout[data-per="3"],.chart-grid-layout[data-per="4"]{grid-template-columns:repeat(2,minmax(0,1fr))} }
+  @media (max-width:880px){ .chart-grid-layout[data-per="3"]{grid-template-columns:repeat(2,minmax(0,1fr))} }
 
   /* Le curseur « − / + ». Même famille que le curseur d'échelle, en plus court. */
   .per-row{display:flex;align-items:center;gap:9px;flex-shrink:0}
@@ -581,6 +588,9 @@
     border:1px solid var(--line-2);color:var(--ink-3);
     transition:color .3s var(--ease),border-color .3s var(--ease),background .3s var(--ease)}
   .icon-btn.sm{width:20px;height:20px}
+  /* Le plus petit rond de l'app : celui qui doit tenir à la hauteur d'une
+     pastille d'origine, sur la rangée du bas d'une carte d'item. */
+  .icon-btn.xs{width:19px;height:19px}
   .icon-btn:disabled{opacity:0.3;cursor:not-allowed}
 
   .chart-edit-btn:hover{color:var(--ink-2);border-color:var(--ink-2);background:var(--accent-soft)}
@@ -677,17 +687,73 @@
      avec l'ancienne classe .swatches, qui reste utilisée ailleurs. */
   .swatches{display:flex;gap:8px;flex-wrap:wrap}
   .swatch-grid{display:flex;flex-direction:column;gap:6px}
+  /* Douze colonnes au large, huit à l'étroit : c'est la taille de la pastille
+     qui commande, pas le nombre de couleurs. À douze colonnes sur un téléphone
+     elle tombait à 17 px — plus petite que le doigt qui la vise. */
   .swatch-row{display:grid;grid-template-columns:repeat(12,1fr);gap:6px}
+  @media (max-width:520px){ .swatch-row{grid-template-columns:repeat(8,1fr)} }
   .swatches button,.swatch{border-radius:50%;border:1px solid var(--line-2);position:relative;transition:transform .3s var(--ease)}
   .swatches button{width:26px;height:26px}
   .swatch{width:100%;aspect-ratio:1;min-width:0}
   .swatches button:hover,.swatch:hover{transform:scale(1.12)}
   .swatches button.on,.swatch.on{outline:2px solid var(--ink);outline-offset:2px}
-  /* « La couleur de Tracklog » — écrite en dur, et pas var(--accent) : dès qu'un
-     accent perso est posé, ce jeton EST la couleur perso, et la pastille du
-     retour en arrière montrerait ce qu'on cherche justement à quitter. */
-  .swatch-default{background:#e2542f}
-  .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:24px;border-top:1px solid var(--line);padding-top:18px}
+  /* La rangée du bout : la couleur hors grille du moment, et le « + » qui ouvre
+     l'éditeur. Elle ne s'étale pas sur douze colonnes comme les autres — deux
+     pastilles seules dans une grille de douze auraient l'air d'une rangée
+     ratée. */
+  .swatch-row-end{display:flex;gap:6px;padding-top:2px}
+  .swatch-row-end .swatch{width:26px;flex:none}
+  .swatch-custom{display:flex;align-items:center;justify-content:center;
+    font-size:15px;line-height:1;color:var(--ink-3);background:none;
+    border-style:dashed;transition:color .3s var(--ease),border-color .3s var(--ease)}
+  .swatch-custom:hover,.swatch-custom.open{color:var(--accent);border-color:var(--accent);border-style:solid}
+
+  /* L'éditeur de couleur : trois curseurs dont la piste montre déjà ce que le
+     curseur va faire — la teinte est un arc-en-ciel, la saturation va du gris à
+     la couleur pleine, la luminosité du noir au blanc en passant par elle. */
+  .color-editor{display:flex;gap:14px;align-items:flex-start;margin-top:12px;padding:14px;
+    background:var(--bg-3);border:1px solid var(--line);border-radius:var(--radius)}
+  .ce-preview{width:52px;height:52px;border-radius:50%;border:1px solid var(--line-2);flex-shrink:0}
+  .ce-rows{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px}
+  /* Deux lignes par curseur : l'intitulé et la valeur au-dessus, la piste
+     dessous sur toute la largeur. Une seule ligne obligeait à couper
+     « Luminosité » pour laisser passer la piste. */
+  .ce-row{display:grid;grid-template-columns:1fr auto;gap:2px 10px;width:auto}
+  .ce-lab{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-3)}
+  .ce-val{font-size:10px;color:var(--ink-3);text-align:right}
+  .ce-row>input{grid-column:1 / -1}
+  .ce-row input[type=range]{-webkit-appearance:none;appearance:none;flex:1;min-width:0;height:16px;
+    background:transparent;cursor:pointer}
+  .ce-row input[type=range]::-webkit-slider-runnable-track{height:8px;border-radius:4px;
+    background:var(--track);border:1px solid var(--line-2)}
+  .ce-row input[type=range]::-moz-range-track{height:8px;border-radius:4px;background:var(--track);
+    border:1px solid var(--line-2)}
+  .ce-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    width:14px;height:14px;border-radius:50%;background:var(--bg);border:2px solid var(--ink);margin-top:-4px}
+  .ce-row input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
+    background:var(--bg);border:2px solid var(--ink)}
+  .ce-hex input[type=color]{grid-column:1 / -1;width:100%;height:26px;padding:0;
+    border:1px solid var(--line-2);border-radius:4px;background:var(--bg-2);cursor:pointer}
+  @media (max-width:440px){
+    .color-editor{flex-direction:column;align-items:stretch}
+    .ce-preview{width:100%;height:26px;border-radius:4px}
+  }
+  /* Trois boutons (Supprimer / Annuler / Enregistrer) ne tiennent pas sur une
+     ligne dans une fenêtre étroite : la rangée se replie plutôt que de couper
+     le premier mot contre le bord. Le destructeur reste à gauche, loin du
+     bouton qu'on vise vraiment. */
+  .modal-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:24px;border-top:1px solid var(--line);padding-top:18px}
+  .modal-actions .danger{margin-right:auto}
+  /* À l'étroit, trois boutons tiennent encore sur une ligne si on leur retire
+     l'interlettrage de parade — mieux que de laisser « Enregistrer » descendre
+     seul sur une deuxième ligne. */
+  /* À l'étroit les trois ne tiennent pas : plutôt que de laisser « Enregistrer »
+     descendre seul, c'est le destructeur qui prend sa propre ligne, en dessous
+     et à gauche — le plus loin possible du bouton qu'on visait. */
+  @media (max-width:440px){
+    .modal-actions{gap:6px 8px}
+    .modal-actions .danger{order:2;flex:1 0 100%;margin-right:0;text-align:left;padding-left:0}
+  }
   .modal-actions .ghost{font-size:11px;padding:10px 16px;border-radius:999px;color:var(--ink-2);text-transform:uppercase;letter-spacing:0.12em;transition:color .3s,background .3s}
   .modal-actions .ghost:hover{background:var(--bg-3);color:var(--ink)}
   .modal-actions .primary{transition:background .3s var(--ease)}
@@ -700,15 +766,33 @@
   .modal-section{font-family:"Instrument Serif",serif;font-style:italic;font-size:17px;color:var(--ink-2);margin:22px 0 2px;padding-top:16px;border-top:1px solid var(--line)}
   .modal-section.first{border-top:none;padding-top:2px;margin-top:8px}
 
-  /* A control (seg) sitting on a row with a trailing info bubble */
-  .ctl-with-info{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
+  /* Le contrôle d'une rangée, son « i », et le cadre que le « i » déplie —
+     lequel prend une ligne entière (d'où `flex-wrap`), sous le contrôle. */
+  .ctl-with-info{flex:1;display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-width:0}
 
-  /* Click-to-reveal info bubble */
-  .info{position:relative;display:inline-flex;line-height:0;flex-shrink:0}
-  .info-btn{font-size:11px;font-style:italic;font-family:"Instrument Serif",serif}
+  /* L'explication n'est pas un calque au-dessus de la page : elle se déplie
+     DANS le corps, sous la chose expliquée, et pousse ce qui suit. Un calque
+     recouvre justement ce dont il parle, et il faut le refermer pour vérifier
+     ce qu'on vient de lire. Le cadre reste dans le DOM, replié à zéro, pour que
+     l'ouverture ET la fermeture s'animent : `grid-template-rows: 0fr → 1fr` est
+     la seule façon d'animer vers une hauteur automatique. */
+  .info-btn{font-size:11px;font-style:italic;font-family:"Instrument Serif",serif;flex-shrink:0}
   .info-btn:hover,.info-btn.on{border-color:var(--accent);color:var(--accent)}
-  .info-pop{position:absolute;top:calc(100% + 8px);right:0;width:250px;background:var(--bg-3);border:1px solid var(--line-2);border-radius:10px;padding:12px 14px;font-size:12px;line-height:1.6;color:var(--ink-2);text-transform:none;letter-spacing:0;font-weight:400;z-index:6;box-shadow:0 20px 44px -22px rgba(0,0,0,.8);animation:fadeIn .15s ease-out}
-  .info-pop .k{color:var(--ink);font-weight:500}
+  .info-panel{flex:1 0 100%;display:grid;grid-template-rows:0fr;margin-top:0;
+    transition:grid-template-rows .35s var(--ease),margin-top .35s var(--ease)}
+  .info-panel.open{grid-template-rows:1fr;margin-top:10px}
+  .info-panel-in{overflow:hidden;min-height:0}
+  .info-panel-box{display:block;background:var(--bg-3);border:1px solid var(--line);
+    border-left:2px solid var(--accent);border-radius:var(--radius);padding:11px 13px;
+    text-transform:none;letter-spacing:0;font-weight:400;text-align:left}
+  /* Le nom par lequel on désigne la chose expliquée — c'est le mot à retenir,
+     celui qu'on retrouvera dans le reste de l'app et dans une conversation. */
+  .info-panel-t{display:block;font-size:9px;text-transform:uppercase;letter-spacing:0.14em;
+    color:var(--accent);margin-bottom:5px;font-family:"Geist",ui-sans-serif,sans-serif}
+  .info-panel-b{display:block;font-size:12px;line-height:1.6;color:var(--ink-2);
+    font-family:"Geist",ui-sans-serif,sans-serif;font-style:normal}
+  .info-panel-b .k{color:var(--ink);font-weight:500}
+  @media (prefers-reduced-motion:reduce){ .info-panel{transition:none} }
 
   /* Choices editor (in the tracker modal) */
   .choices-editor{display:flex;flex-direction:column;gap:8px;width:100%}
@@ -1130,20 +1214,24 @@
   .fd-meal-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
   .fd-meal .fd-row:first-of-type{border-top:none;padding-top:2px}
   .fd-meal-kcal{font-size:11px;color:var(--ink-3)}
-  .fd-row{display:flex;align-items:baseline;gap:14px;padding:11px 2px;border-top:1px solid var(--line)}
+  /* La ligne entière est le bouton « modifier » : un seul geste, et plus deux
+     mots d'action répétés au bout de chaque ligne. La quantité est détachée du
+     nom (sa propre colonne, à droite du groupe nom+marque) — collée dessus,
+     elle se lisait comme la fin du nom. */
+  .fd-row{display:flex;align-items:baseline;gap:14px;padding:11px 4px;border-top:1px solid var(--line);
+    width:100%;text-align:left;background:none;color:inherit;font:inherit;border-left:none;border-right:none;
+    border-bottom:none;cursor:pointer;transition:background .3s var(--ease)}
+  .fd-row:hover{background:var(--bg-3)}
   .fd-row-main{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
   .fd-row-name{font-size:13px;color:var(--ink)}
   .fd-row-brand{font-size:11px;color:var(--ink-3)}
-  .fd-row-qty{font-size:11px;color:var(--ink-2)}
+  .fd-row-qty{font-size:11px;color:var(--ink-2);flex-shrink:0;padding:1px 7px;border-radius:999px;
+    border:1px solid var(--line-2)}
   .fd-row-macros{display:flex;gap:10px;font-size:11px;color:var(--ink-3);flex-shrink:0}
   .fd-row-macros i{font-style:normal;opacity:.6;margin-left:2px}
   .fd-row-kcal{font-family:"Geist Mono",monospace;font-size:13px;color:var(--ink);flex-shrink:0}
   .fd-row-kcal i{font-style:normal;font-size:9px;color:var(--ink-3);margin-left:3px}
-  .fd-row-actions{display:flex;gap:8px;opacity:0;transition:opacity .35s var(--ease);flex-shrink:0}
-  .fd-row:hover .fd-row-actions{opacity:1}
-  .fd-row-actions button{font-size:10px;color:var(--ink-3);background:none;border:none;padding:4px 6px;text-transform:uppercase;letter-spacing:0.08em}
-  .fd-row-actions button:hover{color:var(--ink)}
-  .fd-row-actions button.del:hover{color:var(--warn)}
+
   .fd-add{margin-top:8px;font-size:11px;color:var(--ink-3);background:none;border:1px dashed var(--line-2);border-radius:999px;padding:7px 14px;transition:all .35s var(--ease)}
   .fd-add:hover{color:var(--ink);border-color:var(--ink-3)}
   /* La même pastille pointillée, mais pleine largeur : « il y a une ligne de
@@ -1309,26 +1397,56 @@
      défilait dans sa propre fenêtre de 46vh n'utilisait qu'un tiers de l'écran
      pour montrer ce qu'on est venu chercher. */
   .fd-list{display:flex;flex-direction:column;gap:8px;margin:10px 0 0}
-  .fd-item{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:10px 4px;border:none;border-bottom:1px solid var(--line);background:none;transition:background .3s var(--ease)}
-  .fd-item:hover{background:var(--bg-3)}
-  .fd-item img{width:38px;height:38px;object-fit:cover;border-radius:2px;flex-shrink:0;background:var(--bg-3)}
-  .fd-item-ph{width:38px;height:38px;border-radius:2px;flex-shrink:0;background:var(--bg-3);display:flex;align-items:center;justify-content:center;font-family:"Instrument Serif",serif;font-style:italic;color:var(--ink-3)}
-  .fd-item-txt{display:flex;flex-direction:column;gap:3px;min-width:0}
-  .fd-item-txt .n{font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .fd-item-txt .m{font-size:10px;color:var(--ink-3)}
-  .fd-item{border-bottom:none;flex:1;min-width:0}
-  /* Chaque résultat est une carte, comme tout le reste de l'app — un filet
-     entre deux lignes ne disait pas assez que ce sont des objets distincts,
-     chacun avec ses propres actions. */
-  .fd-item-row{display:flex;align-items:center;gap:2px;padding:2px 6px;
+  /* La carte d'un item : trois zones dans une grille, pour que les mêmes
+     éléments tombent au même endroit d'une carte à l'autre.
+       nom  | chiffres
+       tag+actions | chiffres
+     avec, à gauche, une colonne d'image quand on l'a demandée. */
+  .fd-item-row{display:grid;grid-template-columns:minmax(0,1fr) auto;
+    grid-template-areas:"name nums" "foot nums";
+    column-gap:10px;row-gap:5px;align-items:center;padding:9px 10px;
     background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);
     transition:border-color .35s var(--ease)}
+  .fd-item-row.with-img{grid-template-columns:auto minmax(0,1fr) auto;
+    grid-template-areas:"img name nums" "img foot nums"}
   .fd-item-row:hover{border-color:var(--line-2)}
-  .fd-item-txt .m b{color:var(--ink-2);font-weight:500}
-  /* L'action au bout d'une ligne de résultat — modifier un repas, ouvrir la
-     fiche d'origine — est un vrai bouton rond, comme partout ailleurs, et non
-     un glyphe nu posé dans la marge. */
-  .fd-item-act{display:flex;align-items:center;gap:6px;padding:0 8px 0 4px;flex-shrink:0}
+  .fd-item-thumb{grid-area:img;width:42px;height:42px;flex-shrink:0}
+  .fd-item-thumb img{width:100%;height:100%;object-fit:cover;border-radius:2px;background:var(--bg-3)}
+  .fd-item-ph{width:100%;height:100%;border-radius:2px;background:var(--bg-3);display:flex;
+    align-items:center;justify-content:center;font-family:"Instrument Serif",serif;font-style:italic;color:var(--ink-3)}
+  /* Le nom et sa sous-catégorie se posent l'un sous l'autre plutôt que de se
+     tronquer tous les deux quand la carte porte aussi une image. */
+  .fd-item-name{grid-area:name;display:flex;flex-wrap:wrap;align-items:baseline;gap:1px 7px;min-width:0;
+    width:100%;text-align:left;padding:0;border:none;background:none;color:inherit;font:inherit}
+  .fd-item-name .n{font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fd-item-sub{font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:1;min-width:0}
+  /* La pastille d'origine a la largeur du plus long des quatre mots (« simple »),
+     quel que soit le sien : c'est ce qui met les trois ronds qui la suivent à la
+     même abscisse sur toutes les cartes. */
+  .fd-item-foot{grid-area:foot;display:flex;align-items:center;gap:4px;min-width:0}
+  /* 56 px : la largeur du plus long des quatre mots (« simple »), pas une
+     valeur ronde choisie au hasard. En dessous, la pastille reprend sa largeur
+     naturelle et les trois ronds se décalent d'une carte à l'autre. */
+  .fd-item-foot .item-tag{min-width:56px;text-align:center;flex-shrink:0;padding:4px 6px}
+  .fd-item-nums{grid-area:nums;padding:0;border:none;background:none;color:inherit;font:inherit;
+    display:block;flex-shrink:0}
+
+  /* Les chiffres, en cases jointes — angles vifs et bords partagés : une ligne
+     de tableau, pas quatre pastilles. */
+  .fd-macros{display:flex;flex-direction:column;gap:0}
+  .comp{display:flex;height:3px;overflow:hidden;background:var(--bg-3)}
+  .comp i{display:block;height:100%}
+  .fd-macro-strip{display:flex;border:1px solid var(--line-2)}
+  .mc{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+    padding:3px 4px;min-width:30px;border-left:1px solid var(--line-2);color:var(--ink-2)}
+  .mc:first-child{border-left:none;min-width:44px}
+  .mc b{font-family:"Geist Mono",monospace;font-feature-settings:"tnum";font-size:12px;
+    font-weight:400;color:currentColor;line-height:1.1}
+  .mc u{font-size:7.5px;letter-spacing:0.08em;text-transform:uppercase;text-decoration:none;
+    color:var(--ink-3);line-height:1}
+  .fd-edit-btn:hover{color:var(--accent);border-color:var(--accent)}
+  .fd-forget-btn:hover{color:var(--warn);border-color:var(--warn)}
   .fd-edit-btn:hover{color:var(--accent);border-color:var(--accent)}
   .fd-forget-btn:hover{color:var(--warn);border-color:var(--warn)}
   .fd-list-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:var(--ink-3);margin:10px 0 2px;padding:0 4px}
@@ -1351,16 +1469,9 @@
   .fd-src-credit{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3)}
   .fd-src-lic{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink-3);
               border:1px solid var(--line-2);border-radius:999px;padding:2px 7px}
-  /* La bulle s'ouvre AU-DESSUS : les sources sont en pied de page, il n'y a
-     rien en dessous pour l'accueillir. Au large elle reste accrochée à son
-     « i » ; à l'étroit elle s'accroche à la barre (`position:static` sur
-     `.info` rend la barre positionnante), sans quoi celle du premier crédit
-     sortait de l'écran par la droite. */
-  .fd-sources .info-pop{top:auto;bottom:calc(100% - 8px);width:min(320px,calc(100vw - 44px))}
-  @media (max-width:700px){
-    .fd-sources .info{position:static}
-    .fd-sources .info-pop{left:0;right:auto}
-  }
+  /* Le crédit passe à la ligne pour accueillir son cadre d'explication, comme
+     partout ailleurs : l'explication vit sous ce qu'elle explique. */
+  .fd-src-credit{flex-wrap:wrap}
   .fd-sources a{color:var(--ink-2);text-decoration:none;border-bottom:1px solid var(--line-2)}
   .fd-sources a:hover{color:var(--accent);border-color:var(--accent)}
   .fd-source-links{display:flex;flex-direction:column;gap:8px;font-size:10px;text-transform:uppercase;letter-spacing:0.1em}
@@ -1408,10 +1519,13 @@
   .fd-chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
   .fd-chips button{font-size:11px;color:var(--ink-2);border:1px solid var(--line);border-radius:999px;padding:6px 12px;background:transparent;transition:all .35s var(--ease)}
   .fd-chips button:hover{border-color:var(--line-2);color:var(--ink)}
-  .fd-preview{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:14px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-bottom:6px}
-  .fd-preview>div{display:flex;flex-direction:column;gap:5px;text-align:center}
-  .fd-preview .l{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3)}
-  .fd-preview .v{font-family:"Geist Mono",monospace;font-size:17px;color:var(--ink)}
+  /* Les mêmes cases que sur une carte d'item, en plus grand : c'est le même
+     objet — quatre chiffres qui vont ensemble — vu de plus près. */
+  .fd-preview{padding:14px 0 16px}
+  .fd-macros-wide .fd-macro-strip{width:100%}
+  .fd-macros-wide .mc{flex:1;padding:8px 4px;gap:3px}
+  .fd-macros-wide .mc b{font-size:17px}
+  .fd-macros-wide .mc u{font-size:8.5px}
   .fd-modal .modal-section{margin-top:18px}
   .fd-more-fields{margin-top:6px}
 
@@ -1429,7 +1543,10 @@
   .fd-food-actions{flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px;margin-top:12px}
   .fd-food-actions .tk-edit{padding:7px 10px;letter-spacing:0.08em}
   .tk-edit.danger-edit:hover{background:var(--warn);border-color:var(--warn);color:var(--bg)}
-  .fd-src-btn{margin-left:auto;text-decoration:none}
+  /* Plus de `margin-left:auto` : la flèche vivait seule au bout de la ligne,
+     elle est maintenant la première des trois actions groupées, et il n'y a
+     plus rien à repousser. */
+  .fd-src-btn{text-decoration:none}
   .fd-src-btn:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
 
   /* Répartition des calories */
@@ -1467,6 +1584,27 @@
      ============================================================ */
   @media (max-width: 640px){
     .app{padding:22px 18px 80px}
+
+    /* Une bascule ne doit JAMAIS se replier sur deux lignes : la piste compacte
+       a un fond qui glisse d'une option à l'autre, et il n'a pas de sens sur
+       deux lignes. Premier remède, avant tout autre : rendre au contrôle toute
+       la largeur. L'intitulé passe donc au-dessus, le contrôle occupe la ligne
+       entière, et une piste d'une ou deux options y tient largement.
+       (Le second remède, quand ça ne suffit pas, est dans `.seg-track.scrollx`
+       plus haut : une ligne qui glisse plutôt qu'une ligne qui se replie.) */
+    .settings-card .field,.fd-add-page .field{flex-direction:column;align-items:stretch;gap:9px}
+    .settings-card .field>label,.fd-add-page .field>label,
+    .settings-card .field.spread>label.label-drag{width:auto;flex:none}
+    .settings-card .field.spread>:last-child{margin-left:0}
+    .settings-card .field.spread .ctl-with-info,
+    .fd-add-page .field .ctl-with-info{justify-content:flex-start}
+    /* La piste prend la largeur restante, pas toute la ligne : le « i » doit
+       rester à côté d'elle, pas descendre sur une ligne à lui. */
+    .settings-card .field .seg-track.scrollx,.fd-add-page .field .seg-track.scrollx{flex:1 1 auto;min-width:0}
+
+    /* Un champ numérique garde sa saisie à droite : c'est une valeur, pas une
+       bascule, et l'étirer sur toute la largeur ne la rend pas plus lisible. */
+    .fd-add-page .field .field-num{align-self:flex-end}
 
     /* Inputs must stay >=16px or iOS Safari zooms in on focus */
     input,select,textarea,
@@ -1523,11 +1661,10 @@
     .fd-total-goal{font-size:9px}
     .fd-row{flex-wrap:wrap;gap:8px 12px}
     .fd-row-main{flex:1 1 100%}
-    .fd-row-actions{opacity:1;margin-left:auto}
+    .fd-row-qty{margin-right:auto}
     .fd-micros{grid-template-columns:1fr}
     .fd-lib-search{max-width:none;flex:1 1 100%;order:-1}
-    .fd-preview{grid-template-columns:repeat(4,1fr);gap:6px}
-    .fd-preview .v{font-size:15px}
+    .fd-macros-wide .mc b{font-size:15px}
     .fd-primary{width:100%;justify-content:center}
     /* Barre à icône : la forme intégrée reste une barre (le rond doit tenir
        dedans), la forme séparée passe à la ligne plutôt que d'écraser sa
@@ -1606,8 +1743,8 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=54"></script>
-<script type="text/babel" src="app.food.jsx?v=23"></script>
+<script type="text/babel" src="app.jsx?v=56"></script>
+<script type="text/babel" src="app.food.jsx?v=25"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>

@@ -62,16 +62,51 @@ const { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useC
    nuancier, ils n'ont pas l'air d'être hors palette. Et si une couleur stockée
    n'y est vraiment pas (import, ancienne version), TrackerModal l'ajoute en fin
    de grille plutôt que de faire semblant que rien n'est sélectionné. */
-const COLOR_HUES = [5, 30, 55, 80, 115, 150, 185, 215, 250, 285, 320, 350];
-const COLOR_LIGHTS = [0.40, 0.55, 0.70, 0.82];
-const COLOR_CHROMA = 0.10;
-// Les neutres ouvrent la grille : l'encre d'origine, puis trois gris qui suivent
-// les mêmes paliers de luminosité que les teintes.
-const COLOR_NEUTRALS = ['#1c1b18', 'oklch(0.45 0 0)', 'oklch(0.62 0 0)', 'oklch(0.78 0 0)'];
-const COLOR_ROWS = COLOR_LIGHTS.map(l => COLOR_HUES.map(h => `oklch(${l.toFixed(2)} ${COLOR_CHROMA.toFixed(2)} ${h})`));
-const COLORS = [...COLOR_NEUTRALS, ...COLOR_ROWS.flat()];
-// La couleur proposée à la création : le vert de toujours (L 0.55, teinte 150).
-const DEFAULT_COLOR = `oklch(0.55 ${COLOR_CHROMA.toFixed(2)} 150)`;
+/* Le nuancier ne fait plus varier qu'UNE chose : la teinte. Luminosité et
+   chroma sont posées au maximum utilisable et ne bougent plus — quatre paliers
+   de luminosité par teinte donnaient 48 pastilles dont beaucoup se
+   ressemblaient, alors que ce qu'on choisit vraiment en cliquant, c'est une
+   couleur, pas une nuance. Qui veut une nuance précise ouvre l'éditeur.
+
+   24 teintes, pas 12 ni 36. Le repère classique est la roue à 12 (un pas de
+   30°) : tout y est nommable, mais on n'y trouve ni turquoise ni indigo. Les
+   systèmes de design courants tournent autour de 14 (Material) à 22 (Tailwind)
+   teintes. En OKLCH les pas de teinte sont perceptuellement réguliers, ce qui
+   n'est pas le cas en HSL : à 15° deux voisines restent distinguables côte à
+   côte, à 10° elles ne le sont plus vraiment. 24 est donc le dernier cran utile
+   — et il tient en deux rangées de douze, sans rétrécir les pastilles.
+
+   Le décalage de 5° n'est pas arbitraire : il place une teinte pile sur 35°,
+   celle de l'orange de Tracklog (#e2542f = oklch(0.63 0.184 35)). La couleur
+   d'accent d'origine est donc dans la grille, pas à côté. */
+const COLOR_HUE_STEP = 15;
+const COLOR_HUE_OFFSET = 5;
+const COLOR_HUES = Array.from({ length: 360 / COLOR_HUE_STEP }, (_, i) => COLOR_HUE_OFFSET + i * COLOR_HUE_STEP);
+const COLOR_LIGHT = 0.63;
+// Au-delà du gamut sRGB pour la plupart des teintes : le navigateur ramène la
+// chroma au maximum affichable, ce qui est exactement « saturation à fond ».
+const COLOR_CHROMA = 0.20;
+// Un dégradé du noir au blanc pour compléter — une couleur de tracker n'est pas
+// toujours une couleur.
+const COLOR_GREY_STEPS = 8;
+const COLOR_NEUTRALS = Array.from({ length: COLOR_GREY_STEPS }, (_, i) =>
+  `oklch(${(0.15 + (0.97 - 0.15) * (i / (COLOR_GREY_STEPS - 1))).toFixed(2)} 0 0)`);
+/* Deux familles, pas deux rangées : c'est la grille qui décide combien de
+   pastilles tiennent sur une ligne (douze au large, huit sur un téléphone —
+   en dessous, la pastille passe sous les 24 px et devient introuvable au
+   doigt). 8 et 24 se divisent par les deux, donc aucune ligne bancale d'un
+   écran à l'autre. */
+const COLOR_ROWS = [
+  COLOR_NEUTRALS,
+  COLOR_HUES.map(h => `oklch(${COLOR_LIGHT} ${COLOR_CHROMA} ${h})`),
+];
+const COLORS = COLOR_ROWS.flat();
+// La couleur proposée à la création : le vert de toujours, à la teinte du
+// nuancier qui en est la plus proche.
+const DEFAULT_COLOR = `oklch(${COLOR_LIGHT} ${COLOR_CHROMA} 155)`;
+// L'accent d'origine, tel qu'il vit dans les jetons CSS — et la pastille du
+// nuancier qui lui correspond, à la teinte près.
+const TRACKLOG_ACCENT = `oklch(${COLOR_LIGHT} ${COLOR_CHROMA} 35)`;
 
 const TYPES = [
   { id:'number',   label:'Nombre',   desc:'kg, €, pas, ml…' },
@@ -157,7 +192,7 @@ const GRAINS = [
    est plus étroite que son propre axe : le graphe cesse de se lire.
    Chaque cran retire du détail plutôt que de le tasser — c'est ce qui fait la
    différence entre « plus petit » et « illisible ». */
-const MAX_PER_ROW = 4;
+const MAX_PER_ROW = 3;
 function chartDetail(perRow){
   // `axisLabels:false` au cran serré n'est pas qu'une simplification voulue :
   // le SVG est étiré en `preserveAspectRatio="none"`, donc son texte se
@@ -501,23 +536,29 @@ const InfoVisibilityContext = React.createContext(true);
    explication — le crédit que la licence d'Open Food Facts impose, ou la bulle
    de l'interrupteur lui-même, seule porte pour rallumer les autres — ne doit
    pas disparaître avec l'interrupteur. */
-function InfoBubble({ children, always = false }){
+function InfoBubble({ children, title, always = false }){
   const infoEnabled = useContext(InfoVisibilityContext);
   const [open, setOpen] = useState(false);
-  const ref = useRef();
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', onDoc);
-    document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') setOpen(false); });
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [open]);
   if (!infoEnabled && !always) return null;
   return (
-    <span className="info" ref={ref}>
-      <button type="button" className={`icon-btn sm info-btn ${open?'on':''}`} onClick={()=>setOpen(o=>!o)} aria-label="Plus d'infos">i</button>
-      {open && <span className="info-pop">{children}</span>}
-    </span>
+    <>
+      <button type="button" className={`icon-btn sm info-btn ${open?'on':''}`}
+              onClick={()=>setOpen(o=>!o)} aria-expanded={open}
+              aria-label={open ? "Masquer l'explication" : "Plus d'infos"}>i</button>
+      {/* Le cadre est toujours dans le DOM, replié à zéro : c'est ce qui permet
+          de l'animer dans les deux sens (grid-template-rows 0fr → 1fr, la seule
+          façon d'animer vers une hauteur automatique). Il occupe une ligne
+          entière de son conteneur — d'où `flex:1 0 100%` — et pousse donc ce
+          qui suit au lieu de le recouvrir. */}
+      <span className={`info-panel ${open?'open':''}`} aria-hidden={!open}>
+        <span className="info-panel-in">
+          <span className="info-panel-box">
+            {title && <span className="info-panel-t">{title}</span>}
+            <span className="info-panel-b">{children}</span>
+          </span>
+        </span>
+      </span>
+    </>
   );
 }
 // The one gear in the app. Every "open the settings of this thing" button wears
@@ -958,29 +999,82 @@ function DragHandle({ onPointerDown, dragging }){
    façon, et deux grilles jumelles auraient dérivé l'une de l'autre.
    `extra` ajoute une pastille au bout (« la couleur de Tracklog » dans les
    paramètres) sans que la grille ait à connaître ce qu'elle veut dire. */
-function SwatchGrid({ value, onChange, extra = null }){
+function SwatchGrid({ value, onChange }){
+  const [editing, setEditing] = useState(false);
+  const custom = value && !COLORS.includes(value);
   return (
     <div className="swatch-grid">
-      <div className="swatch-row">
-        {COLOR_NEUTRALS.map(c => (
-          <button key={c} type="button" className={`swatch ${value===c?'on':''}`} style={{background:c}}
-                  onClick={()=>onChange(c)} aria-label={`Couleur ${c}`} />
-        ))}
-        {/* Une couleur venue d'ailleurs (ancienne version, import, pipette)
-            reste sélectionnée et cliquable plutôt que d'être ignorée. */}
-        {value && !COLORS.includes(value) && (
-          <button type="button" className="swatch on" style={{background:value}} title="Couleur actuelle" aria-label="Couleur actuelle" />
-        )}
-        {extra}
-      </div>
       {COLOR_ROWS.map((row, i) => (
         <div className="swatch-row" key={i}>
           {row.map(c => (
             <button key={c} type="button" className={`swatch ${value===c?'on':''}`} style={{background:c}}
-                    onClick={()=>onChange(c)} aria-label={`Couleur ${c}`} />
+                    onClick={()=>{ onChange(c); setEditing(false); }} aria-label={`Couleur ${c}`} />
           ))}
         </div>
       ))}
+      <div className="swatch-row swatch-row-end">
+        {/* Une couleur qui n'est pas dans la grille — venue d'une version
+            précédente, d'un import, ou de l'éditeur — reste sélectionnée et
+            cliquable plutôt que d'être ignorée. */}
+        {custom && (
+          <button type="button" className="swatch on" style={{background:value}}
+                  onClick={()=>setEditing(v=>!v)} title="Couleur personnalisée" aria-label="Couleur personnalisée" />
+        )}
+        <button type="button" className={`swatch swatch-custom ${editing?'open':''}`}
+                onClick={()=>setEditing(v=>!v)} aria-expanded={editing}
+                title="Composer une couleur" aria-label="Composer une couleur">+</button>
+      </div>
+      {editing && <ColorEditor value={value} onChange={onChange} />}
+    </div>
+  );
+}
+
+/* L'éditeur : trois curseurs pour composer n'importe quelle couleur, plus la
+   pipette du système pour en coller une exacte. Les curseurs parlent OKLCH
+   comme le reste du nuancier — c'est ce qui fait qu'une teinte déplacée garde
+   la même intensité perçue, ce que HSL ne promet pas. La pipette, elle, rend un
+   hexadécimal : on le garde tel quel, une couleur reste une chaîne CSS. */
+function ColorEditor({ value, onChange }){
+  const parsed = useMemo(() => {
+    const m = /oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)/i.exec(value || '');
+    return m ? { l:parseFloat(m[1]), c:parseFloat(m[2]), h:parseFloat(m[3]) }
+             : { l:COLOR_LIGHT, c:COLOR_CHROMA, h:35 };
+  }, [value]);
+  const [hsl, setHsl] = useState(parsed);
+  // Une pastille cliquée pendant que l'éditeur est ouvert doit y être reprise,
+  // sinon le premier mouvement de curseur repartirait de l'ancienne couleur.
+  const seen = useRef(value);
+  if (seen.current !== value){ seen.current = value; if (parsed.h !== hsl.h || parsed.l !== hsl.l || parsed.c !== hsl.c) setHsl(parsed); }
+
+  const emit = (next) => { setHsl(next); onChange(`oklch(${next.l.toFixed(2)} ${next.c.toFixed(3)} ${Math.round(next.h)})`); };
+  const track = (kind) => {
+    if (kind === 'h') return 'linear-gradient(to right,' + [0,60,120,180,240,300,360].map(h=>`oklch(${COLOR_LIGHT} ${COLOR_CHROMA} ${h})`).join(',') + ')';
+    if (kind === 'c') return `linear-gradient(to right, oklch(${hsl.l} 0 ${hsl.h}), oklch(${hsl.l} 0.37 ${hsl.h}))`;
+    return `linear-gradient(to right, oklch(0 0 0), oklch(${hsl.l.toFixed(2)} ${hsl.c} ${hsl.h}), oklch(1 0 0))`;
+  };
+  const row = (kind, label, min, max, step, val) => (
+    <label className="ce-row">
+      <span className="ce-lab">{label}</span>
+      <input type="range" min={min} max={max} step={step} value={val}
+             style={{'--track': track(kind)}}
+             onChange={e=>emit({ ...hsl, [kind === 'h' ? 'h' : kind === 'c' ? 'c' : 'l']: parseFloat(e.target.value) })} />
+      <span className="ce-val mono">{kind === 'h' ? `${Math.round(val)}°` : Math.round(val * 100) + '%'}</span>
+    </label>
+  );
+
+  return (
+    <div className="color-editor">
+      <div className="ce-preview" style={{background:value}} aria-hidden="true"></div>
+      <div className="ce-rows">
+        {row('h', 'Teinte',     0, 360, 1,    hsl.h)}
+        {row('c', 'Saturation', 0, 0.37, 0.005, hsl.c)}
+        {row('l', 'Luminosité', 0, 1,   0.01, hsl.l)}
+        <label className="ce-row ce-hex">
+          <span className="ce-lab">Pipette</span>
+          <span className="ce-val">une couleur exacte</span>
+          <input type="color" onChange={e=>onChange(e.target.value)} aria-label="Choisir une couleur exacte" />
+        </label>
+      </div>
     </div>
   );
 }
@@ -1193,6 +1287,9 @@ function App({ session }){
   // la lit sur plusieurs appareils. Le miroir local sert l'affichage immédiat.
   const [infoEnabled, setInfoEnabled] = useSyncedPref(accountPrefs, 'help', `tracklog.infoEnabled.${userId}`, true);
   const [showWeek, setShowWeek] = useSyncedPref(accountPrefs, 'showWeek', 'tracklog.showWeek', true);
+  // La barre de composition des cartes d'aliment : lue ici pour le réglage, et
+  // relue par app.food.jsx via le contexte, là où les cartes se dessinent.
+  const [compBar, setCompBar] = useSyncedPref(accountPrefs, 'compBar', 'tracklog.compBar', true);
   // Le style est lu par un petit script en tête de page, avant même que l'app
   // charge, pour que la page ne clignote jamais dans les mauvaises couleurs — ce
   // script ne peut pas savoir quel compte se connecte, d'où une clé non scopée par
@@ -1646,6 +1743,8 @@ function App({ session }){
           onSetTheme={setTheme}
           accent={accent}
           onSetAccent={setAccent}
+          compBar={compBar}
+          onSetCompBar={setCompBar}
           tabs={visibleTabs}
           onSetTabVisible={accountPrefs.setTab}
           tabOrder={accountPrefs.tabOrder}
@@ -1702,6 +1801,7 @@ function App({ session }){
    ============================================================ */
 function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled, onSetInfoEnabled,
                        showWeek, onSetShowWeek, theme, onSetTheme, accent, onSetAccent,
+                       compBar, onSetCompBar,
                        tabs, onSetTabVisible, prefsReady,
                        tabOrder = [], onSetTabOrder = () => {},
                        archivedTrackers = [], onEditTracker }){
@@ -1728,7 +1828,7 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
       <div className="card settings-card">
         <p className="settings-section-title">
           Style
-          <InfoBubble>
+          <InfoBubble title="Style">
             Le style suit le compte : choisi sur le téléphone, il s'applique aussi sur
             l'ordinateur. D'autres viendront s'ajouter à cette liste.
           </InfoBubble>
@@ -1751,19 +1851,20 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
             mêmes couleurs, il n'y a pas de raison d'en inventer une seconde
             grille — plus une pastille pour revenir à celle de Tracklog. */}
         <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:10,borderBottom:'none'}}>
-          <label style={{width:'auto',display:'flex',alignItems:'center',gap:8}}>
+          <label className="lab-info" style={{width:'auto'}}>
             Couleur d'accent
-            <InfoBubble>
+            <InfoBubble title="Couleur d'accent">
               La couleur des boutons, des liens et de tout ce qui doit attirer l'œil.
               La première pastille remet celle de Tracklog. Comme le style, elle suit le
               compte : posée sur le téléphone, elle est là sur l'ordinateur.
             </InfoBubble>
           </label>
-          <SwatchGrid value={accent} onChange={onSetAccent} extra={
-            <button type="button" className={`swatch swatch-default ${!accent?'on':''}`}
-                    onClick={()=>onSetAccent('')} title="Couleur de Tracklog"
-                    aria-label="Revenir à la couleur de Tracklog" />
-          } />
+          {/* Pas de pastille « défaut » à part : la teinte 35 du nuancier EST
+              l'orange de Tracklog, alors la choisir remet simplement l'app à sa
+              couleur d'origine — une pastille de plus, presque identique à sa
+              voisine, n'aurait dit qu'une seule chose de deux façons. */}
+          <SwatchGrid value={accent || TRACKLOG_ACCENT}
+                      onChange={c => onSetAccent(c === TRACKLOG_ACCENT ? '' : c)} />
         </div>
       </div>
 
@@ -1780,13 +1881,13 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
         <div className="field spread">
           <label>Bulles infos</label>
           <div className="ctl-with-info">
-            <Segmented size="small">
+            <Segmented size="small" scrollx>
               <button className={infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(true)}>Affichées</button>
               <button className={!infoEnabled?'on':''} onClick={()=>onSetInfoEnabled(false)}>Masquées</button>
             </Segmented>
             {/* La seule bulle qui ne se masque pas : c'est elle qui dit comment
                 rallumer les autres, elle ne peut pas partir avec elles. */}
-            <InfoBubble always>
+            <InfoBubble title="Bulles infos" always>
               Les petits « i » posés à côté des réglages, ici et partout dans l'app :
               chacun ouvre son explication quand on le tape. Masquez-les une fois l'app
               bien en main — les explications partent avec eux, et ce réglage-ci garde
@@ -1794,14 +1895,29 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
             </InfoBubble>
           </div>
         </div>
-        <div className="field spread" style={{borderBottom:'none'}}>
+        <div className="field spread">
           <label>Numéro de semaine</label>
           <div className="ctl-with-info">
-            <Segmented size="small">
+            <Segmented size="small" scrollx>
               <button className={showWeek?'on':''} onClick={()=>onSetShowWeek(true)}>Affiché</button>
               <button className={!showWeek?'on':''} onClick={()=>onSetShowWeek(false)}>Masqué</button>
             </Segmented>
-            <InfoBubble>À côté de la date du jour, dans le Log et l'Historique.</InfoBubble>
+            <InfoBubble title="Numéro de semaine">À côté de la date du jour, dans le Log et l'Historique.</InfoBubble>
+          </div>
+        </div>
+        <div className="field spread" style={{borderBottom:'none'}}>
+          <label>Barre de composition</label>
+          <div className="ctl-with-info">
+            <Segmented size="small" scrollx>
+              <button className={compBar?'on':''} onClick={()=>onSetCompBar(true)}>Affichée</button>
+              <button className={!compBar?'on':''} onClick={()=>onSetCompBar(false)}>Masquée</button>
+            </Segmented>
+            <InfoBubble title="Barre de composition">
+              Sur chaque carte d'aliment de la page Food, une barre qui découpe ses calories en
+              <span className="k"> protéines, glucides et lipides</span> — et qui colore ses chiffres.
+              Un blanc de poulet est presque tout rouge, des flocons presque tout bleu : la nature de
+              l'aliment se lit avant son nom. Masquée, la carte reste la même en plus court.
+            </InfoBubble>
           </div>
         </div>
       </div>
@@ -1810,7 +1926,7 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
         <p className="settings-section-title">
           Archives
           {archivedTrackers.length > 0 && (
-            <InfoBubble>Ouvre les réglages du tracker pour le désarchiver ou le supprimer.</InfoBubble>
+            <InfoBubble title="Archives">Ouvre les réglages du tracker pour le désarchiver ou le supprimer.</InfoBubble>
           )}
         </p>
         {!archivedTrackers.length ? (
@@ -1857,7 +1973,7 @@ function TabsSettingsCard({ tabs, onSetTabVisible, tabOrder, onSetTabOrder, pref
     <div className="card settings-card">
       <p className="settings-section-title">
         Onglets
-        <InfoBubble>
+        <InfoBubble title="Onglets">
           Masquer un onglet ne supprime rien : les données restent, l'onglet disparaît de la
           barre du haut. Glissez une ligne pour changer l'ordre de cette barre — au doigt,
           maintenez d'abord l'appui. Visibilité comme ordre suivent le compte, pas l'appareil :
@@ -1877,11 +1993,11 @@ function TabsSettingsCard({ tabs, onSetTabVisible, tabOrder, onSetTabOrder, pref
               <span>{t.label}</span>
             </label>
             <div className="ctl-with-info">
-              <Segmented size="small">
+              <Segmented size="small" scrollx>
                 <button className={tabs[id] !== false ? 'on' : ''} onClick={()=>onSetTabVisible(id, true)}>Affiché</button>
                 <button className={tabs[id] === false ? 'on' : ''} onClick={()=>onSetTabVisible(id, false)}>Masqué</button>
               </Segmented>
-              <InfoBubble>{hints[id]}</InfoBubble>
+              <InfoBubble title={t.label}>{hints[id]}</InfoBubble>
             </div>
           </div>
         );
@@ -3004,7 +3120,7 @@ function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
             <button className={!showSeconds?'on':''} onClick={()=>setShowSeconds(false)}>Minutes</button>
             <button className={showSeconds?'on':''} onClick={()=>setShowSeconds(true)}>Sec.</button>
           </Segmented>
-          <InfoBubble>
+          <InfoBubble title="Affichage du chrono">
             Par défaut le chrono affiche la minute, comme les trackers l’enregistrent.
             Activez les secondes pour suivre des sessions courtes.
           </InfoBubble>
@@ -3352,7 +3468,7 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
               <span className="per-row-end" aria-hidden="true">+</span>
               <span className="per-row-n mono">{perRow}</span>
             </div>
-            <InfoBubble>
+            <InfoBubble title="Densité">
               Combien de cartes par ligne — de 1 à 4. Chaque cran ne rétrécit pas seulement
               la carte : il lui retire ses statistiques secondaires, puis ses graduations,
               jusqu'à la <span className="k">sparkline</span> et sa seule valeur du jour.
@@ -4691,11 +4807,11 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         <div className="field">
           <label>Genre</label>
           <div className="ctl-with-info">
-            <Segmented size="compact" wrap>
+            <Segmented size="compact" scrollx>
               <button className={!isMasterKind?'on':''} onClick={()=>setKind('data')}>Tracker</button>
               <button className={isMasterKind?'on':''} onClick={()=>setKind('master')}>Master</button>
             </Segmented>
-            <InfoBubble>
+            <InfoBubble title="Genre">
               <span className="k">Tracker</span> : vous le remplissez avec des données.<br/>
               <span className="k">Master</span> : ne se remplit pas — c’est la moyenne normalisée (0–100) de la performance de plusieurs trackers choisis.
             </InfoBubble>
@@ -4785,11 +4901,11 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           <div className="field">
             <label>Fréquence</label>
             <div className="ctl-with-info">
-              <Segmented size="compact" wrap>
+              <Segmented size="compact" scrollx>
                 <button className={daily?'on':''} onClick={()=>setDaily(true)}>Une / jour</button>
                 <button className={!daily?'on':''} onClick={()=>setDaily(false)}>Plusieurs / jour</button>
               </Segmented>
-              <InfoBubble>
+              <InfoBubble title="Fréquence">
                 <span className="k">Une / jour</span> : une seule entrée par jour, ré-enregistrer un jour déjà noté remplace sa valeur.<br/>
                 <span className="k">Plusieurs / jour</span> : autant d’entrées que vous voulez chaque jour.
               </InfoBubble>
@@ -4802,7 +4918,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
             <label>Case joker</label>
             <div className="ctl-with-info">
               <BoolPill value={jokerEnabled} onChange={setJokerEnabled} />
-              <InfoBubble>
+              <InfoBubble title="Case joker">
                 Ajoute un bouton pour marquer une journée entière comme joker (pull day, repos…).
                 Les entrées de ce jour sont alors exclues des calculs — pas comptées comme zéro.
                 Désactivée par défaut.
@@ -4820,7 +4936,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
                   <button key={a.id} className={aggregate===a.id?'on':''} onClick={()=>setAggregate(a.id)}>{a.label}</button>
                 ))}
               </Segmented>
-              <InfoBubble>
+              <InfoBubble title="Agrégat">
                 Combine plusieurs entrées d’un même jour :<br/>
                 <span className="k">Moyenne</span> (10, 15, 20 → 15) · <span className="k">Somme</span> (→ 45) · <span className="k">Minimum</span> (→ 10) · <span className="k">Maximum</span> (→ 20).
               </InfoBubble>
@@ -4836,7 +4952,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
                 <button className={!multiple?'on':''} onClick={()=>setMultiple(false)}>Choix unique</button>
                 <button className={multiple?'on':''} onClick={()=>setMultiple(true)}>Choix multiple</button>
               </Segmented>
-              <InfoBubble>
+              <InfoBubble title="Choix multiple">
                 <span className="k">Choix unique</span> : une seule option par entrée.<br/>
                 <span className="k">Choix multiple</span> : plusieurs options cochables par entrée.
               </InfoBubble>
@@ -4848,7 +4964,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           <div className="ctl-with-info" style={{width:'auto'}}>
             <label style={{width:'auto'}}>Période d’activité</label>
             <BoolPill value={windowEnabled} onChange={setWindowEnabled} />
-            <InfoBubble>
+            <InfoBubble title="Période d’activité">
               Activée, ce tracker n’influence les graphes et moyennes qu’entre les deux dates.
               <span className="k"> Début</span> par défaut = jour de création (utile si vous ne l’utilisez qu’après quelques jours).
               Laissez <span className="k">Fin</span> vide tant qu’il est actif — l’archivage la renseigne automatiquement.
@@ -4916,12 +5032,12 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         <div className="field">
           <label>Courbe</label>
           <div className="ctl-with-info">
-            <Segmented size="compact" wrap>
+            <Segmented size="compact" scrollx>
               {CURVE_STYLES.map(c => (
                 <button key={c.id} className={curveStyle===c.id?'on':''} onClick={()=>setCurveStyle(c.id)}>{c.label}</button>
               ))}
             </Segmented>
-            <InfoBubble>
+            <InfoBubble title="Forme de courbe">
               <span className="k">Polyligne</span> : les points reliés par des segments droits.<br/>
               <span className="k">Lissée</span> : une courbe arrondie qui passe quand même exactement par
               chaque point.<br/>
@@ -4934,12 +5050,12 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         <div className="field">
           <label>Granularité</label>
           <div className="ctl-with-info">
-            <Segmented size="compact" wrap>
+            <Segmented size="compact" scrollx>
               {GRAINS.map(g => (
                 <button key={g.id} className={chartGrain===g.id?'on':''} onClick={()=>setChartGrain(g.id)}>{g.label}</button>
               ))}
             </Segmented>
-            <InfoBubble>
+            <InfoBubble title="Granularité">
               Regroupe les jours sur le graphe. <span className="k">Semaine</span> et <span className="k">Mois</span>
               affichent la <span className="k">moyenne</span> des jours renseignés de la période — les jours vides ne
               comptent pas pour zéro. L’échelle reste donc lisible dans la même unité quelle que soit la
@@ -4972,7 +5088,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
                   <button onClick={()=>setGoodDirection('target')}>Valeur cible</button>
                 )}
               </Segmented>
-              <InfoBubble>
+              <InfoBubble title="Sens de l’amélioration">
                 Décide de quel côté est le progrès dans les vues composites (Master, Tendance générale, Grille) —
                 un temps d’écran qui baisse doit compter comme une amélioration, pas comme une chute.
                 <span className="k"> Valeur cible</span> : se rapprocher d’un nombre précis compte comme un progrès,
@@ -4987,7 +5103,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
             <label>Graphe cumulatif</label>
             <div className="ctl-with-info">
               <BoolPill value={cumulative} onChange={setCumulative} />
-              <InfoBubble>
+              <InfoBubble title="Graphe cumulatif">
                 Le graphe affiche la somme de toutes les entrées depuis le début plutôt que la valeur du jour —
                 une courbe qui ne peut que monter, au lieu de suivre l’entrée du jour.
                 Groupé par semaine ou par mois, chaque point porte le total atteint en fin de période.

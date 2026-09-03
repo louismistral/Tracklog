@@ -166,13 +166,16 @@ function ExternalIcon({ size = 12 }){
 // de continuer à dériver chacun de son côté.
 function NumField({ label, unit, value, onChange, onKeyDown, placeholder = '—', info = null }){
   return (
-    <div className="field">
-      <label>{info ? <span className="lab-info">{label}<InfoBubble>{info}</InfoBubble></span> : label}</label>
+    <div className={`field ${info ? 'field-info' : ''}`}>
+      <label>{label}</label>
       <div className="field-num">
         <input type="number" step="any" min="0" inputMode="decimal" placeholder={placeholder}
                value={value ?? ''} onChange={e=>onChange(e.target.value)} onKeyDown={onKeyDown} />
         <span className="unit">{unit}</span>
       </div>
+      {/* Le « i » est posé sur la rangée, pas dans l'intitulé : c'est la rangée
+          entière qui accueille le cadre d'explication en dessous. */}
+      {info && <InfoBubble title={label}>{info}</InfoBubble>}
     </div>
   );
 }
@@ -1588,7 +1591,7 @@ function FoodSources(){
           portent l'attribution elle-même. */}
       <span className="fd-src-credit serif">
         Open Food Facts <span className="fd-src-lic mono">ODbL</span>
-        <InfoBubble always>
+        <InfoBubble title="Open Food Facts" always>
           Les produits scannés et cherchés viennent d'<a href={OFF_FR} target="_blank" rel="noopener noreferrer">Open
           Food Facts</a>, base collaborative et ouverte (licence ODbL) — les valeurs y sont saisies par ses
           contributeurs, donc parfois incomplètes ou fausses. Chaque produit garde son lien « ↗ » vers sa
@@ -1597,7 +1600,7 @@ function FoodSources(){
       </span>
       <span className="fd-src-credit serif">
         Ciqual 2025 — ANSES <span className="fd-src-lic mono">Licence Ouverte</span>
-        <InfoBubble always>
+        <InfoBubble title="Table Ciqual" always>
           Les aliments simples — ceux qui n'ont pas d'étiquette : un blanc de poulet, une pomme de terre,
           des framboises — viennent de la <b>table Ciqual 2025</b> de l'ANSES, livrée avec l'app et
           consultable hors ligne : 3 341 aliments français, crus et cuits, avec leurs micronutriments.
@@ -1607,7 +1610,7 @@ function FoodSources(){
       </span>
       <span className="fd-src-credit serif">
         Liens
-        <InfoBubble always>
+        <InfoBubble title="Liens" always>
           <span className="fd-source-links mono">
             <a href="https://ciqual.anses.fr/" target="_blank" rel="noopener noreferrer">table ciqual ↗</a>
             <a href={OFF_FR} target="_blank" rel="noopener noreferrer">fr.openfoodfacts.org ↗</a>
@@ -1720,7 +1723,7 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
               <span className="fd-meal-kcal mono">{rows.length ? `${fmtNum(kcal,0)} kcal` : '—'}</span>
             </div>
             {rows.map(l => (
-              <FoodLogRow key={l.id} log={l} onEdit={()=>setEditLog(l)} onDelete={()=>store.removeLog(l.id)} />
+              <FoodLogRow key={l.id} log={l} onEdit={()=>setEditLog(l)} />
             ))}
             <button className="fd-add" onClick={()=>onAdd(meal.id)}>+ Ajouter</button>
           </div>
@@ -1731,7 +1734,7 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
         <div className="card fd-card fd-meal">
           <div className="fd-meal-head"><p className="section-label" style={{margin:0}}>Autre</p></div>
           {byMeal.autre.map(l => (
-            <FoodLogRow key={l.id} log={l} onEdit={()=>setEditLog(l)} onDelete={()=>store.removeLog(l.id)} />
+            <FoodLogRow key={l.id} log={l} onEdit={()=>setEditLog(l)} />
           ))}
         </div>
       )}
@@ -1751,6 +1754,7 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
           initialUnit={editLog.unit}
           initialMeal={editLog.meal}
           onClose={()=>setEditLog(null)}
+          onDelete={()=>{ store.removeLog(editLog.id); setEditLog(null); }}
           onSubmit={({ qty, unit, grams, meal, nutriments })=>{
             store.updateLog(editLog.id, { qty, unit, grams, meal, nutriments });
             setEditLog(null);
@@ -1783,26 +1787,27 @@ function foodForLog(store, log){
            nutriments: log.grams > 0 ? per100 : {}, source:'custom' };
 }
 
-function FoodLogRow({ log, onEdit, onDelete }){
+/* Une ligne de journal : la ligne entière ouvre sa fenêtre de modification, et
+   c'est là-dedans qu'on la supprime. Deux mots d'action au bout de chaque ligne
+   répétaient « modifier » et « suppr. » autant de fois qu'il y avait de lignes,
+   pour un geste qu'on fait rarement — et la quantité, collée au nom, se lisait
+   comme une partie de ce nom. */
+function FoodLogRow({ log, onEdit }){
   const n = log.nutriments || {};
   return (
-    <div className="fd-row">
-      <div className="fd-row-main">
+    <button className="fd-row" onClick={onEdit} title="Modifier cette ligne">
+      <span className="fd-row-main">
         <span className="fd-row-name">{log.name}</span>
         {log.brand && <span className="fd-row-brand">{log.brand}</span>}
-        <span className="fd-row-qty mono">{fmtNum(log.qty, 1)} {log.unit === 'portion' ? (log.qty > 1 ? 'portions' : 'portion') : log.unit}</span>
-      </div>
-      <div className="fd-row-macros mono">
+      </span>
+      <span className="fd-row-qty mono">{fmtNum(log.qty, 1)} {log.unit === 'portion' ? (log.qty > 1 ? 'portions' : 'portion') : log.unit}</span>
+      <span className="fd-row-macros mono">
         <span>{fmtMacro(n.protein)}<i>P</i></span>
         <span>{fmtMacro(n.carbs)}<i>G</i></span>
         <span>{fmtMacro(n.fat)}<i>L</i></span>
-      </div>
-      <span className="fd-row-kcal">{fmtNum(n.kcal, 0)}<i>kcal</i></span>
-      <span className="fd-row-actions">
-        <button onClick={onEdit}>modifier</button>
-        <button className="del" onClick={onDelete}>suppr.</button>
       </span>
-    </div>
+      <span className="fd-row-kcal">{fmtNum(n.kcal, 0)}<i>kcal</i></span>
+    </button>
   );
 }
 
@@ -2089,7 +2094,7 @@ function AiAnalyseTab({ store, day, initialMeal, pickMode, onPickItems, onDone, 
             <button className={!advanced?'on':''} onClick={()=>setAdvanced(false)}>Normal</button>
             <button className={advanced?'on':''} onClick={()=>setAdvanced(true)}>Approfondi</button>
           </Segmented>
-          <InfoBubble>
+          <InfoBubble title="Mode d’analyse">
             <b>Normal</b> — le modèle estime de tête, à partir de ce que tu donnes. Rapide.<br/>
             <b>Approfondi</b> — il cherche aussi sur le web de vraies références (la carte du
             restaurant que tu nommes, la fiche d'un produit) et remplit les micronutriments.
@@ -2247,13 +2252,11 @@ function MealPortionModal({ meal, initialMeal, pickMode, onClose, onSubmit }){
           <button onClick={()=>setEaten(String(portions))}>toute la recette</button>
         </div>
 
+        {/* Les mêmes cases que sur une carte d'item — mais ici les chiffres
+            portent sur la quantité saisie, pas sur 100 g : la première case le
+            dit, comme là-bas. */}
         <div className="fd-preview">
-          {FOOD_MACROS.map(m => (
-            <div key={m.key}>
-              <span className="l">{m.short}</span>
-              <span className="v">{m.key==='kcal' ? fmtNum(nutriments.kcal,0) : fmtMacro(nutriments[m.key])}</span>
-            </div>
-          ))}
+          <MacroStrip n={nutriments} per={null} className="fd-macros-wide" />
         </div>
 
         {!pickMode && (
@@ -2280,6 +2283,7 @@ function MealPortionModal({ meal, initialMeal, pickMode, onClose, onSubmit }){
 function MealsTab({ store, day, initialMeal, favOnly, query, pickMode, onPick, onDone, onNew, onEdit }){
   const [mealSlot, setMealSlot] = useState(initialMeal || defaultMealForNow());
   const [portioning, setPortioning] = useState(null);   // le repas dont on choisit la part
+  const compBar = useCompBar();
   const list = useMemo(() => {
     const needle = (query || '').trim().toLowerCase();
     let arr = favOnly ? store.meals.filter(m => m.favorite) : store.meals;
@@ -2315,37 +2319,32 @@ function MealsTab({ store, day, initialMeal, favOnly, query, pickMode, onPick, o
             {list.map(m => {
               const t = itemsTotals(m.items);
               return (
+                /* Exactement la carte d'un aliment : un repas est un item, il
+                   n'a pas de raison de se présenter autrement. Il s'ouvre au
+                   crayon plutôt que de s'oublier à la corbeille — son éditeur
+                   porte déjà la suppression. */
                 <div className="fd-item-row" key={m.id}>
-                  {/* Même rangée que pour un aliment : à gauche ce qui touche à
-                      l'item — un repas s'ouvre plutôt qu'il ne s'oublie, son
-                      éditeur porte déjà la suppression — puis l'étoile. */}
-                  {onEdit && (
-                    <span className="fd-item-act">
-                      <button className="icon-btn fd-edit-btn" title="Modifier ce repas"
-                              aria-label="Modifier ce repas" onClick={()=>onEdit(m)}><PencilIcon /></button>
+                  <button className="fd-item fd-item-name" onClick={()=>setPortioning(m)}>
+                    <span className="n">{m.name}</span>
+                    <span className="fd-item-sub">
+                      {m.items.length} ingrédient{m.items.length>1?'s':''}
+                      {mealPortions(m) > 1 ? ` · ${fmtNum(mealPortions(m), 0)} portions` : ''}
+                      {m.steps && m.steps.length ? ` · ${m.steps.length} étape${m.steps.length>1?'s':''}` : ''}
                     </span>
-                  )}
-                  <span className="fd-item-act">
-                    <button className={`icon-btn fd-fav ${m.favorite?'on':''}`} onClick={()=>store.toggleMealFavorite(m.id)}
+                  </button>
+                  <span className="fd-item-foot">
+                    <OriginTag item={m} />
+                    <button className={`icon-btn xs fd-fav ${m.favorite?'on':''}`} onClick={()=>store.toggleMealFavorite(m.id)}
                             aria-pressed={!!m.favorite} title={m.favorite ? 'Retirer des favoris' : 'Mettre en favori'}>
-                      <StarIcon filled={m.favorite} />
+                      <StarIcon filled={m.favorite} size={10} />
                     </button>
+                    {onEdit && (
+                      <button className="icon-btn xs fd-edit-btn" title="Modifier ce repas"
+                              aria-label="Modifier ce repas" onClick={()=>onEdit(m)}><PencilIcon size={10} /></button>
+                    )}
                   </span>
-                  <button className="fd-item" onClick={()=>setPortioning(m)}>
-                    <span className="fd-item-txt">
-                      <span className="n">{m.name}</span>
-                      <span className="fd-item-tags">
-                        <OriginTag item={m} />
-                        <span className="fd-item-sub">
-                          {m.items.length} ingrédient{m.items.length>1?'s':''}
-                          {mealPortions(m) > 1 ? ` · ${fmtNum(mealPortions(m), 0)} portions` : ''}
-                          {m.steps && m.steps.length ? ` · ${m.steps.length} étape${m.steps.length>1?'s':''}` : ''}
-                        </span>
-                      </span>
-                      <span className="m mono">
-                        <b>{fmtNum(t.kcal,0)} kcal</b> · P {fmtMacro(t.protein)} · G {fmtMacro(t.carbs)} · L {fmtMacro(t.fat)}
-                      </span>
-                    </span>
+                  <button className="fd-item-nums" onClick={()=>setPortioning(m)} tabIndex={-1} aria-hidden="true">
+                    <MacroStrip n={t} per={null} compBar={compBar} />
                   </button>
                 </div>
               );
@@ -3086,68 +3085,112 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
    l'étoile ; à droite, seule, la flèche qui sort de l'app. Toutes sont des
    ronds `.icon-btn` — une icône cliquable est un bouton, pas un glyphe posé
    dans la marge. */
+/* La part de chaque macro dans les calories d'un aliment — en calories, pas en
+   grammes : un gramme de lipide en pèse 9 quand un gramme de glucide en pèse 4,
+   et une barre calculée sur les grammes ferait paraître le gras trois fois plus
+   léger qu'il n'est. */
+function macroShare(n){
+  const p = (n.protein || 0) * 4, g = (n.carbs || 0) * 4, l = (n.fat || 0) * 9;
+  const t = p + g + l;
+  if (!(t > 0)) return null;
+  return { p: (p/t)*100, g: (g/t)*100, l: (l/t)*100 };
+}
+
+/* Les quatre chiffres d'un aliment, en cases jointes — un bout de tableau, pas
+   quatre pastilles : les bords partagés et les angles vifs sont ce qui aligne
+   une carte sur la suivante. La première case dit « kcal / 100 g » et sert de
+   légende aux trois autres : sans elle, rien ne dirait à quoi ces grammes se
+   rapportent. La barre de composition, quand elle est allumée, se pose dessus
+   et les chiffres prennent alors la couleur de leur macro. */
+function MacroStrip({ n = {}, per = '100 g', compBar = false, className = '' }){
+  const share = compBar ? macroShare(n) : null;
+  const cell = (key, lab) => (
+    <span className={`mc mc-${key}`} key={key} style={compBar ? { color: MACRO_BY_KEY[key].color } : undefined}>
+      <b>{key === 'kcal' ? fmtNum(n.kcal, 0) : fmtMacro(n[key])}</b>
+      <u>{lab}</u>
+    </span>
+  );
+  return (
+    <span className={`fd-macros ${className}`}>
+      {share && (
+        <span className="comp" aria-hidden="true">
+          <i style={{width:`${share.p}%`, background:MACRO_BY_KEY.protein.color}} />
+          <i style={{width:`${share.g}%`, background:MACRO_BY_KEY.carbs.color}} />
+          <i style={{width:`${share.l}%`, background:MACRO_BY_KEY.fat.color}} />
+        </span>
+      )}
+      <span className="fd-macro-strip">
+        {cell('kcal', per ? `kcal/${per.replace(/\s+/g,'')}` : 'kcal')}
+        {cell('protein', 'P')}
+        {cell('carbs', 'G')}
+        {cell('fat', 'L')}
+      </span>
+    </span>
+  );
+}
+
+// La barre de composition est un réglage de compte : la carte marche avec et
+// sans, et c'est le même interrupteur pour toutes les listes.
+const COMPBAR_KEY = 'tracklog.compBar';
+function useCompBar(){
+  const accountPrefs = useContext(AccountPrefsContext) || LOCAL_ONLY_PREFS;
+  const [on] = useSyncedPref(accountPrefs, 'compBar', COMPBAR_KEY, true);
+  return on;
+}
+
+/* La carte d'un item, en trois zones : l'image à gauche quand on l'a demandée,
+   le nom et sa provenance au milieu, les chiffres à droite.
+   La pastille d'origine a une largeur fixe — celle du plus long des quatre mots
+   — pour que les trois ronds qui la suivent tombent au même endroit sur toutes
+   les cartes ; alignés d'une ligne à l'autre, ils deviennent une colonne qu'on
+   vise sans regarder. */
 function FoodPickRow({ food, onPick, showImage = false, favorite, onToggleFavorite,
                        onForget, onEdit, refByBarcode }){
   const n = food.nutriments || {};
   const src = foodSourceUrl(food, refByBarcode);
   const sub = itemSub(food, refByBarcode);
+  const compBar = useCompBar();
   return (
-    <div className="fd-item-row">
-      <button className="fd-item" onClick={onPick}>
-        {showImage && (food.imageUrl
-          ? <img src={food.imageUrl} alt="" loading="lazy" />
-          : <span className="fd-item-ph" aria-hidden="true">{(food.name || '?').slice(0,1).toUpperCase()}</span>)}
-        <span className="fd-item-txt">
-          <span className="n">{food.name}</span>
-          {/* D'où vient cet item, puis sa sous-catégorie — le groupe Ciqual,
-              la marque. La pastille d'abord : c'est elle qui dit s'il faut
-              croire ce nom sur parole ou aller vérifier une étiquette. */}
-          <span className="fd-item-tags">
-            <OriginTag item={food} />
-            {sub && <span className="fd-item-sub">{sub}</span>}
-          </span>
-          <span className="m mono">
-            {n.kcal != null
-              ? <>
-                  <b>{fmtNum(n.kcal,0)} kcal</b>
-                  {n.protein != null && <> · P {fmtMacro(n.protein)}</>}
-                  {n.carbs != null && <> · G {fmtMacro(n.carbs)}</>}
-                  {n.fat != null && <> · L {fmtMacro(n.fat)}</>}
-                  {' '}/ 100 {food.basis}
-                </>
-              : 'valeurs nutritionnelles manquantes'}
-          </span>
-        </span>
-      </button>
-      {/* Les trois gestes de la ligne, ensemble et dans le même ordre partout :
-          la fiche d'origine, l'étoile, puis la corbeille. Ils étaient répartis
-          des deux côtés du nom — la main devait choisir son bord avant de
-          choisir son geste, et une ligne sans favori décalait toutes les
-          autres. */}
-      {(src || onToggleFavorite || onForget || onEdit) && (
-        <span className="fd-item-act">
-          {src && (
-            <a className="icon-btn fd-src-btn" href={src} target="_blank" rel="noopener noreferrer"
-               aria-label="Voir la fiche d'origine"
-               title={food.source === 'ref' ? `Table Ciqual — ${food.sub || food.group}` : 'Voir la fiche sur Open Food Facts'}
-               onClick={e=>e.stopPropagation()}><ExternalIcon /></a>
-          )}
-          {onToggleFavorite && (
-            <button className={`icon-btn fd-fav ${favorite?'on':''}`} onClick={onToggleFavorite}
-                    aria-pressed={!!favorite} title={favorite ? 'Retirer des favoris' : 'Mettre en favori'}>
-              <StarIcon filled={!!favorite} />
-            </button>
-          )}
-          {onEdit && (
-            <button className="icon-btn fd-edit-btn" onClick={onEdit}
-                    aria-label="Modifier" title="Modifier"><PencilIcon /></button>
-          )}
-          {onForget && (
-            <button className="icon-btn fd-forget-btn" onClick={onForget}
-                    aria-label="Oublier cet item" title="Oublier cet item"><TrashIcon /></button>
-          )}
+    <div className={`fd-item-row ${showImage?'with-img':''}`}>
+      {showImage && (
+        <span className="fd-item-thumb">
+          {food.imageUrl
+            ? <img src={food.imageUrl} alt="" loading="lazy" />
+            : <span className="fd-item-ph" aria-hidden="true">{(food.name || '?').slice(0,1).toUpperCase()}</span>}
         </span>
       )}
+      <button className="fd-item fd-item-name" onClick={onPick}>
+        <span className="n">{food.name}</span>
+        {sub && <span className="fd-item-sub">{sub}</span>}
+      </button>
+      <span className="fd-item-foot">
+        <OriginTag item={food} />
+        {src && (
+          <a className="icon-btn xs fd-src-btn" href={src} target="_blank" rel="noopener noreferrer"
+             aria-label="Voir la fiche d'origine"
+             title={food.source === 'ref' ? `Table Ciqual — ${food.sub || food.group}` : 'Voir la fiche sur Open Food Facts'}
+             onClick={e=>e.stopPropagation()}><ExternalIcon size={10} /></a>
+        )}
+        {onToggleFavorite && (
+          <button className={`icon-btn xs fd-fav ${favorite?'on':''}`} onClick={onToggleFavorite}
+                  aria-pressed={!!favorite} title={favorite ? 'Retirer des favoris' : 'Mettre en favori'}>
+            <StarIcon filled={!!favorite} size={10} />
+          </button>
+        )}
+        {onEdit && (
+          <button className="icon-btn xs fd-edit-btn" onClick={onEdit}
+                  aria-label="Modifier" title="Modifier"><PencilIcon size={10} /></button>
+        )}
+        {onForget && (
+          <button className="icon-btn xs fd-forget-btn" onClick={onForget}
+                  aria-label="Oublier cet item" title="Oublier cet item"><TrashIcon size={10} /></button>
+        )}
+      </span>
+      {/* Les chiffres sont eux aussi une zone de choix : la carte entière
+          répond, sauf la rangée d'actions qui, elle, fait autre chose. */}
+      <button className="fd-item-nums" onClick={onPick} tabIndex={-1} aria-hidden="true">
+        <MacroStrip n={n} per={`100 ${food.basis || 'g'}`} compBar={compBar} />
+      </button>
     </div>
   );
 }
@@ -3310,12 +3353,7 @@ function QuickAddTab({ seed, initialMeal, pickMode, onNewMeal, onSubmit, onCance
           </div>
           {hasKcal && g > 0 && Math.abs(g - 100) > 0.01 && (
             <div className="fd-preview">
-              {FOOD_MACROS.map(m => (
-                <div key={m.key}>
-                  <span className="l">{m.short}</span>
-                  <span className="v">{m.key==='kcal' ? fmtNum(nutriments.kcal,0) : fmtMacro(nutriments[m.key])}</span>
-                </div>
-              ))}
+              <MacroStrip n={nutriments} per={null} className="fd-macros-wide" />
             </div>
           )}
         </div>
@@ -3376,7 +3414,7 @@ function QuickAddTab({ seed, initialMeal, pickMode, onNewMeal, onSubmit, onCance
 }
 
 /* ---- Quantité ------------------------------------------------------------- */
-function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pickMode, onClose, onBack, onSubmit }){
+function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pickMode, onClose, onBack, onSubmit, onDelete }){
   const hasServing = !!(food.servingG && food.servingG > 0);
   const [unit, setUnit] = useState(initialUnit || (hasServing ? 'portion' : (food.basis || 'g')));
   const [qty, setQty] = useState(initialQty != null ? String(initialQty) : (hasServing ? '1' : '100'));
@@ -3425,13 +3463,10 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pick
           ))}
         </div>
 
+        {/* Les mêmes cases que sur une carte d'item — mais ici les chiffres
+            portent sur la quantité saisie, pas sur 100 g. */}
         <div className="fd-preview">
-          {FOOD_MACROS.map(m => (
-            <div key={m.key}>
-              <span className="l">{m.short}</span>
-              <span className="v">{m.key==='kcal' ? fmtNum(nutriments.kcal,0) : fmtMacro(nutriments[m.key])}</span>
-            </div>
-          ))}
+          <MacroStrip n={nutriments} per={null} className="fd-macros-wide" />
         </div>
 
         {/* En mode « choisir un ingrédient », l'aliment ne rejoint pas une
@@ -3450,7 +3485,15 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pick
         {/* Deux boutons, pas trois : « Annuler » remet là d'où l'on vient — la
             liste — plutôt que de fermer tout l'ajout. Renoncer à une quantité
             n'est pas renoncer à ajouter quelque chose. */}
+        {/* La suppression vit ici, dans la fenêtre de modification : c'est le
+            même geste que corriger la ligne, et la sortir sur chaque ligne du
+            journal l'aurait mise à un pouce de distance d'un tap de trop. */}
         <div className="modal-actions">
+          {onDelete && (
+            <button className="danger" onClick={()=>{ if (confirm('Supprimer cette ligne du journal ?')) onDelete(); }}>
+              Supprimer
+            </button>
+          )}
           <button className="ghost" onClick={onBack || onClose}>Annuler</button>
           <button className="primary" disabled={!canSave}
             onClick={()=>onSubmit({ qty:Number(qty), unit, grams, meal, nutriments })}>
