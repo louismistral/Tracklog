@@ -3098,18 +3098,22 @@ function macroShare(n){
   return { p: (p/t)*100, g: (g/t)*100, l: (l/t)*100 };
 }
 
-/* Les quatre chiffres d'un aliment, en cases jointes — un bout de tableau, pas
-   quatre pastilles : les bords partagés et les angles vifs sont ce qui aligne
-   une carte sur la suivante. La première case dit « kcal / 100 g » et sert de
-   légende aux trois autres : sans elle, rien ne dirait à quoi ces grammes se
-   rapportent. La barre de composition, quand elle est allumée, se pose dessus
-   et les chiffres prennent alors la couleur de leur macro. */
+/* Les quatre chiffres d'un aliment sur UNE ligne, dans un bloc de largeur fixe :
+   les calories calées à gauche, les trois macros en colonnes de largeur fixe à
+   droite. C'est la largeur fixe qui fait tout le travail — les colonnes tombent
+   au même endroit d'une carte à l'autre, donc l'œil compare verticalement sans
+   lire, et la barre de composition mesure la même chose partout, ce qui la rend
+   comparable elle aussi. Aucun trait dessiné : c'est l'alignement qui fait le
+   tableau. La légende « kcal/100 g » vaut pour toute la ligne — sans elle, rien
+   ne dirait à quoi ces grammes se rapportent. */
 function MacroStrip({ n = {}, per = '100 g', compBar = false, className = '' }){
   const share = compBar ? macroShare(n) : null;
-  const cell = (key, lab) => (
+  // La lettre nomme la macro tant que rien d'autre ne le fait. Dès que la barre
+  // est là, la couleur s'en charge — et deux façons de dire la même chose sur
+  // la même ligne, c'est une de trop.
+  const macro = (key, lab) => (
     <span className={`mc mc-${key}`} key={key} style={compBar ? { color: MACRO_BY_KEY[key].color } : undefined}>
-      <b>{key === 'kcal' ? fmtNum(n.kcal, 0) : fmtMacro(n[key])}</b>
-      <u>{lab}</u>
+      <b>{fmtMacro(n[key])}</b>{!compBar && <u>{lab}</u>}
     </span>
   );
   return (
@@ -3121,11 +3125,13 @@ function MacroStrip({ n = {}, per = '100 g', compBar = false, className = '' }){
           <i style={{width:`${share.l}%`, background:MACRO_BY_KEY.fat.color}} />
         </span>
       )}
-      <span className="fd-macro-strip">
-        {cell('kcal', per ? `kcal/${per.replace(/\s+/g,'')}` : 'kcal')}
-        {cell('protein', 'P')}
-        {cell('carbs', 'G')}
-        {cell('fat', 'L')}
+      <span className="fd-macro-row">
+        <span className="mc mc-kcal" style={compBar ? { color: MACRO_BY_KEY.kcal.color } : undefined}>
+          <b>{fmtNum(n.kcal, 0)}</b><u>{per ? `kcal/${per.replace(/\s+/g,'')}` : 'kcal'}</u>
+        </span>
+        {macro('protein', 'P')}
+        {macro('carbs', 'G')}
+        {macro('fat', 'L')}
       </span>
     </span>
   );

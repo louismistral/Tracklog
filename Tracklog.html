@@ -1447,19 +1447,40 @@
   .fd-item-nums{grid-area:nums;padding:0;border:none;background:none;color:inherit;font:inherit;
     display:block;flex-shrink:0}
 
-  /* Les chiffres, en cases jointes — angles vifs et bords partagés : une ligne
-     de tableau, pas quatre pastilles. */
-  .fd-macros{display:flex;flex-direction:column;gap:0}
+  /* Les chiffres : une ligne, et des COLONNES de largeur fixe. Ce ne sont pas
+     les valeurs qui décident de la largeur — les chiffres sont tabulaires et
+     chaque colonne a la sienne — donc « 63 » et « 1000 » occupent exactement la
+     même place, les colonnes tombent au même endroit d'une carte à l'autre, et
+     la barre de composition mesure partout la même chose : comparer deux barres
+     redevient légitime. Aucun trait dessiné : c'est l'alignement qui fait le
+     tableau. */
+  .fd-macros{display:flex;flex-direction:column;gap:4px;flex:none}
   .comp{display:flex;height:3px;overflow:hidden;background:var(--bg-3)}
   .comp i{display:block;height:100%}
-  .fd-macro-strip{display:flex;border:1px solid var(--line-2)}
-  .mc{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
-    padding:3px 4px;min-width:30px;border-left:1px solid var(--line-2);color:var(--ink-2)}
-  .mc:first-child{border-left:none;min-width:44px}
+  .fd-macro-row{display:flex;align-items:baseline;gap:6px}
+  /* Les calories calées à gauche du bloc, les trois macros en colonnes fixes à
+     droite. La lettre est sur la même ligne que son chiffre, pas dessous. */
+  .mc{display:flex;align-items:baseline;gap:3px;justify-content:flex-end;
+    width:32px;flex:none;color:var(--ink-2)}
+  /* Deux classes, pas une : la règle étroite plus bas repose la largeur des
+     colonnes de macro, et à spécificité égale c'est la dernière écrite qui
+     gagne — la colonne des calories se retrouvait large de 28 px avec son
+     unité qui débordait sur les protéines. */
+  .fd-macro-row .mc-kcal{width:auto;justify-content:flex-start;color:var(--ink);margin-right:auto}
   .mc b{font-family:"Geist Mono",monospace;font-feature-settings:"tnum";font-size:12px;
-    font-weight:400;color:currentColor;line-height:1.1}
+    font-weight:400;color:currentColor;line-height:1.2;text-align:right}
+  .mc-kcal b{font-size:13px;min-width:3.4ch;text-align:left}
   .mc u{font-size:7.5px;letter-spacing:0.08em;text-transform:uppercase;text-decoration:none;
-    color:var(--ink-3);line-height:1}
+    color:var(--ink-3);line-height:1;white-space:nowrap}
+  /* Sur un écran étroit tout le bloc se resserre — pour toutes les cartes à la
+     fois, donc les colonnes restent alignées entre elles. */
+  @media (max-width:390px){
+    .mc{width:28px;gap:2px}
+    .mc u{font-size:7px;letter-spacing:0.03em}
+    .fd-macro-row{gap:5px}
+    .fd-item-foot{gap:3px}
+    .fd-item-foot .item-tag{min-width:54px}
+  }
   .fd-edit-btn:hover{color:var(--accent);border-color:var(--accent)}
   .fd-forget-btn:hover{color:var(--warn);border-color:var(--warn)}
   .fd-edit-btn:hover{color:var(--accent);border-color:var(--accent)}
@@ -1537,10 +1558,12 @@
   /* Les mêmes cases que sur une carte d'item, en plus grand : c'est le même
      objet — quatre chiffres qui vont ensemble — vu de plus près. */
   .fd-preview{padding:14px 0 16px}
-  .fd-macros-wide .fd-macro-strip{width:100%}
-  .fd-macros-wide .mc{flex:1;padding:8px 4px;gap:3px}
-  .fd-macros-wide .mc b{font-size:17px}
-  .fd-macros-wide .mc u{font-size:8.5px}
+  .fd-macros-wide{width:100%}
+  .fd-macros-wide .mc{width:64px}
+  .fd-macros-wide .mc-kcal{width:auto}
+  .fd-macros-wide .mc b{font-size:19px}
+  .fd-macros-wide .mc-kcal b{font-size:21px}
+  .fd-macros-wide .mc u{font-size:9px}
   .fd-modal .modal-section{margin-top:18px}
   .fd-more-fields{margin-top:6px}
 
@@ -1659,7 +1682,8 @@
     .fd-row-macros{gap:7px}
     .fd-micros{grid-template-columns:1fr}
     .fd-lib-search{max-width:none;flex:1 1 100%;order:-1}
-    .fd-macros-wide .mc b{font-size:15px}
+    .fd-macros-wide .mc{width:52px}
+    .fd-macros-wide .mc b{font-size:17px}
     .fd-primary{width:100%;justify-content:center}
     /* Barre à icône : la forme intégrée reste une barre (le rond doit tenir
        dedans), la forme séparée passe à la ligne plutôt que d'écraser sa
@@ -1739,7 +1763,7 @@
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
 <script type="text/babel" src="app.jsx?v=57"></script>
-<script type="text/babel" src="app.food.jsx?v=26"></script>
+<script type="text/babel" src="app.food.jsx?v=27"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>
