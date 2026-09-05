@@ -450,8 +450,11 @@ const OFF_FIELDS = [
 // Liens publics, pour pouvoir toujours aller vérifier la source à la main.
 const offProductUrl = (code) => code ? `${OFF_FR}/produit/${encodeURIComponent(String(code))}` : null;
 const offSearchUrl  = (q) => `${OFF_FR}/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process`;
+// Le formulaire public de création, code déjà rempli : de quoi rendre à la base
+// ce qu'on vient d'y chercher en vain.
+const offAddProductUrl = (code) => `${OFF_FR}/cgi/product.pl?type=add&code=${encodeURIComponent(String(code || ''))}`;
 
-async function offJson(url, { timeoutMs = 12000, signal } = {}){
+async function offJson(url, { timeoutMs = 12000, signal, notFoundOk = false } = {}){
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   const relay = () => ctrl.abort();
@@ -463,6 +466,10 @@ async function offJson(url, { timeoutMs = 12000, signal } = {}){
     const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'application/json' } });
     // 429/503 = quota ou surcharge côté OFF : le dire tel quel plutôt que « erreur réseau ».
     if (r.status === 429) throw new Error('Trop de requêtes d’un coup — Open Food Facts nous met en pause une minute.');
+    // 404 sur une fiche produit = « ce code est inconnu », pas une panne. C'est
+    // une réponse, et l'appelant sait quoi en faire ; la traiter en erreur rendait
+    // injoignable tout le chemin « produit inconnu » prévu en face.
+    if (notFoundOk && r.status === 404) return null;
     if (!r.ok) throw new Error(`Open Food Facts a répondu ${r.status}.`);
     return await r.json();
   } catch(e){
@@ -483,7 +490,7 @@ async function offFetchProduct(barcode){
   let last;
   for (const base of [OFF_BASE, OFF_FR]){          // le miroir fr sert de repli
     try {
-      const j = await offJson(base + path);
+      const j = await offJson(base + path, { notFoundOk: true });
       const p = j && j.product;
       if (!p || j.status === 0 || j.status === 'failure') return null;
       return offToFood(p, barcode);
@@ -2692,7 +2699,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
   const needsFood = useCallback((f) => {
     if (onNeedsFood){ onNeedsFood(f); return; }
     openQuick({ name: f.name, barcode: f.barcode || null,
-                mode:'aliment' });
+                mode:'aliment', reason:'empty' });
   }, [onNeedsFood, openQuick]);
 
   // Un code scanné : d'abord la bibliothèque locale (instantané, marche hors ligne),
@@ -2708,7 +2715,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
         setMsg('');
         setPicked(null);
         setBusy(false);
-        openQuick({ barcode: code, mode:'aliment' });   // le code est gardé : reconnu au prochain scan
+        openQuick({ barcode: code, mode:'aliment', reason:'unknown' });   // le code est gardé : reconnu au prochain scan
         return;
       }
       if (!foodIsUsable(found)){
@@ -3288,6 +3295,7 @@ function QuickAddTab({ seed, initialMeal, pickMode, onNewMeal, onSubmit, onCance
   const [meal, setMeal] = useState(initialMeal || defaultMealForNow());
 
   const isItem = mode === 'aliment';             // ce mode fabrique-t-il un aliment ?
+  const seedReason = seed?.reason || '';         // 'unknown' | 'empty' — pourquoi on atterrit ici
   const g = Number(grams) || 0;
 
   const entered = useMemo(() => {
@@ -3348,6 +3356,43 @@ function QuickAddTab({ seed, initialMeal, pickMode, onNewMeal, onSubmit, onCance
               : "Un aliment à toi, gardé dans tes items — réutilisable, et déjà noté pour aujourd'hui.")
           : "Une recette : plusieurs ingrédients d'un coup, ses portions, ses étapes."}
       </p>
+
+      {/* Un scan qui n'a rien donné laissait l'utilisateur devant un formulaire
+          sans lui dire ce qui venait de se passer : le message posé par
+          `handleCode` était effacé par `openQuick` dans la foulée. L'explication
+          vit donc dans la page, pas dans un message fugace, et répond aux deux
+          seules questions du moment — ce qui a raté, et ce que ça coûte de le
+          réparer. Rendre à Open Food Facts est proposé à part, jamais confondu
+          avec le formulaire : ce sont deux gestes, pour deux portées. */}
+      {isItem && seedReason && (
+        <div className="card fd-card">
+          <p className="section-label">
+            {seedReason === 'empty' ? 'Fiche sans valeurs' : 'Produit inconnu'}
+          </p>
+          <p className="fd-note serif">
+            {seedReason === 'empty'
+              ? <>Ce produit existe sur Open Food Facts, mais sa fiche ne porte <b>aucune valeur nutritionnelle</b> — personne ne les a encore saisies.</>
+              : <>Ce code-barres n'est dans <b>aucune base</b> : ni Open Food Facts, ni la table Ciqual. C'est courant pour les marques de distributeur.</>}
+          </p>
+          <p className="fd-note serif">
+            Ce que tu fais ici : tu remplis sa fiche <b>une fois</b>. Elle rejoint tes
+            aliments, et au prochain scan le produit sortira tout seul — même sans réseau.
+          </p>
+          {cleanCode(barcode).length >= 8 && (
+            <p className="fd-note serif fd-card-note">
+              Pour qu'il existe aussi pour les autres, tu peux{' '}
+              <a className="fd-link" target="_blank" rel="noopener noreferrer"
+                 href={seedReason === 'empty'
+                   ? offProductUrl(cleanCode(barcode))
+                   : offAddProductUrl(cleanCode(barcode))}>
+                {seedReason === 'empty' ? 'compléter sa fiche' : 'le créer'} sur Open Food Facts ↗
+              </a>
+              , la base publique où Tracklog cherche. C'est à part : ça ne remplit pas
+              le formulaire ci-dessous.
+            </p>
+          )}
+        </div>
+      )}
 
       {mode === 'repas' ? (
         <div className="card fd-card">
