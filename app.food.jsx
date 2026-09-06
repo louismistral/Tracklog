@@ -1358,7 +1358,11 @@ function useFoodStore(userId){
       .filter(x => x.grams > 0)
       .map(({ it, grams }, i) => ({
         id: uid('fl_'), ts: now + i, day, meal: mealSlot, foodId: knownFoodId(it.foodId),
-        name: it.name, brand:'', qty: grams, unit:'g', grams, nutriments: itemNutriments(it),
+        // Les valeurs se pèsent sur les grammes RÉELLEMENT versés, pas sur ceux
+        // de la recette entière : `it` porte encore le poids du plat complet,
+        // et l'oublier ici faisait une ligne de 250 g qui comptait pour 1 kg.
+        name: it.name, brand:'', qty: grams, unit:'g', grams,
+        nutriments: itemNutriments({ ...it, grams }),
       }));
     if (rows.length){
       setLogs(s => [...rows, ...s]);
