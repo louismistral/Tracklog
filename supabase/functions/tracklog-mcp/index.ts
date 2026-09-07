@@ -145,7 +145,23 @@ async function rest(path: string, init: RequestInit = {}) {
       ...(init.headers ?? {}),
     },
   });
-  if (!r.ok) throw new Error(`base: ${r.status} ${(await r.text()).slice(0, 300)}`);
+  if (!r.ok) {
+    const body = (await r.text()).slice(0, 400);
+    /* Le seul défaut de configuration qui ne se voit pas au déploiement mais à
+       l'usage : un `TRACKLOG_MCP_USER_ID` qui ne désigne aucun compte. Postgres
+       répond une violation de clé étrangère — exacte, et illisible pour qui vient
+       de coller une valeur dans un formulaire. Les deux secrets étant deux UUID,
+       les intervertir est l'erreur probable, et le message doit le dire. */
+    if (body.includes('user_id_fkey') || body.includes('23503')) {
+      throw new Error(
+        "Le compte configuré n'existe pas : le secret TRACKLOG_MCP_USER_ID ne correspond "
+        + "à aucun utilisateur Tracklog. C'est l'identifiant du compte, pas le jeton d'accès — "
+        + "les deux sont des UUID et se ressemblent, mais ce sont deux valeurs différentes. "
+        + "Corrige-le dans les secrets Edge Functions du projet Supabase.",
+      );
+    }
+    throw new Error(`base: ${r.status} ${body}`);
+  }
   return r.status === 204 ? null : await r.json();
 }
 

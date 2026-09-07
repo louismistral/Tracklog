@@ -42,6 +42,8 @@ globalThis.fetch = async (url, init = {}) => {
 
   if (p.endsWith('/rest/v1/food_logs') && (init.method || 'GET') === 'POST') {
     const row = JSON.parse(init.body);
+    if (globalThis.__fkError)
+      return new Response(JSON.stringify({ code: '23503', message: 'insert or update on table "food_logs" violates foreign key constraint "food_logs_user_id_fkey"' }), { status: 409 });
     if (row.food_id !== null && row.food_id !== undefined)
       return new Response('FK violation', { status: 409 });
     inserted.push(row);
@@ -167,6 +169,15 @@ check('outil inexistant → erreur d’outil, pas de plantage', (await r.json())
 
 r = await post({ jsonrpc:'2.0', id:10, method:'resources/list' });
 check('méthode inconnue → -32601', (await r.json()).error?.code === -32601);
+
+console.log('\n— Secret mal configuré —');
+globalThis.__fkError = true;
+r = await post({ jsonrpc:'2.0', id:14, method:'tools/call', params:{ name:'tracklog_ajout_rapide', arguments:{ nom:'Test', kcal:100 } } });
+const fk = (await r.json()).result;
+globalThis.__fkError = false;
+check('compte inexistant → message qui nomme le bon secret', fk?.isError === true && /TRACKLOG_MCP_USER_ID/.test(fk.content[0].text));
+check('et qui distingue les deux UUID', /pas le jeton/.test(fk.content[0].text));
+check('sans recracher le jargon Postgres', !/23503|fkey/.test(fk.content[0].text), fk.content[0].text);
 
 console.log('\n— Porte d’entrée —');
 r = await post({ jsonrpc:'2.0', id:11, method:'tools/list' }, `${BASE}/functions/v1/tracklog-mcp/mauvais-jeton`);
