@@ -47,7 +47,12 @@ globalThis.fetch = async (url, init = {}) => {
     if (row.food_id !== null && row.food_id !== undefined)
       return new Response('FK violation', { status: 409 });
     inserted.push(row);
-    return new Response(null, { status: 204 });
+    // Le vrai PostgREST rend 201 avec un corps VIDE (pas 204) tant qu'on ne
+    // réclame pas la ligne. La doublure rendait 204, ce qui a laissé passer un
+    // `r.json()` sur du vide : l'insertion passait, la lecture jetait, et
+    // l'appelant doublait la ligne en réessayant. Une doublure trop polie ne
+    // teste rien.
+    return new Response('', { status: 201 });
   }
   if (p.endsWith('/rest/v1/food_logs')) {
     const day = (q.get('day') || '').replace('eq.', '');
@@ -130,6 +135,9 @@ check('jour et repas respectés', row.day === '2026-09-07' && row.meal === 'midi
 const txt = j.result.content[0].text;
 check('réponse dit le total du jour', /Total du jour/.test(txt));
 check('objectif daté : celui de septembre, pas de janvier', /2400/.test(txt) && !/2000/.test(txt), txt);
+
+check('réponse d’écriture vide (201) lue comme un succès', j.result?.isError !== true && /Noté dans Tracklog/.test(txt), txt.slice(0,120));
+check('un seul appel = une seule ligne (pas de réessai)', inserted.length === 1);
 
 console.log('\n— Valeurs par défaut —');
 r = await post({ jsonrpc:'2.0', id:4, method:'tools/call', params:{ name:'tracklog_ajout_rapide', arguments:{ nom:'Pomme', kcal:80 } } });

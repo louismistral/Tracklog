@@ -162,7 +162,19 @@ async function rest(path: string, init: RequestInit = {}) {
     }
     throw new Error(`base: ${r.status} ${body}`);
   }
-  return r.status === 204 ? null : await r.json();
+  /* Une écriture réussie n'a pas de corps à lire. PostgREST répond `201 Created`
+     **vide** à une insertion tant qu'on ne réclame pas la ligne en retour — pas
+     `204`. Appeler `r.json()` là-dessus jette « Unexpected end of JSON input »
+     APRÈS que la ligne est écrite : l'appelant croit à un échec, réessaie, et
+     double la ligne. Le corps se lit donc en texte, et son absence est une
+     réponse valide. */
+  const text = await r.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`base: réponse illisible (${r.status}).`);
+  }
 }
 
 const enc = encodeURIComponent;
@@ -296,7 +308,13 @@ async function runAjoutRapide(args: Record<string, unknown>) {
     ts: Date.now(),
   };
 
-  await rest('food_logs', { method: 'POST', body: JSON.stringify(row) });
+  // `return=minimal` : on ne relit pas la ligne qu'on vient d'écrire, et le dire
+  // explicitement vaut mieux que de dépendre du défaut de PostgREST.
+  await rest('food_logs', {
+    method: 'POST',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify(row),
+  });
 
   const logs = await readLogs(day);
   const goals = await readGoals(day);
