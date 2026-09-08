@@ -173,6 +173,34 @@ const GRAINS = [
   { id:'month', label:'Mois' },
 ];
 
+/* ---- Sources extérieures ---------------------------------------------------
+   Un tracker peut être rempli par un service du dehors plutôt qu'à la main :
+   même objet, mêmes graphes, mêmes entrées — c'est la SAISIE qui change, pas
+   la nature de la chose suivie. D'où une section de plus dans ses réglages, et
+   surtout pas un « type » de tracker à part : un bénéfice se lit comme
+   n'importe quel nombre.
+
+   `metrics` liste ce qu'un service sait rendre. Un service = une fonction Edge
+   du même nom, qui expose /start /status /disconnect /sync ; en ajouter un
+   revient à écrire cette fonction et une ligne ici. Rien d'autre dans l'app ne
+   connaît le nom « Etsy ». */
+const EXTERNAL_SERVICES = [
+  { id:'etsy', label:'Etsy', metrics:[
+    // Trois mots courts : la piste compacte ne doit jamais passer sur deux
+    // lignes, et « Chiffre d'affaires » la faisait déborder de sa carte.
+    // Ce que chacun veut dire exactement est dans la bulle, pas dans le bouton.
+    { id:'net',     label:'Bénéfice',  unit:'€',
+      hint:'Ce qui reste des ventes du jour une fois les frais Etsy retirés — mais avant le coût d’impression, qu’Etsy ne connaît pas.' },
+    { id:'revenue', label:'Ventes',    unit:'€',
+      hint:'Ce que les acheteurs ont payé ce jour-là, frais compris.' },
+    { id:'orders',  label:'Commandes', unit:'',
+      hint:'Le nombre de commandes passées ce jour-là.' },
+  ] },
+];
+const serviceById = (id) => EXTERNAL_SERVICES.find(s => s.id === id) || null;
+const metricOf = (serviceId, metricId) =>
+  serviceById(serviceId)?.metrics.find(m => m.id === metricId) || null;
+
 /* ---- Densité des cartes de graphe -----------------------------------------
    Combien de cartes par ligne dans la vue Cartes. Au-delà de quatre, une carte
    est plus étroite que son propre axe : le graphe cesse de se lire.
@@ -197,11 +225,37 @@ const SUPABASE_URL = 'https://drrmqrhsfgermgblndzz.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRycm1xcmhzZmdlcm1nYmxuZHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxMTI1NzMsImV4cCI6MjA5OTY4ODU3M30.NOV3tKFH2vGI043cGZhB2yu9IlqFUVoXXP4JaXA-9vE';
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+/* Parler à une fonction Edge au nom du compte. Le jeton de session part dans
+   l'en-tête : la fonction sait qui demande sans que la page ait à le dire, et
+   ce qu'elle garde pour nous (les jetons d'un service extérieur) ne redescend
+   jamais ici. Un échec revient en `Error` — l'appelant décide quoi en montrer. */
+async function callFunction(name, route, { method = 'POST', body } = {}){
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  if (!token) throw new Error('Session expirée — reconnecte-toi.');
+  let r;
+  try {
+    r = await fetch(`${SUPABASE_URL}/functions/v1/${name}/${route}`, {
+      method,
+      headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    // « Failed to fetch » ne dit rien à qui n'écrit pas de code : c'est le
+    // réseau, ou le service qui ne répond pas. On le dit dans ces mots-là.
+    throw new Error('Service injoignable — vérifiez votre connexion.');
+  }
+  let payload = null;
+  try { payload = await r.json(); } catch {}
+  if (!r.ok) throw new Error(payload?.error || `Le service a répondu ${r.status}.`);
+  return payload;
+}
+
 function trackerFromRow(r){
-  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMin:r.scale_min ?? undefined, scaleMax:r.scale_max || undefined, scaleStep:r.scale_step || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, jokerEnabled:!!r.joker_enabled, cumulative:!!r.cumulative, curveStyle:isCurveStyle(r.curve_style) ? r.curve_style : 'line', chartGrain:GRAINS.some(g => g.id === r.chart_grain) ? r.chart_grain : 'day', goodDirection:r.good_direction || undefined, targetValue:r.target_value ?? undefined, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
+  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMin:r.scale_min ?? undefined, scaleMax:r.scale_max || undefined, scaleStep:r.scale_step || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, jokerEnabled:!!r.joker_enabled, cumulative:!!r.cumulative, curveStyle:isCurveStyle(r.curve_style) ? r.curve_style : 'line', chartGrain:GRAINS.some(g => g.id === r.chart_grain) ? r.chart_grain : 'day', goodDirection:r.good_direction || undefined, targetValue:r.target_value ?? undefined, externalSource:r.external_source || undefined, externalMetric:r.external_metric || undefined, externalLastSync:r.external_last_sync ?? undefined, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
 }
 function trackerToRow(t, userId){
-  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_min:t.scaleMin ?? null, scale_max:t.scaleMax || null, scale_step:t.scaleStep || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, joker_enabled:!!t.jokerEnabled, cumulative:!!t.cumulative, curve_style:isCurveStyle(t.curveStyle) ? t.curveStyle : 'line', chart_grain:GRAINS.some(g => g.id === t.chartGrain) ? t.chartGrain : 'day', good_direction:t.goodDirection || null, target_value:t.targetValue ?? null, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
+  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_min:t.scaleMin ?? null, scale_max:t.scaleMax || null, scale_step:t.scaleStep || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, joker_enabled:!!t.jokerEnabled, cumulative:!!t.cumulative, curve_style:isCurveStyle(t.curveStyle) ? t.curveStyle : 'line', chart_grain:GRAINS.some(g => g.id === t.chartGrain) ? t.chartGrain : 'day', good_direction:t.goodDirection || null, target_value:t.targetValue ?? null, external_source:t.externalSource || null, external_metric:t.externalMetric || null, external_last_sync:t.externalLastSync ?? null, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
 }
 function entryFromRow(r){
   return { id:r.id, trackerId:r.tracker_id, value:r.value, note:r.note || '', ts:r.ts };
@@ -457,6 +511,10 @@ function dayKey(ts){
   const d = new Date(ts);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
+// L'inverse : minuit local du jour nommé. Deux endroits en avaient besoin (le
+// calendrier de la période d'activité, la synchro d'un service extérieur) —
+// une seule écriture, sinon les deux dériveraient sur le fuseau.
+const dayKeyToTs = (dk) => new Date(dk + 'T00:00:00').getTime();
 
 // A "joker" day (pull day, rest day…) is stored as a regular Entry whose value
 // is this sentinel. Its whole day is then excluded from every aggregate —
@@ -1511,6 +1569,85 @@ function App({ session }){
     const { error } = await supabase.from('trackers').update(trackerToRow(updated, userId)).eq('id', id);
     if (!error) setTrackers(s => s.map(t => t.id===id ? updated : t));
   };
+  /* ---- Remplir un tracker depuis son service extérieur ----------------------
+     La fonction Edge rend une valeur par jour ; ici on la range en entrées
+     ordinaires. C'est ce qui fait qu'un tracker synchronisé se lit, se filtre,
+     se moyenne et s'affiche exactement comme un autre : rien en aval ne sait
+     d'où vient le chiffre.
+
+     Deux règles qui ne vont pas de soi :
+       · Un jour sans vente vaut ZÉRO, pas « rien ». Un trou ferait ponter la
+         courbe par-dessus et sortirait le jour des moyennes, alors qu'une
+         journée sans commande est une information. On ne remonte cependant pas
+         avant le premier jour qui a une valeur — inventer des zéros avant
+         l'ouverture de la boutique serait inventer une histoire.
+       · On relit quelques jours déjà lus. Une commande peut être remboursée
+         après coup ; son jour doit alors se corriger tout seul. */
+  const [externalErrors, setExternalErrors] = useState({});
+  const syncExternal = async (id, { full = false } = {}) => {
+    const t = trackerById[id];
+    if (!t?.externalSource) return { written: 0 };
+    const now = Date.now();
+    const since = full || !t.externalLastSync
+      ? Math.max(dayKeyToTs(t.startDate || dayKey(t.createdAt)), now - 400 * 86400000)
+      : t.externalLastSync - 3 * 86400000;
+    let res;
+    try {
+      res = await callFunction(t.externalSource, 'sync',
+        { body: { metric: t.externalMetric || 'revenue', from: since, to: now } });
+    } catch (e){
+      setExternalErrors(m => ({ ...m, [id]: String(e.message || e) }));
+      throw e;
+    }
+    setExternalErrors(m => { const { [id]:_, ...rest } = m; return rest; });
+
+    const days = res?.days || {};
+    const dks = Object.keys(days).sort();
+    if (dks.length){
+      // Du premier jour qui a une valeur jusqu'à aujourd'hui, sans trou.
+      for (let ts = dayKeyToTs(dks[0]); ts <= now; ts += 86400000){
+        const dk = dayKey(ts);
+        if (!(dk in days)) days[dk] = 0;
+      }
+    }
+    const mine = entries.filter(e => e.trackerId === id);
+    const byDay = {};
+    for (const e of mine) byDay[dayKey(e.ts)] = e;
+    const fresh = [], fixed = [];
+    for (const [dk, value] of Object.entries(days)){
+      const existing = byDay[dk];
+      if (!existing) fresh.push({ id: uid('e_'), trackerId: id, value, note: '',
+                                  ts: dayKeyToTs(dk) + 43200000 }); // midi : aucun fuseau ne le déplace de jour
+      else if (existing.value !== value) fixed.push({ ...existing, value });
+    }
+    if (fresh.length){
+      const { error } = await supabase.from('entries').insert(fresh.map(e => entryToRow(e, userId)));
+      if (error) throw new Error(error.message);
+    }
+    for (const e of fixed){
+      await supabase.from('entries').update(entryToRow(e, userId)).eq('id', e.id);
+    }
+    if (fresh.length || fixed.length){
+      const fixedById = Object.fromEntries(fixed.map(e => [e.id, e]));
+      setEntries(s => [...fresh, ...s.map(e => fixedById[e.id] || e)]);
+    }
+    await updateTracker(id, { externalLastSync: now });
+    return { written: fresh.length + fixed.length, shop: res?.shop };
+  };
+  // Au chargement, ce qui n'a pas été relu depuis une demi-heure se remet à
+  // jour tout seul — un tracker synchronisé qui demande un clic pour être à
+  // jour n'est pas synchronisé. L'échec reste rangé dans `externalErrors` et
+  // s'affiche dans les réglages du tracker : silencieux ici, jamais perdu.
+  const autoSyncedRef = useRef(false);
+  useEffect(() => {
+    if (loading || autoSyncedRef.current || !trackers.length) return;
+    autoSyncedRef.current = true;
+    trackers
+      .filter(t => t.externalSource && !t.archived
+                && (!t.externalLastSync || Date.now() - t.externalLastSync > 1800000))
+      .forEach(t => { syncExternal(t.id).catch(() => {}); });
+  }, [loading, trackers]);
+
   const removeTracker = async (id) => {
     const { error } = await supabase.from('trackers').delete().eq('id', id);
     if (!error){
@@ -1756,6 +1893,8 @@ function App({ session }){
           onDelete={()=>{ removeTracker(editTracker.id); setEditTracker(null); }}
           onArchive={()=>{ archiveTracker(editTracker.id); setEditTracker(null); }}
           onUnarchive={()=>{ unarchiveTracker(editTracker.id); setEditTracker(null); }}
+          onSync={(opts)=>syncExternal(editTracker.id, opts)}
+          syncError={externalErrors[editTracker.id] || null}
         />
       )}
       {editEntry && (
@@ -4705,7 +4844,7 @@ function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
    nom, la courbe, la granularité, le cumul, la couleur) est exactement ce qui
    reste vrai pour eux. Une seconde page de réglages n'aurait dit qu'une
    variante de celle-ci — c'est le même objet. */
-function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, onArchive, onUnarchive, scope = 'full' }){
+function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, onArchive, onUnarchive, onSync, syncError = null, scope = 'full' }){
   const isEdit = !!tracker;
   const display = scope === 'display';
   // — Cœur : ce que le tracker mesure —
@@ -4737,14 +4876,62 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
   // laquelle des deux dates le prochain jour cliqué renseigne.
   const [dateField, setDateField] = useState(null); // 'start' | 'end' | null
   const [calMonth, setCalMonth] = useState(() => startOfMonth(Date.now()));
-  const dayKeyToTs = (dk) => new Date(dk + 'T00:00:00').getTime();
   const openDateField = (field) => {
     const dk = field === 'start' ? startDate : endDate;
     setCalMonth(startOfMonth(dk ? dayKeyToTs(dk) : Date.now()));
     setDateField(f => f === field ? null : field);
   };
+  // — Source extérieure : qui remplit ce tracker à notre place —
+  const [externalSource, setExternalSource] = useState(tracker?.externalSource || '');
+  const [externalMetric, setExternalMetric] = useState(tracker?.externalMetric || '');
+  const [conn, setConn] = useState(null);        // {loading}|{connected,label}|{error}
+  const [connBusy, setConnBusy] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
   const [color, setColor] = useState(tracker?.color || DEFAULT_COLOR);
   const nameRef = useRef();
+
+  /* L'état de la connexion se demande au service, pas à la base : les jetons
+     vivent dans une table que la page ne peut pas lire (c'est le but), donc
+     seule la fonction Edge sait si le compte est relié. */
+  const loadStatus = useCallback((service) => {
+    if (!service) return;
+    setConn({ loading: true });
+    callFunction(service, 'status', { method: 'GET' })
+      .then(r => setConn(r))
+      .catch(e => setConn({ error: String(e.message || e) }));
+  }, []);
+  useEffect(() => {
+    if (!externalSource){ setConn(null); return; }
+    loadStatus(externalSource);
+  }, [externalSource, loadStatus]);
+
+  const connectService = async () => {
+    setConnBusy(true); setSyncMsg('');
+    try {
+      const { url } = await callFunction(externalSource, 'start', { body: {} });
+      // Un onglet à part : la page d'autorisation d'Etsy refuse d'être encadrée,
+      // et revenir ici ne doit pas coûter le brouillon en cours.
+      window.open(url, '_blank', 'noopener');
+      setSyncMsg('Autorisez Tracklog dans l’onglet qui vient de s’ouvrir, puis revenez et touchez « Vérifier ».');
+    } catch (e){ setConn({ error: String(e.message || e) }); }
+    setConnBusy(false);
+  };
+  const disconnectService = async () => {
+    if (!confirm('Oublier ce compte ? Les entrées déjà enregistrées restent.')) return;
+    setConnBusy(true); setSyncMsg('');
+    try { await callFunction(externalSource, 'disconnect', { body: {} }); setConn({ connected: false }); }
+    catch (e){ setConn({ error: String(e.message || e) }); }
+    setConnBusy(false);
+  };
+  const runSync = async (full) => {
+    if (!onSync) return;
+    setConnBusy(true); setSyncMsg('Lecture en cours…');
+    try {
+      const r = await onSync({ full });
+      setSyncMsg(r?.written ? `${r.written} jour${r.written > 1 ? 's' : ''} mis à jour.` : 'Rien de nouveau.');
+    } catch (e){ setSyncMsg(String(e.message || e)); }
+    setConnBusy(false);
+  };
 
   const setChoiceAt = (i, val) => setChoices(cs => cs.map((c,idx)=>idx===i?val:c));
   const addChoice = () => setChoices(cs => [...cs, '']);
@@ -4796,6 +4983,16 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
       t.targetValue = (directional && goodDirection === 'target' && targetValue !== '' && !isNaN(parseFloat(targetValue)))
         ? parseFloat(targetValue) : null;
     }
+    // La source extérieure ne vaut que pour un nombre qu'on ne saisit pas —
+    // un master calcule déjà, un choix ou un texte n'ont rien à recevoir.
+    const wired = !isMasterKind && type === 'number' && !!externalSource;
+    t.externalSource = wired ? externalSource : null;
+    t.externalMetric = wired ? (externalMetric || serviceById(externalSource).metrics[0].id) : null;
+    // Changer de source ou de donnée, c'est changer ce que les jours veulent
+    // dire : la prochaine synchro doit tout relire, pas reprendre où elle en
+    // était sur l'ancienne mesure.
+    if (t.externalSource !== (tracker?.externalSource || null)
+     || t.externalMetric !== (tracker?.externalMetric || null)) t.externalLastSync = null;
     onSave(t);
   };
 
@@ -5036,6 +5233,99 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         </div>
 
         </div>}
+
+        {/* ============ SOURCE EXTÉRIEURE ============
+            Un tracker n'est pas forcément rempli à la main. Le brancher sur un
+            service, c'est déléguer la SAISIE — tout le reste (graphe, filtre,
+            master, moyennes) continue de le traiter comme n'importe quel
+            nombre, et c'est exactement ce qu'on veut : un bénéfice se lit comme
+            une caféine. D'où une section de plus ici, et pas un genre de
+            tracker à part. */}
+        {!display && !isMasterKind && type === 'number' && (
+        <div className="card fd-card">
+        <p className="section-label">Source</p>
+
+        <div className="field spread" style={{borderBottom: externalSource ? undefined : 'none'}}>
+          <label>Remplissage</label>
+          <div className="ctl-with-info">
+            <Segmented size="compact" scrollx>
+              <button className={!externalSource?'on':''} onClick={()=>setExternalSource('')}>À la main</button>
+              {EXTERNAL_SERVICES.map(sv => (
+                <button key={sv.id} className={externalSource===sv.id?'on':''}
+                  onClick={()=>{ setExternalSource(sv.id); if (!externalMetric) setExternalMetric(sv.metrics[0].id); }}>
+                  {sv.label}
+                </button>
+              ))}
+            </Segmented>
+            <InfoBubble title="Source">
+              <span className="k">À la main</span> : vous notez la valeur du jour vous-même.<br/>
+              <span className="k">Un service</span> : Tracklog va chercher le chiffre à votre place et
+              l’écrit dans la journée correspondante. Les entrées restent des entrées ordinaires —
+              corrigeables, et gardées si vous débranchez la source.
+            </InfoBubble>
+          </div>
+        </div>
+
+        {externalSource && (<>
+          <div className="field spread">
+            <label>Donnée</label>
+            <div className="ctl-with-info">
+              <Segmented size="compact" scrollx>
+                {serviceById(externalSource).metrics.map(m => (
+                  <button key={m.id} className={externalMetric===m.id?'on':''}
+                    onClick={()=>setExternalMetric(m.id)}>{m.label}</button>
+                ))}
+              </Segmented>
+              <InfoBubble title="Donnée récupérée">
+                {serviceById(externalSource).metrics.map(m => (
+                  <React.Fragment key={m.id}>
+                    <span className="k">{m.label}</span> : {m.hint}<br/>
+                  </React.Fragment>
+                ))}
+                Une journée sans vente vaut <span className="k">zéro</span>, pas « rien » : c’est une
+                information, et un trou ferait passer la courbe par-dessus.
+              </InfoBubble>
+            </div>
+          </div>
+
+          <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:10,borderBottom:'none',paddingTop:14}}>
+            <label style={{width:'auto'}}>Compte</label>
+            <span className="tc-empty-note">
+              {conn?.loading ? 'Vérification…'
+               : conn?.error ? conn.error
+               : conn?.connected ? `Connecté${conn.label ? ' — ' + conn.label : ''}.`
+               : 'Aucun compte relié pour l’instant.'}
+            </span>
+            <div className="period-row">
+              {conn?.connected ? (
+                <>
+                  <button type="button" className="period-arch go" disabled={connBusy}
+                    onClick={()=>runSync(false)}>Synchroniser</button>
+                  <button type="button" className="period-arch go" disabled={connBusy}
+                    onClick={()=>runSync(true)}>Tout relire</button>
+                  <button type="button" className="period-arch" disabled={connBusy}
+                    onClick={disconnectService}>Déconnecter</button>
+                </>
+              ) : (
+                <>
+                  <button type="button" className="period-arch go" disabled={connBusy}
+                    onClick={connectService}>Connecter mon compte</button>
+                  <button type="button" className="period-arch go" disabled={connBusy}
+                    onClick={()=>loadStatus(externalSource)}>Vérifier</button>
+                </>
+              )}
+            </div>
+            {(syncMsg || syncError) && <span className="tc-empty-note">{syncMsg || syncError}</span>}
+            {tracker?.externalLastSync && (
+              <span className="tc-empty-note">Dernière lecture : {shortDate(tracker.externalLastSync)}.</span>
+            )}
+            {!isEdit && (
+              <span className="tc-empty-note">Créez le tracker : la première lecture se fera juste après.</span>
+            )}
+          </div>
+        </>)}
+
+        </div>)}
 
         {/* ============ VUES ============ */}
         <div className="card fd-card">

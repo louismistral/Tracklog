@@ -917,7 +917,11 @@
   .period-field input{font-size:13px;border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;background:var(--bg-3);color:var(--ink)}
   .period-arch{align-self:flex-start;margin-top:2px;font-size:10px;color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:8px 14px;text-transform:uppercase;letter-spacing:0.12em;transition:all .35s var(--ease)}
   .period-arch:hover{border-color:var(--warn);color:var(--warn)}
-  .period-arch.unarchive:hover{border-color:var(--accent);color:var(--accent)}
+  /* `.go` : la même pastille discrète qu'« Archiver », dont seul le sens du
+     survol change — une action neutre (connecter, synchroniser) ne doit pas
+     virer au rouge comme une action qui retire quelque chose. */
+  .period-arch.unarchive:hover,.period-arch.go:hover{border-color:var(--accent);color:var(--accent)}
+  .period-arch:disabled{opacity:.45;pointer-events:none}
 
   /* Pastilles de saisie — la même .pill que le rail et les nuanciers de
      couleur, pour que la valeur cible, l'échelle et la période d'activité ne
@@ -1857,7 +1861,7 @@
 <!-- Deux fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, et le dernier script monte React une fois les deux en place. -->
-<script type="text/babel" src="app.jsx?v=60"></script>
+<script type="text/babel" src="app.jsx?v=61"></script>
 <script type="text/babel" src="app.food.jsx?v=30"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
