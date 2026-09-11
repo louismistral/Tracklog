@@ -5582,9 +5582,23 @@ function PasswordModal({ recovery, onClose }){
   );
 }
 
+/* L'atelier (app.sink.jsx) vit à une adresse plutôt que dans un onglet : ce
+   n'est pas une page de l'app mais une page pour celui qui la fabrique, et
+   elle n'a besoin ni de compte ni de données. Le test est exact — le lien de
+   réinitialisation de mot de passe arrive lui aussi par le hash. */
+const isSinkHash = () => (window.location.hash || '') === '#sink';
+
 function Root(){
   const [session, setSession] = useState(undefined); // undefined = loading, null = signed out
   const [recovery, setRecovery] = useState(false);   // arrived via password-reset link
+  // Taper #sink dans la barre d'adresse ne recharge pas la page : sans écouter
+  // le changement de hash, l'atelier ne s'ouvrirait qu'au rechargement suivant.
+  const [sink, setSink] = useState(isSinkHash);
+  useEffect(() => {
+    const onHash = () => setSink(isSinkHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   // Recognise a password-reset link synchronously (implicit flow puts
   // "type=recovery" in the URL hash) so we show the "new password" form
@@ -5609,6 +5623,9 @@ function Root(){
     }
   };
 
+  // Avant l'attente de session : l'atelier ne montre que des composants, il
+  // n'a rien à attendre de la base.
+  if (sink) return <SinkView />;
   if (session === undefined) return <div className="empty"><span className="em-serif">Chargement…</span></div>;
   if ((recovery || urlRecovery) && session) return <PasswordModal recovery onClose={closeRecovery} />;
   if (!session) return <SignIn />;
