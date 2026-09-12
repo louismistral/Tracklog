@@ -207,12 +207,42 @@ const metricOf = (serviceId, metricId) =>
    Chaque cran retire du détail plutôt que de le tasser — c'est ce qui fait la
    différence entre « plus petit » et « illisible ». */
 const MAX_PER_ROW = 3;
+
+/* ---- Un graphe se dessine à la taille qu'il occupe ------------------------
+   Les SVG des graphes étaient tracés dans un repère fixe de 800 unités de
+   large, puis écrasés à la largeur réelle de la carte (`preserveAspectRatio:
+   none`). Sur un téléphone de 350 px, tout l'horizontal passait donc à 44 % :
+   les graduations devenaient des taches illisibles et les points, des ovales
+   couchés — un cercle de rayon 3 rendu 1,3 px de large sur 3 de haut.
+
+   On mesure donc la largeur réellement occupée et on s'en sert comme repère :
+   une unité du dessin vaut alors un pixel, dans les deux sens. Le texte reste
+   à sa taille, un rond reste rond. `ResizeObserver` plutôt qu'un écouteur de
+   redimensionnement : la carte change aussi de largeur quand le curseur de
+   densité bouge, sans que la fenêtre bouge. */
+function useDrawWidth(ref, fallback = 800){
+  const [w, setW] = useState(fallback);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(entries => {
+      const px = Math.round(entries[0].contentRect.width);
+      // Un arrondi au pixel : sans lui, une largeur fractionnaire relancerait
+      // un rendu à chaque image pendant une animation de mise en page.
+      if (px > 0) setW(px);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return w;
+}
+
 function chartDetail(perRow){
-  // `axisLabels:false` au cran serré n'est pas qu'une simplification voulue :
-  // le SVG est étiré en `preserveAspectRatio="none"`, donc son texte se
-  // comprime horizontalement avec la carte. À 250 px de large les graduations
-  // deviennent des taches. On les retire, la carte devient une sparkline —
-  // la valeur du jour reste lisible, elle, dans l'en-tête.
+  // `axisLabels:false` au cran serré est une simplification voulue : à 250 px
+  // de large, six graduations se touchent. Le texte n'est plus déformé depuis
+  // que le repère du dessin suit la largeur réelle (`useDrawWidth`) — il est
+  // juste trop nombreux. On les retire, la carte devient une sparkline, et la
+  // valeur du jour reste lisible dans l'en-tête.
   if (perRow >= 3) return { height: 84,  padL: 8,  padB: 8,  yTicks: 3, midTick: false, axisLabels: false, stats: 'value' };
   if (perRow === 2) return { height: 110, padL: 32, padB: 20, yTicks: 5, midTick: true,  axisLabels: true,  stats: 'short' };
   return                   { height: 160, padL: 40, padB: 24, yTicks: 6, midTick: true,  axisLabels: true,  stats: 'full'  };
@@ -1919,6 +1949,27 @@ function App({ session }){
    display preferences (info bubbles), one place instead of two
    loose top-bar buttons.
    ============================================================ */
+/* ---- Montrer plutôt que décrire ------------------------------------------
+   Un réglage d'affichage se juge à l'œil, pas à la phrase : « une barre qui
+   découpe les calories » demande de l'imaginer, deux vignettes côte à côte
+   répondent en une seconde. Les bulles des réglages d'affichage portent donc
+   un avant/après en vrai — même encre, mêmes tokens que ce qu'elles montrent,
+   sinon l'exemple ne ressemblerait pas à ce qu'on va obtenir. */
+function DemoPair({ off, on, offLabel = 'Sans', onLabel = 'Avec' }){
+  return (
+    <span className="demo-pair" aria-hidden="true">
+      <span className="demo-pane">
+        <span className="demo-cap">{offLabel}</span>
+        <span className="demo-body">{off}</span>
+      </span>
+      <span className="demo-pane">
+        <span className="demo-cap">{onLabel}</span>
+        <span className="demo-body">{on}</span>
+      </span>
+    </span>
+  );
+}
+
 function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled, onSetInfoEnabled,
                        showWeek, onSetShowWeek, theme, onSetTheme, accent, onSetAccent,
                        compBar, onSetCompBar,
@@ -2011,6 +2062,12 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
               chacun ouvre son explication quand on le tape. Masquez-les une fois l'app
               bien en main — les explications partent avec eux, et ce réglage-ci garde
               sa bulle dans tous les cas.
+              <DemoPair
+                off={<span className="demo-row"><span className="demo-lab">Granularité</span>
+                       <span className="demo-pill">Jour</span></span>}
+                on={<span className="demo-row"><span className="demo-lab">Granularité</span>
+                      <span className="demo-pill">Jour</span>
+                      <span className="demo-i">i</span></span>} />
             </InfoBubble>
           </div>
         </div>
@@ -2018,7 +2075,12 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
           <label>Numéro de semaine</label>
           <div className="ctl-with-info">
             <BoolPill value={showWeek} onChange={onSetShowWeek} />
-            <InfoBubble title="Numéro de semaine">À côté de la date du jour, dans le Log et l'Historique.</InfoBubble>
+            <InfoBubble title="Numéro de semaine">
+              À côté de la date du jour, dans le Log et l'Historique.
+              <DemoPair
+                off={<span className="demo-date">samedi 12 septembre</span>}
+                on={<span className="demo-date">samedi 12 septembre <span className="demo-wk">S37</span></span>} />
+            </InfoBubble>
           </div>
         </div>
         <div className="field spread" style={{borderBottom:'none'}}>
@@ -2030,6 +2092,25 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
               <span className="k"> protéines, glucides et lipides</span> — et qui colore ses chiffres.
               Un blanc de poulet est presque tout rouge, des flocons presque tout bleu : la nature de
               l'aliment se lit avant son nom. Masquée, la carte reste la même en plus court.
+              {/* Les vraies couleurs des macros, par leurs variables : si vous les
+                  changez dans les Vues de Food, l'exemple change avec elles. */}
+              <DemoPair
+                off={<span className="demo-macros">
+                       <b>121</b><span className="demo-mc"><b>26</b><u>P</u></span>
+                       <span className="demo-mc"><b>0</b><u>G</u></span>
+                       <span className="demo-mc"><b>1.8</b><u>L</u></span>
+                     </span>}
+                on={<span className="demo-macros">
+                      <b>121</b>
+                      <span className="demo-mc" style={{color:'var(--macro-protein)'}}><b>26</b></span>
+                      <span className="demo-mc" style={{color:'var(--macro-carbs)'}}><b>0</b></span>
+                      <span className="demo-mc" style={{color:'var(--macro-fat)'}}><b>1.8</b></span>
+                      <span className="demo-comp">
+                        <i style={{width:'86%',background:'var(--macro-protein)'}} />
+                        <i style={{width:'0%',background:'var(--macro-carbs)'}} />
+                        <i style={{width:'14%',background:'var(--macro-fat)'}} />
+                      </span>
+                    </span>} />
             </InfoBubble>
           </div>
         </div>
@@ -3492,7 +3573,11 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
   // Master avec elle — un master a sa propre carte dans les cartes.
   const [mode, setMode] = useState('chart'); // chart | trend | calendar | summary
   const [rangeMode, setRangeMode] = useState('30'); // '7'|'30'|'90'|'365'|'ytd'|'all'|'custom'
+  // Une période personnalisée a deux bornes. Sans la seconde, « personnalisé »
+  // ne savait dire que « depuis tel jour, jusqu'à aujourd'hui » — impossible de
+  // regarder un mois de l'an dernier. Fin vide = aujourd'hui.
   const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
   // « Liste » et « Grille » ne sont pas deux affichages mais un seul réglé à
   // deux crans : combien de cartes par ligne. Le curseur remplace le choix, et
   // chaque cran de plus rétrécit les cartes et les allège de leurs statistiques
@@ -3510,17 +3595,44 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
   const visibleIds = useMemo(() => visibleTrackers.map(t => t.id), [visibleTrackers]);
   const cardsDrag = useDragReorder(visibleIds, onReorder);
 
-  // "Tout" needs the earliest entry among what's actually shown, so the range
-  // stretches back exactly to where the visible trackers' history begins.
-  const earliestTs = useMemo(() => {
-    const ids = new Set(dataVisible.map(t => t.id));
-    let min = null;
+  /* « Tout » veut dire « toute l'histoire de CE tracker », pas « toute
+     l'histoire du plus ancien d'entre eux ». Un tracker né la semaine dernière
+     affichait 500 jours de vide parce qu'un voisin en avait 500 — sa courbe
+     tenait alors dans le dernier centimètre du cadre. Chaque carte reçoit donc
+     sa propre profondeur, calculée sur ses seules entrées.
+     Les vues qui mélangent plusieurs trackers dans UN dessin (Tendance) n'ont
+     qu'une échelle possible : elles gardent la plus ancienne de toutes. */
+  const firstTsById = useMemo(() => {
+    const m = {};
     for (const e of entries){
-      if (!ids.has(e.trackerId)) continue;
-      if (min == null || e.ts < min) min = e.ts;
+      if (m[e.trackerId] == null || e.ts < m[e.trackerId]) m[e.trackerId] = e.ts;
+    }
+    return m;
+  }, [entries]);
+  const earliestTs = useMemo(() => {
+    let min = null;
+    for (const t of dataVisible){
+      const ts = firstTsById[t.id];
+      if (ts != null && (min == null || ts < min)) min = ts;
     }
     return min ?? Date.now();
-  }, [entries, dataVisible]);
+  }, [firstTsById, dataVisible]);
+
+  /* Deux nombres décrivent maintenant une période : jusqu'où on regarde
+     (`endTs`, aujourd'hui sauf période personnalisée fermée) et sur combien de
+     jours (`range`). Les cartes savaient déjà recevoir une fin — leurs
+     fonctions de série portaient un `endTs` optionnel jamais utilisé —, il
+     suffisait de la leur donner. */
+  const endTs = useMemo(() => {
+    if (rangeMode !== 'custom' || !customEnd) return Date.now();
+    // Fin de journée : un jour choisi comme borne doit être inclus en entier.
+    return dayKeyToTs(customEnd) + 86400000 - 1;
+  }, [rangeMode, customEnd]);
+  const customRange = useMemo(() => {
+    if (!customStart) return 30;
+    const days = Math.floor((startOfDay(endTs) - dayKeyToTs(customStart)) / 86400000) + 1;
+    return Math.max(1, days);
+  }, [customStart, endTs]);
 
   // Every card still just wants "how many days back from today" — presets,
   // YTD, "Tout" and a custom start date all resolve down to that one number.
@@ -3531,9 +3643,24 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
       return daysSince(jan1.getTime());
     }
     if (rangeMode === 'all') return daysSince(earliestTs);
-    if (rangeMode === 'custom') return customStart ? daysSince(new Date(customStart + 'T00:00:00').getTime()) : 30;
+    if (rangeMode === 'custom') return customRange;
     return parseInt(rangeMode, 10);
-  }, [rangeMode, customStart, earliestTs]);
+  }, [rangeMode, customStart, customEnd, earliestTs]);
+
+  // La profondeur d'une carte : la même que tout le monde, sauf en « Tout » où
+  // chacune remonte à sa première entrée. Un master prend la plus ancienne de
+  // ses membres — c'est de là que son indice peut commencer à se calculer.
+  const rangeFor = useCallback((t) => {
+    if (rangeMode !== 'all') return range;
+    const daysSince = (ts) => Math.max(1, Math.floor((startOfDay(Date.now()) - startOfDay(ts)) / 86400000) + 1);
+    const ids = isMaster(t) ? (t.members || []) : [t.id];
+    let min = null;
+    for (const id of ids){
+      const ts = firstTsById[id];
+      if (ts != null && (min == null || ts < min)) min = ts;
+    }
+    return min == null ? 7 : daysSince(min);
+  }, [rangeMode, range, firstTsById]);
 
   return (
     <div>
@@ -3552,13 +3679,19 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
           <button className={rangeMode==='all'?'on':''} onClick={()=>setRangeMode('all')}>Tout</button>
           <button className={rangeMode==='custom'?'on':''} onClick={()=>setRangeMode('custom')}>Personnalisé</button>
           {rangeMode === 'custom' && (
-            <input
-              type="date"
-              className="range-custom-date"
-              value={customStart}
-              max={dayKey(Date.now())}
-              onChange={e=>setCustomStart(e.target.value)}
-            />
+            <>
+              <input
+                type="date" className="range-custom-date" aria-label="Du"
+                value={customStart} max={customEnd || dayKey(Date.now())}
+                onChange={e=>setCustomStart(e.target.value)}
+              />
+              <span className="range-custom-sep">→</span>
+              <input
+                type="date" className="range-custom-date" aria-label="Au"
+                value={customEnd} min={customStart} max={dayKey(Date.now())}
+                onChange={e=>setCustomEnd(e.target.value)}
+              />
+            </>
           )}
         </div>
       </div>
@@ -3595,8 +3728,8 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
               if (!t) return null;
               const dragProps = { containerRef: cardsDrag.setNodeRef(t.id), dragging: cardsDrag.dragId===t.id, onDragStart: cardsDrag.startDrag(t.id) };
               return isMaster(t)
-                ? <MasterTrackerCard key={t.id} perRow={perRow} master={t} trackerById={trackerById} entries={entries} rangeDays={range} onEdit={onEdit} {...dragProps} />
-                : <ChartCard key={t.id} perRow={perRow} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} onOpenDay={onOpenDay} {...dragProps} />;
+                ? <MasterTrackerCard key={t.id} perRow={perRow} master={t} trackerById={trackerById} entries={entries} rangeDays={rangeFor(t)} endTs={endTs} onEdit={onEdit} {...dragProps} />
+                : <ChartCard key={t.id} perRow={perRow} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={rangeFor(t)} endTs={endTs} onEdit={onEdit} onOpenDay={onOpenDay} {...dragProps} />;
             })}
           </div>
 
@@ -3605,20 +3738,20 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
       )}
       {mode === 'trend' && (
         <>
-          <TrendChart trackers={dataVisible} entries={entries} rangeDays={range} />
+          <TrendChart trackers={dataVisible} entries={entries} rangeDays={range} endTs={endTs} />
           {dataVisible.length === 0 && <div className="empty"><span className="em-serif">Pas de tracker à moyenner.</span></div>}
         </>
       )}
       {mode === 'calendar' && (
         <>
           {dataVisible.map(t => (
-            <CalendarCard key={t.id} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={range} onEdit={onEdit} />
+            <CalendarCard key={t.id} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={rangeFor(t)} endTs={endTs} onEdit={onEdit} />
           ))}
           {dataVisible.length === 0 && <div className="empty"><span className="em-serif">Pas de tracker à afficher ici.</span></div>}
         </>
       )}
       {mode === 'summary' && (
-        <GridSummary trackers={dataVisible} entries={entries} rangeDays={range} onEdit={onEdit} />
+        <GridSummary trackers={dataVisible} entries={entries} rangeDays={range} endTs={endTs} onEdit={onEdit} />
       )}
     </div>
   );
@@ -3627,10 +3760,12 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
 /* ============================================================
    Chart card — line chart with axes
    ============================================================ */
-function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, dragging, onDragStart, onEdit, onOpenDay, goalAt = null }){
+function ChartCard({ tracker, entries, rangeDays, endTs = Date.now(), perRow = 1, containerRef, dragging, onDragStart, onEdit, onOpenDay, goalAt = null }){
   const detail = chartDetail(perRow);
   const compact = perRow >= 2;
-  const now = Date.now();
+  // `endTs` et non « maintenant » : une période personnalisée peut se fermer
+  // sur un jour passé, et toute la carte se lit alors depuis cette borne.
+  const now = endTs;
   const start = now - rangeDays*86400000;
   const isCumulative = !!tracker.cumulative && (tracker.type === 'number' || tracker.type === 'duration');
 
@@ -3719,7 +3854,10 @@ function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, drag
   const total = isSumMode && hasData ? numericValues.reduce((a,b)=>a+b,0) : null;
 
   // SVG dimensions
-  const W = 800, H = detail.height, PAD_L = detail.padL, PAD_R = 12, PAD_T = 10, PAD_B = detail.padB;
+  // Le repère du dessin fait la largeur réelle de la carte (voir `useDrawWidth`) :
+  // une unité = un pixel, donc un rond reste rond et une graduation reste lisible.
+  const svgRef = useRef(null);
+  const W = useDrawWidth(svgRef), H = detail.height, PAD_L = detail.padL, PAD_R = 12, PAD_T = 10, PAD_B = detail.padB;
   const innerW = W - PAD_L - PAD_R;
   const innerH = H - PAD_T - PAD_B;
 
@@ -3797,7 +3935,6 @@ function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, drag
   // Scrub the chart with a mouse or a finger: `active` is the hovered/touched
   // day index, kept until the pointer leaves (mouse) or the close button is
   // tapped (touch — there's no "leave" to rely on there).
-  const svgRef = useRef(null);
   const [active, setActive] = useState(null);
   const pointToIndex = (clientX) => {
     const el = svgRef.current;
@@ -3893,7 +4030,7 @@ function ChartCard({ tracker, entries, rangeDays, perRow = 1, containerRef, drag
       </div>
       {hasData ? (
         <div className="chart-svg-wrap" style={{position:'relative', touchAction:'pan-y'}}>
-        <svg ref={svgRef} className="chart-svg" style={{height: H + 'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+        <svg ref={svgRef} className="chart-svg" style={{height: H + 'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice"
           onMouseMove={handleMouseMove}
           onMouseLeave={()=>setActive(null)}
           onTouchStart={handleTouchStart}
@@ -4120,11 +4257,11 @@ function forwardFill(series){
 /* ============================================================
    TrendChart — single line: average of normalized series
    ============================================================ */
-function TrendChart({ trackers, entries, rangeDays }){
+function TrendChart({ trackers, entries, rangeDays, endTs = Date.now() }){
   const series = useMemo(() => trackers.map(t => {
-    const raw = buildDailySeries(t, entries.filter(e=>e.trackerId===t.id), rangeDays);
+    const raw = buildDailySeries(t, entries.filter(e=>e.trackerId===t.id), rangeDays, endTs);
     return forwardFill(normalizeSeries(t, raw));
-  }), [trackers, entries, rangeDays]);
+  }), [trackers, entries, rangeDays, endTs]);
 
   // Average per day
   const avgSeries = useMemo(() => {
@@ -4146,7 +4283,8 @@ function TrendChart({ trackers, entries, rangeDays }){
   const overallAvg = numericValues.length ? numericValues.reduce((a,b)=>a+b,0)/numericValues.length : null;
   const delta = (latest != null && earliest != null) ? latest - earliest : null;
 
-  const W = 800, H = 260, PAD_L = 38, PAD_R = 14, PAD_T = 16, PAD_B = 28;
+  const svgRef = useRef(null);
+  const W = useDrawWidth(svgRef), H = 260, PAD_L = 38, PAD_R = 14, PAD_T = 16, PAD_B = 28;
   const innerW = W - PAD_L - PAD_R;
   const innerH = H - PAD_T - PAD_B;
   const xAt = (i) => PAD_L + (i / Math.max(1, avgSeries.length - 1)) * innerW;
@@ -4207,7 +4345,7 @@ function TrendChart({ trackers, entries, rangeDays }){
         </div>
       </div>
       {hasData ? (
-        <svg className="chart-svg" style={{height:H+'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+        <svg ref={svgRef} className="chart-svg" style={{height:H+'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice">
           {/* zone bands */}
           <rect x={PAD_L} y={yAt(1)} width={innerW} height={innerH*0.25} fill="oklch(0.55 0.10 150)" opacity="0.04" />
           <rect x={PAD_L} y={yAt(0.25)} width={innerW} height={innerH*0.25} fill="oklch(0.55 0.10 30)" opacity="0.04" />
@@ -4349,7 +4487,7 @@ function MasterStrip({ master, trackerById, entries, dayTs, containerRef, draggi
    Master tracker card — a saved index: average of the normalized
    performance of its chosen member trackers (0–100 per day).
    ============================================================ */
-function MasterTrackerCard({ master, trackerById, entries, rangeDays, perRow = 1, containerRef, dragging, onDragStart, onEdit }){
+function MasterTrackerCard({ master, trackerById, entries, rangeDays, endTs = Date.now(), perRow = 1, containerRef, dragging, onDragStart, onEdit }){
   const detail = chartDetail(perRow);
   const compact = perRow >= 2;
   const members = masterMembers(master, trackerById);
@@ -4360,8 +4498,8 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, perRow = 1
   // The index is already 0–1, so its axis stays 0–100 whatever the grain —
   // only how many days one point covers changes.
   const dailySeries = useMemo(
-    () => computeMasterSeries(master, members, entries, rangeDays),
-    [master, members, entries, rangeDays]
+    () => computeMasterSeries(master, members, entries, rangeDays, endTs),
+    [master, members, entries, rangeDays, endTs]
   );
   const avgSeries = useMemo(() => rollupPoints(dailySeries, grain), [dailySeries, grain]);
 
@@ -4374,7 +4512,8 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, perRow = 1
 
   // Un master a plus d'amplitude à montrer qu'une série brute : il garde une
   // hauteur plus généreuse à densité égale.
-  const W = 800, H = perRow >= 3 ? 100 : compact ? 130 : 220, PAD_L = detail.padL, PAD_R = 14, PAD_T = 14, PAD_B = detail.padB;
+  const svgRef = useRef(null);
+  const W = useDrawWidth(svgRef), H = perRow >= 3 ? 100 : compact ? 130 : 220, PAD_L = detail.padL, PAD_R = 14, PAD_T = 14, PAD_B = detail.padB;
   const innerW = W - PAD_L - PAD_R;
   const innerH = H - PAD_T - PAD_B;
   const xAt = (i) => PAD_L + (i / Math.max(1, avgSeries.length - 1)) * innerW;
@@ -4427,7 +4566,7 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, perRow = 1
       {members.length === 0 ? (
         <div style={{padding:'30px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucun tracker membre — modifiez ce master pour en choisir</div>
       ) : hasData ? (
-        <svg className="chart-svg" style={{height: H + 'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+        <svg ref={svgRef} className="chart-svg" style={{height: H + 'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice">
           {yTicks.map((v,i)=>(
             <g key={i}>
               <line className="chart-grid" x1={PAD_L} x2={W-PAD_R} y1={yAt(v)} y2={yAt(v)} />
@@ -4484,10 +4623,10 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, perRow = 1
 /* ============================================================
    Calendar heatmap card
    ============================================================ */
-function CalendarCard({ tracker, entries, rangeDays, onEdit }){
+function CalendarCard({ tracker, entries, rangeDays, endTs = Date.now(), onEdit }){
   // Always render last ~365 days of cells (or rangeDays), aligned to weeks
   const days = Math.min(Math.max(rangeDays, 30), 365);
-  const now = new Date(); now.setHours(0,0,0,0);
+  const now = new Date(endTs); now.setHours(0,0,0,0);
   // start at most `days` ago, then snap to Monday
   let start = new Date(now); start.setDate(start.getDate() - (days-1));
   // align to Monday (1)
@@ -4604,8 +4743,8 @@ function CalendarCard({ tracker, entries, rangeDays, onEdit }){
 /* ============================================================
    Grid summary (KPI cards)
    ============================================================ */
-function GridSummary({ trackers, entries, rangeDays, onEdit }){
-  const now = Date.now();
+function GridSummary({ trackers, entries, rangeDays, endTs = Date.now(), onEdit }){
+  const now = endTs;
   const start = now - rangeDays*86400000;
   const prevStart = start - rangeDays*86400000;
 
@@ -4866,7 +5005,11 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
   const [windowEnabled, setWindowEnabled] = useState(tracker ? tracker.windowEnabled !== false : true);
   const [jokerEnabled, setJokerEnabled] = useState(!!tracker?.jokerEnabled);
   const [cumulative, setCumulative] = useState(!!tracker?.cumulative);
-  const [curveStyle, setCurveStyle] = useState(tracker?.curveStyle === 'smooth' ? 'smooth' : 'line');
+  // `isCurveStyle`, pas un test à la main : la liste des tracés a grandi
+  // (les bâtons sont arrivés après) et ce test ne connaissait que « lissée »,
+  // donc rouvrir les réglages d'un tracker en bâtons affichait « polyligne »
+  // et le réenregistrait tel quel. Un choix valide se relit de son registre.
+  const [curveStyle, setCurveStyle] = useState(isCurveStyle(tracker?.curveStyle) ? tracker.curveStyle : 'line');
   const [chartGrain, setChartGrain] = useState(
     GRAINS.some(g => g.id === tracker?.chartGrain) ? tracker.chartGrain : 'day');
   const [startDate, setStartDate] = useState(tracker?.startDate || dayKey(tracker?.createdAt || Date.now()));

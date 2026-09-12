@@ -191,12 +191,32 @@ function NumField({ label, unit, value, onChange, onKeyDown, placeholder = '—'
    que ce n'est pas une quatrième macro mais leur somme. Elles ne suivent
    pas l'accent — ce sont quatre repères qu'on apprend une fois, et qui doivent
    rester les mêmes quelle que soit la couleur choisie pour l'app. */
+/* La couleur d'une macro se règle (Vues de Food → engrenage d'un graphe), et
+   doit alors valoir PARTOUT : compteurs du jour, colonnes d'une carte d'item,
+   barre de composition, légendes, graphes. D'où deux champs, pas un :
+     · `color` — ce que tout le monde lit, une variable CSS ;
+     · `defaultColor` — ce qu'elle vaut tant que rien n'a été choisi.
+   La variable est posée sur la racine par `useMacroColorVars`, comme la couleur
+   d'accent. Sans elle il aurait fallu faire descendre les préférences jusqu'à
+   six composants, dont trois qui n'en connaissent aucune. */
 const FOOD_MACROS = [
-  { key:'kcal',    label:'Calories',  short:'kcal', unit:'kcal', color:'var(--ink-2)' },
-  { key:'protein', label:'Protéines', short:'prot', unit:'g',    color:'oklch(0.60 0.13 25)'  },
-  { key:'carbs',   label:'Glucides',  short:'gluc', unit:'g',    color:'oklch(0.62 0.11 250)' },
-  { key:'fat',     label:'Lipides',   short:'lip',  unit:'g',    color:'oklch(0.75 0.12 90)'  },
+  { key:'kcal',    label:'Calories',  short:'kcal', unit:'kcal', color:'var(--macro-kcal)',    defaultColor:'var(--ink-2)' },
+  { key:'protein', label:'Protéines', short:'prot', unit:'g',    color:'var(--macro-protein)', defaultColor:'oklch(0.60 0.13 25)'  },
+  { key:'carbs',   label:'Glucides',  short:'gluc', unit:'g',    color:'var(--macro-carbs)',   defaultColor:'oklch(0.62 0.11 250)' },
+  { key:'fat',     label:'Lipides',   short:'lip',  unit:'g',    color:'var(--macro-fat)',     defaultColor:'oklch(0.75 0.12 90)'  },
 ];
+// Ce que la page Food range dans les préférences pour un graphe de macro finit
+// donc ici, en variable CSS, et tout ce qui affiche cette macro suit.
+function useMacroColorVars(){
+  const accountPrefs = useContext(AccountPrefsContext) || LOCAL_ONLY_PREFS;
+  const charts = accountPrefs.prefs.foodCharts || {};
+  const chosen = FOOD_MACROS.map(m => (charts[m.key] && charts[m.key].color) || m.defaultColor);
+  const key = chosen.join('|');
+  useEffect(() => {
+    const root = document.documentElement.style;
+    FOOD_MACROS.forEach((m, i) => root.setProperty(`--macro-${m.key}`, chosen[i]));
+  }, [key]);
+}
 /* Dépasser sa cible calorique de quelques calories n'est pas un écart : c'est
    la précision de l'estimation. Au-delà de 2,5 %, c'en est un, et le chiffre
    comme la barre passent au rouge. Seules les calories : une macro au-dessus de
@@ -1170,6 +1190,10 @@ function FoodScanner({ onCode }){
    les compteurs de la page Log lisent la même chose.
    ============================================================ */
 function useFoodStore(userId){
+  // Les couleurs des macros se posent ici parce que le magasin est le seul
+  // morceau de Food toujours monté : le Log affiche des macros sans que la page
+  // Food ait jamais été ouverte.
+  useMacroColorVars();
   const [foods, setFoods] = useState([]);
   const [logs, setLogs] = useState([]);
   const [meals, setMeals] = useState([]);     // presets d'ingrédients
@@ -3960,9 +3984,11 @@ function FoodVuesView({ store }){
   }, [rangeMode, customStart, earliestKey]);
 
   const days = useFoodDays(store, rangeDays);
-  const specs = mode === 'micros' ? FOOD_MICRO_SPECS : FOOD_MACROS;
+  const specs = mode === 'micros' ? FOOD_MICRO_SPECS
+    : FOOD_MACROS.map(m => ({ ...m, color: m.defaultColor }));
   const specByKey = useMemo(() => Object.fromEntries(
-    [...FOOD_MACROS, ...FOOD_MICRO_SPECS].map(x => [x.key, x])), []);
+    [...FOOD_MACROS.map(m => ({ ...m, color: m.defaultColor })), ...FOOD_MICRO_SPECS]
+      .map(x => [x.key, x])), []);
 
   // Le filtre des micros : quatorze graphes d'un coup ne se lisent pas. Rien
   // d'enregistré au départ = ceux qui ont de la matière sur la période, ce qui
@@ -4079,16 +4105,20 @@ function MicroPicker({ specs, withData, selected, onSelect }){
   };
   return (
     <div className="fd-micro-pick">
-      <Segmented wrap>
+      {/* Des chips à cocher (`member-picker`, celles des membres d'un master),
+          pas un `Segmented` : sa pastille glissante désigne UNE option active,
+          elle ne peut pas en montrer huit. Cochés, les micros ne se voyaient
+          donc qu'à leur point de couleur, et un seul semblait choisi. */}
+      <div className="member-picker">
         {specs.map(sp => (
-          <button key={sp.key} className={on.has(sp.key) ? 'on' : ''}
+          <button key={sp.key} type="button" className={`member ${on.has(sp.key) ? 'on' : ''}`}
             onClick={()=>toggle(sp.key)}
             title={withData.has(sp.key) ? sp.label : `${sp.label} — rien de renseigné sur la période`}>
             <span className="dot" style={{background:sp.color, opacity: withData.has(sp.key) ? 1 : 0.3}} />
-            {sp.label}
+            <span>{sp.label}</span>
           </button>
         ))}
-      </Segmented>
+      </div>
       <div className="fd-micro-pick-acts">
         <button className="fd-link" onClick={()=>onSelect(specs.map(sp=>sp.key))}>Tout</button>
         <button className="fd-link" onClick={()=>onSelect(specs.filter(sp=>withData.has(sp.key)).map(sp=>sp.key))}>
@@ -4122,7 +4152,10 @@ function MacroSplitCard({ days }){
     return s;
   }, [withSplit.length, days]);
 
-  const W = 800, H = 170, PAD_L = 8, PAD_R = 8, PAD_T = 8, PAD_B = 20;
+  // Même repère que les autres graphes : une unité = un pixel (`useDrawWidth`),
+  // sinon les dates du bas s'écrasent à 44 % de leur largeur sur téléphone.
+  const svgRef = useRef(null);
+  const W = useDrawWidth(svgRef), H = 170, PAD_L = 8, PAD_R = 8, PAD_T = 8, PAD_B = 20;
   const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
   const slot = innerW / Math.max(1, shown.length);
   const barW = Math.max(1.5, Math.min(26, slot * 0.7));
@@ -4143,7 +4176,7 @@ function MacroSplitCard({ days }){
         </div>
       </div>
       {withSplit.length ? (
-        <svg className="chart-svg" style={{height:H+'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+        <svg ref={svgRef} className="chart-svg" style={{height:H+'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice">
           {[0, 0.25, 0.5, 0.75, 1].map(f => (
             <line key={f} className="chart-grid" x1={PAD_L} x2={W-PAD_R}
               y1={PAD_T + innerH*f} y2={PAD_T + innerH*f} />

@@ -57,6 +57,10 @@
   :root{
     --radius: 3px;
     --ease: cubic-bezier(.19,1,.22,1);
+    /* Largeur de l'intitulé d'une rangée de réglage. Un seul nombre : le cadre
+       d'explication s'en sert pour remonter jusqu'au bord gauche de sa rangée
+       (voir `.info-panel` plus bas), et deux valeurs auraient divergé. */
+    --label-w: 82px;
   }
   /* Dark — "Aristide": warm near-black canvas, off-white ink. The default,
      and what every existing user already has, so it's the un-attributed root. */
@@ -298,14 +302,20 @@
   .qa{position:relative}
   .qa h3{margin:0 0 4px;font-family:"Instrument Serif",serif;font-style:italic;font-weight:400;font-size:22px;letter-spacing:0}
   .qa .sub{font-size:12px;color:var(--ink-3);margin-bottom:16px;text-transform:uppercase;letter-spacing:0.1em}
-  .field{display:flex;align-items:center;border-bottom:1px solid var(--line);padding:12px 0}
+  /* `container-type:inline-size` : la rangée devient l'unité de mesure de ce
+     qu'elle contient, ce qui permet au cadre d'explication de reprendre SA
+     largeur (100cqi) au lieu de celle de la colonne du contrôle. Un intitulé
+     ne fait pas la largeur qu'on lui donne — « BARRE DE COMPOSITION » déborde
+     ses 66 px —, donc aucun calcul à partir d'un nombre fixe ne pouvait
+     tomber juste. */
+  .field{display:flex;align-items:center;border-bottom:1px solid var(--line);padding:12px 0;container-type:inline-size}
   /* Le repli n'est posé que sur les rangées qui en ont besoin (celles qui
      accueillent un cadre d'explication) : sur une `.field` mise en colonne —
      nuancier, choix, période — `flex-wrap` fait déborder le contenu au lieu de
      l'empiler, la hauteur de la boîte ne suivant plus. */
   .field.field-info{flex-wrap:wrap;column-gap:10px}
   .field:last-of-type{border-bottom:none}
-  .field label{font-size:10px;color:var(--ink-3);width:82px;flex-shrink:0;text-transform:uppercase;letter-spacing:0.12em}
+  .field label{font-size:10px;color:var(--ink-3);width:var(--label-w);flex-shrink:0;text-transform:uppercase;letter-spacing:0.12em}
   .field input,.field select,.field textarea{flex:1;font-size:14px}
   .field .unit{color:var(--ink-3);font-size:13px;margin-left:6px}
   /* Le grammage qu'un ratio produit — visible en direct à côté du champ, pour
@@ -536,14 +546,14 @@
   .range-custom-date{font-size:11px;color:var(--ink);background:var(--bg-2);border:1px solid var(--line-2);
     border-radius:6px;padding:3px 6px;letter-spacing:normal;text-transform:none}
 
-  /* Le filtre des micros : les mêmes chips que partout (`Segmented wrap`), et
-     le raccourci qui ne garde que ceux qui ont de la matière — quatorze graphes
-     d'un coup ne se lisent pas, mais la pastille d'un micro vide reste là :
-     savoir qu'il n'est renseigné nulle part est une information. */
+  /* Le filtre des micros : les chips à cocher d'un master (`member-picker`),
+     parce qu'on en choisit plusieurs — un `Segmented` n'aurait su en montrer
+     qu'un actif. Le raccourci ne garde que ceux qui ont de la matière : quatorze
+     graphes d'un coup ne se lisent pas, mais la pastille d'un micro vide reste
+     là — savoir qu'il n'est renseigné nulle part est une information. */
   .fd-micro-pick{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-bottom:18px}
-  .fd-micro-pick .seg-track{width:100%}
-  .fd-micro-pick .seg-track button{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;font-size:11px}
-  .fd-micro-pick .seg-track button .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  .fd-micro-pick .member{padding:5px 10px;font-size:11px;gap:6px}
+  .fd-micro-pick .member .dot{width:7px;height:7px}
   .fd-micro-pick-acts{display:flex;flex-wrap:wrap;gap:14px}
 
   /* Chart layout bar */
@@ -837,6 +847,12 @@
   .info-panel{flex:1 0 100%;display:grid;grid-template-rows:0fr;margin-top:0;contain:inline-size;
     transition:grid-template-rows .35s var(--ease),margin-top .35s var(--ease)}
   .info-panel.open{grid-template-rows:1fr;margin-top:10px}
+  /* Une explication se lit sur toute la largeur de sa rangée, jamais dans la
+     colonne du contrôle. Posé sous un « oui/non » de 90 px, le texte tombait en
+     colonne de deux mots. Le cadre remonte donc jusqu'au bord gauche de la
+     rangée en reprenant la largeur de l'intitulé qu'il enjambe — la marge
+     négative ne déplace rien tant qu'il est replié, il est haut de zéro. */
+  .field .ctl-with-info>.info-panel{flex-basis:100cqi;width:100cqi;margin-left:calc(100% - 100cqi)}
   .info-panel-in{overflow:hidden;min-height:0}
   /* Pas de fond à soi : le cadre vit sur la même surface que ce qu'il explique
      (une carte de paramètres, une ligne de modale…) plutôt que d'ouvrir une
@@ -853,6 +869,30 @@
     font-family:"Geist",ui-sans-serif,sans-serif;font-style:normal}
   .info-panel-b .k{color:var(--ink);font-weight:500}
   @media (prefers-reduced-motion:reduce){ .info-panel{transition:none} }
+
+  /* Avant / après dans une bulle d'explication. Deux vignettes de la largeur
+     disponible, qui se rangent l'une sous l'autre quand il n'y a plus la place.
+     Tout y est en tokens : l'exemple doit ressembler à ce qu'il annonce, sinon
+     il ment aussi bien qu'une phrase approximative. */
+  .demo-pair{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .demo-pane{flex:1 1 150px;min-width:0;border:1px solid var(--line);border-radius:var(--radius);
+    padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+  .demo-cap{font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-3)}
+  .demo-body{display:block;font-size:12px;color:var(--ink-2)}
+  .demo-row{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .demo-lab{font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)}
+  .demo-pill{font-size:10px;padding:3px 8px;border-radius:999px;background:var(--bg-3);color:var(--ink-2)}
+  .demo-i{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;
+    border-radius:50%;border:1px solid var(--line-2);font-size:9px;color:var(--ink-3);font-style:italic}
+  .demo-date{font-size:12px;color:var(--ink-2)}
+  .demo-wk{font-size:10px;color:var(--ink-3);letter-spacing:0.1em}
+  .demo-macros{display:flex;align-items:baseline;gap:9px;font-variant-numeric:tabular-nums;font-size:12px;flex-wrap:wrap}
+  .demo-macros>b{color:var(--ink-2);font-weight:500}
+  .demo-mc{display:inline-flex;align-items:baseline;gap:2px;color:var(--ink-3)}
+  .demo-mc b{font-weight:500}
+  .demo-mc u{text-decoration:none;font-size:9px;opacity:.7}
+  .demo-comp{display:flex;width:100%;height:3px;border-radius:2px;overflow:hidden;background:var(--line)}
+  .demo-comp i{display:block;height:100%}
 
   /* Choices editor (in the tracker modal) */
   .choices-editor{display:flex;flex-direction:column;gap:8px;width:100%}
@@ -1706,6 +1746,10 @@
   .footer-note{margin-top:34px;font-size:10px;color:var(--ink-3);text-align:center;text-transform:uppercase;letter-spacing:0.16em}
 
   /* Custom cursor (desktop / fine-pointer only; enabled by JS) */
+  /* La flèche entre les deux dates d'une période personnalisée — un séparateur,
+     pas un contrôle : même encre discrète que les intitulés du rail. */
+  .range-custom-sep{color:var(--ink-3);font-size:11px;align-self:center}
+
   .cursor-dot,.cursor-ring{position:fixed;top:0;left:0;pointer-events:none;z-index:9999;border-radius:50%;mix-blend-mode:difference;will-change:transform}
   .cursor-dot{width:6px;height:6px;background:#fff;margin:-3px 0 0 -3px}
   .cursor-ring{width:32px;height:32px;border:1px solid rgba(255,255,255,.55);margin:-16px 0 0 -16px;transition:width .35s var(--ease),height .35s var(--ease),margin .35s var(--ease),border-color .35s var(--ease)}
@@ -1757,7 +1801,7 @@
     .entry .actions button{padding:6px 8px;font-size:11px}
 
     /* Quick-add / tracker form fields: narrower label frees up room for the input */
-    .field label{width:66px}
+    :root{--label-w:66px}
 
     .modal{padding:22px}
     .fd-add-head{padding:16px 16px 0}
@@ -1879,15 +1923,23 @@
   var ring=document.createElement('div'); ring.className='cursor-ring';
   document.body.appendChild(dot); document.body.appendChild(ring);
   document.documentElement.classList.add('has-cursor');
-  var mx=innerWidth/2, my=innerHeight/2, dx=mx, dy=my, rx=mx, ry=my;
-  addEventListener('mousemove',function(e){ mx=e.clientX; my=e.clientY; },{passive:true});
-  (function loop(){
-    dx+=(mx-dx)*0.4; dy+=(my-dy)*0.4;
-    rx+=(mx-rx)*0.16; ry+=(my-ry)*0.16;
-    dot.style.transform='translate('+dx+'px,'+dy+'px)';
-    ring.style.transform='translate('+rx+'px,'+ry+'px)';
-    requestAnimationFrame(loop);
-  })();
+  /* Le rond suit le pointeur EXACTEMENT. Il glissait avant derrière lui (une
+     interpolation par image : le point à 40 %, l'anneau à 16 %), effet joli sur
+     une page qu'on regarde, gênant sur une app qu'on utilise — on vise un
+     bouton et la marque arrive après le doigt. La position est donc posée
+     telle quelle, dans une image d'animation pour n'écrire qu'une fois par
+     rafraîchissement même si la souris envoie dix événements entre deux. */
+  var mx=innerWidth/2, my=innerHeight/2, queued=false;
+  var place=function(){
+    queued=false;
+    var t='translate('+mx+'px,'+my+'px)';
+    dot.style.transform=t; ring.style.transform=t;
+  };
+  place();
+  addEventListener('mousemove',function(e){
+    mx=e.clientX; my=e.clientY;
+    if(!queued){ queued=true; requestAnimationFrame(place); }
+  },{passive:true});
   var hot='a,button,input,textarea,select,.pill,.cal-cell:not(.blank),.tk-card,.gv-card,.today-card,.swatches button,.swatch';
   var root=document.documentElement;
   document.addEventListener('mouseover',function(e){ if(e.target.closest && e.target.closest(hot)) root.classList.add('cursor-hot'); });
@@ -1901,8 +1953,8 @@
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, app.sink.jsx l'atelier (#sink, qui rend les composants des deux), et
      le dernier script monte React une fois les trois en place. -->
-<script type="text/babel" src="app.jsx?v=62"></script>
-<script type="text/babel" src="app.food.jsx?v=30"></script>
+<script type="text/babel" src="app.jsx?v=63"></script>
+<script type="text/babel" src="app.food.jsx?v=31"></script>
 <script type="text/babel" src="app.sink.jsx?v=1"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
