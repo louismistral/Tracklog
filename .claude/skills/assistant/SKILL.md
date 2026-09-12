@@ -17,6 +17,7 @@ compare, tranche. Elle ne produit pas de code qui part en production.
   fonder la réponse sur ce qui est, pas sur ce dont on se souvient.
 - Écrire des specs, des plans, des critères d'acceptation — le texte qu'un
   Builder exécutera ensuite.
+- Gestion des fiches de skill pour les different roles de session
 
 ## Ce qu'elle ne fait pas
 
