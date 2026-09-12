@@ -1705,7 +1705,14 @@
   /* Les raccourcis de quantité : sur la même ligne que le champ et son unité,
      après eux. Une seule ligne, jamais deux — c'est pour ça qu'il y en a quatre
      au maximum. */
-  .fd-presets{display:flex;align-items:center;gap:6px;flex-wrap:nowrap}
+  /* Les raccourcis d'un item. Plus de plafond à quatre depuis qu'ils lui sont
+     propres : la rangée glisse latéralement plutôt que de refuser le cinquième.
+     Elle prend toute la largeur de la ligne quand elle passe dessous, sinon
+     `width:auto` la garderait large comme son contenu et elle déborderait. */
+  .fd-presets{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;
+    overflow-x:auto;scrollbar-width:none;max-width:100%;padding-bottom:2px}
+  .fd-presets::-webkit-scrollbar{display:none}
+  .fd-presets>*{flex-shrink:0}
   .fd-preset{display:inline-flex;align-items:center;border:1px solid var(--line);
     border-radius:999px;overflow:hidden;transition:border-color .3s var(--ease)}
   .fd-preset:hover{border-color:var(--line-2)}
@@ -1718,6 +1725,10 @@
     border-radius:999px;width:27px;height:27px;background:none;cursor:pointer;flex-shrink:0;
     transition:color .3s var(--ease),border-color .3s var(--ease)}
   .fd-preset-add:hover{color:var(--accent);border-color:var(--accent);border-style:solid}
+  /* Le poids d'une portion, saisi dans son option de piste. Étroit : c'est un
+     nombre de grammes, pas un champ de formulaire. */
+  .fd-qty .seg-opt input{width:44px;text-align:right;font-size:12px;
+    font-family:"Geist Mono",monospace;flex:none}
   .fd-preset-all{font-size:11px;color:var(--ink-2);border:1px solid var(--line);border-radius:999px;
     padding:6px 11px;background:transparent;white-space:nowrap;transition:all .35s var(--ease)}
   .fd-preset-all:hover{border-color:var(--line-2);color:var(--ink)}
@@ -1980,8 +1991,8 @@
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, app.sink.jsx l'atelier (#sink, qui rend les composants des deux), et
      le dernier script monte React une fois les trois en place. -->
-<script type="text/babel" src="app.jsx?v=65"></script>
-<script type="text/babel" src="app.food.jsx?v=33"></script>
+<script type="text/babel" src="app.jsx?v=66"></script>
+<script type="text/babel" src="app.food.jsx?v=34"></script>
 <script type="text/babel" src="app.sink.jsx?v=1"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>

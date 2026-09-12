@@ -1838,6 +1838,11 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
           initialQty={editLog.qty}
           initialUnit={editLog.unit}
           initialMeal={editLog.meal}
+          /* Seulement si la ligne pointe encore vers un item : régler la
+             portion d'un aliment oublié n'aurait nulle part où atterrir. */
+          onServing={editLog.foodId && store.foods.some(f => f.id === editLog.foodId)
+            ? (g)=>store.saveFood({ ...store.foods.find(f => f.id === editLog.foodId), servingG: g })
+            : null}
           onClose={()=>setEditLog(null)}
           onDelete={()=>{ store.removeLog(editLog.id); setEditLog(null); }}
           onSubmit={({ qty, unit, grams, meal, nutriments })=>{
@@ -2385,7 +2390,7 @@ function MealPortionModal({ meal, initialMeal, pickMode, onClose, onSubmit }){
                  onChange={e=>setEaten(e.target.value)}
                  onKeyDown={e=>{ if (e.key === 'Enter' && canSave) onSubmit({ items: scaled, meal: slot, share }); }} />
           <span className="fd-qty-unit">portion{eatenPortions > 1 ? 's' : ''}</span>
-          <QtyPresets unit="portion" value={eaten} onPick={setEaten} />
+          <QtyPresets itemId={meal.id} unit="portion" value={eaten} onPick={setEaten} />
           <button type="button" className="fd-preset-all" onClick={()=>setEaten(String(portions))}>
             toute la recette
           </button>
@@ -3025,6 +3030,17 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
         title="Quelle quantité ?"
         food={picked}
         initialMeal={meal || defaultMealForNow()}
+        /* La portion réglée ici suit l'aliment, qu'il soit déjà dans les items
+           ou sur le point d'y entrer (`pendingSave`, écrit à la validation). */
+        onServing={(g)=>{
+          if (pendingSave && pendingSave.id === picked.id){
+            const next = { ...pendingSave, servingG: g };
+            setPendingSave(next); setPicked(next);
+          } else {
+            store.saveFood({ ...picked, servingG: g });
+            setPicked(p => ({ ...p, servingG: g }));
+          }
+        }}
         pickMode={pick}
         onClose={onClose}
         onBack={()=>{ setPicked(null); setPendingSave(null); setScanNonce(n => n + 1); }}
@@ -3327,18 +3343,30 @@ function MacroStrip({ n = {}, per = '100 g', compBar = false, className = '' }){
 /* Les raccourcis de quantité. Il n'y en a AUCUN au départ : « 50 g / 100 g /
    200 g » étaient des devinettes, et personne ne pèse ses aliments par nombres
    ronds. C'est l'usage qui les fabrique — le « + » enregistre la valeur qu'on
-   vient de taper, la croix la retire. Ils sont rangés par unité (g, ml,
-   portion) et suivent le compte, comme tout réglage.
-   Quatre au maximum : au-delà, la rangée passerait sur deux lignes, et une
-   liste de raccourcis qu'il faut parcourir n'est plus un raccourci. */
-const QTY_PRESET_MAX = 4;
-function QtyPresets({ unit, value, onPick }){
+   vient de taper, la croix la retire.
+
+   Ils appartiennent à L'ITEM, pas au compte : 30 g est un raccourci de beurre,
+   pas de riz, et une liste commune mélangeait les poids de tout ce qu'on mange.
+   Rangés par item puis par unité (`prefs.itemPresets[itemId][unit]`), donc
+   basculer entre grammes et portions change la rangée de raccourcis en même
+   temps que l'unité — ce sont deux jeux différents pour le même aliment.
+   (L'ancienne clé `prefs.qtyPresets`, commune à tous, n'est plus lue : la
+   reprendre aurait versé les grammages de tout le monde dans chaque item.)
+
+   Plus de plafond à quatre : la rangée défile latéralement. Le plafond existait
+   pour qu'elle ne passe pas sur deux lignes ; par item, on en a naturellement
+   peu, et celui qui en veut six ne doit pas se faire refuser le sixième. */
+function QtyPresets({ itemId, unit, value, onPick }){
   const accountPrefs = useContext(AccountPrefsContext) || LOCAL_ONLY_PREFS;
-  const all = (accountPrefs.prefs && accountPrefs.prefs.qtyPresets) || {};
-  const list = Array.isArray(all[unit]) ? all[unit] : [];
+  const all = (accountPrefs.prefs && accountPrefs.prefs.itemPresets) || {};
+  const mine = all[itemId] || {};
+  const list = Array.isArray(mine[unit]) ? mine[unit] : [];
   const cur = parseFloat(String(value).replace(',', '.'));
   const known = !isNaN(cur) && list.includes(cur);
-  const write = (next) => accountPrefs.savePrefs({ qtyPresets: { ...all, [unit]: next } });
+  const write = (next) => accountPrefs.savePrefs({
+    itemPresets: { ...all, [itemId]: { ...mine, [unit]: next } },
+  });
+  if (!itemId) return null;
   return (
     <span className="fd-presets">
       {list.map(v => (
@@ -3348,7 +3376,7 @@ function QtyPresets({ unit, value, onPick }){
                   aria-label={`Retirer le raccourci ${v}`} title="Retirer ce raccourci">✕</button>
         </span>
       ))}
-      {!known && !isNaN(cur) && cur > 0 && list.length < QTY_PRESET_MAX && (
+      {!known && !isNaN(cur) && cur > 0 && (
         <button type="button" className="fd-preset-add" title="Garder cette quantité en raccourci"
                 aria-label="Garder cette quantité en raccourci"
                 onClick={()=>write([...list, cur].sort((a,b)=>a-b))}>＋</button>
@@ -3626,11 +3654,21 @@ function QuickAddTab({ seed, initialMeal, pickMode, onNewMeal, onSubmit, onCance
         </div>
       )}
 
-      {/* Section 2 — le poids, et ce que les macros au-dessus décrivent. */}
+      {/* Section 2 — ce que les chiffres du dessus décrivent, puis le poids.
+          Dans cet ordre : la question « pour 100 g ou pour tout ? » porte sur
+          les macros qu'on vient de taper, elle les suit donc immédiatement ;
+          le poids mangé n'a de sens qu'une fois cette réponse donnée. */}
       {isItem && (
         <div className="card fd-card">
-          <p className="section-label">Quantité et valeurs</p>
+          <p className="section-label">Valeurs et quantité</p>
           <div className="field">
+            <label>Les macros</label>
+            <Segmented scrollx>
+              <button className={per100?'on':''} onClick={()=>setPer100(true)}>valent pour 100 {basis}</button>
+              <button className={!per100?'on':''} onClick={()=>setPer100(false)}>valent pour tout</button>
+            </Segmented>
+          </div>
+          <div className="field" style={{borderBottom:'none'}}>
             <label>Mangé</label>
             <div className="fd-qty-inline">
               <input type="number" step="any" min="0" inputMode="decimal"
@@ -3641,13 +3679,6 @@ function QuickAddTab({ seed, initialMeal, pickMode, onNewMeal, onSubmit, onCance
                 ))}
               </Segmented>
             </div>
-          </div>
-          <div className="field" style={{borderBottom:'none'}}>
-            <label>Les macros</label>
-            <Segmented scrollx>
-              <button className={per100?'on':''} onClick={()=>setPer100(true)}>valent pour 100 {basis}</button>
-              <button className={!per100?'on':''} onClick={()=>setPer100(false)}>valent pour tout</button>
-            </Segmented>
           </div>
           {hasKcal && g > 0 && Math.abs(g - 100) > 0.01 && (
             <div className="fd-preview">
@@ -3712,16 +3743,31 @@ function QuickAddTab({ seed, initialMeal, pickMode, onNewMeal, onSubmit, onCance
 }
 
 /* ---- Quantité ------------------------------------------------------------- */
-function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pickMode, onClose, onBack, onSubmit, onDelete }){
-  const hasServing = !!(food.servingG && food.servingG > 0);
+/* `onServing` : la portion d'un aliment se règle ici, là où on s'en sert. Un
+   aliment qui n'en a pas peut en recevoir une (« une tranche = 25 g »), une
+   portion héritée d'Open Food Facts peut être corrigée, et la ramener à 1 ou 0
+   la supprime — une portion d'un gramme ne dit rien de plus que le gramme.
+   C'est la seule chose qu'on ait le droit de retoucher sur une fiche venue du
+   dehors, et pour cause : ce n'est pas une propriété de l'aliment mais de la
+   façon dont on le sert. */
+function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pickMode,
+                         onClose, onBack, onSubmit, onDelete, onServing }){
+  const [serving, setServing] = useState(food.servingG && food.servingG > 1 ? String(food.servingG) : '');
+  const servingG = (() => { const n = parseFloat(String(serving).replace(',', '.')); return n > 1 ? n : 0; })();
+  const hasServing = servingG > 0;
   const [unit, setUnit] = useState(initialUnit || (hasServing ? 'portion' : (food.basis || 'g')));
+  // Régler une portion à 1 ou 0 la fait disparaître : l'unité doit alors
+  // revenir aux grammes toute seule, sinon on resterait sur une unité éteinte.
+  useEffect(() => { if (!hasServing && unit === 'portion') setUnit(food.basis || 'g'); }, [hasServing]);
+  // Ce qui est réglé ici suit l'aliment : la prochaine fois, sa portion est là.
+  const commitServing = () => { if (onServing && servingG !== (food.servingG || 0)) onServing(servingG || null); };
   // Vide à l'ouverture : un champ pré-rempli fait croire que la valeur est déjà
   // la bonne, et il faut l'effacer avant de taper la sienne. On ne pré-remplit
   // que pour corriger une ligne déjà notée.
   const [qty, setQty] = useState(initialQty != null ? String(initialQty) : '');
   const [meal, setMeal] = useState(initialMeal || defaultMealForNow());
 
-  const grams = resolveGrams(qty, unit, food);
+  const grams = resolveGrams(qty, unit, { ...food, servingG });
   const nutriments = useMemo(() => scaleNutriments(food.nutriments || {}, grams), [food, grams]);
   const canSave = grams > 0;
 
@@ -3745,17 +3791,29 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pick
             type="number" step="any" min="0" inputMode="decimal" value={qty} placeholder="combien ?"
             aria-label="Quantité"
             onChange={e=>setQty(e.target.value)}
-            onKeyDown={e=>{ if(e.key==='Enter' && canSave) onSubmit({ qty:Number(qty), unit, grams, meal, nutriments }); }}
+            onKeyDown={e=>{ if(e.key==='Enter' && canSave){ commitServing(); onSubmit({ qty:Number(qty), unit, grams, meal, nutriments }); } }}
           />
+          {/* La portion porte sa propre saisie, comme la valeur cible d'un
+              tracker : une option qui s'élargit une fois choisie plutôt qu'une
+              ligne de réglage de plus dans une fenêtre qui n'en demande qu'un.
+              Un `<label>` et pas un `<button>` — on ne tape pas dans un bouton. */}
           <Segmented>
-            <button className={unit===food.basis?'on':''} onClick={()=>setUnit(food.basis)}>{food.basis}</button>
-            {hasServing && (
-              <button className={unit==='portion'?'on':''} onClick={()=>setUnit('portion')}>
-                portion ({fmtNum(food.servingG,0)} {food.basis})
+            <button className={unit!=='portion'?'on':''} onClick={()=>setUnit(food.basis)}>{food.basis}</button>
+            {unit === 'portion' ? (
+              <label className="seg-opt on">
+                portion
+                <input type="number" step="any" min="0" inputMode="decimal"
+                       value={serving} placeholder="—" aria-label="Poids d'une portion"
+                       onChange={e=>setServing(e.target.value)} onBlur={commitServing} />
+                <span className="np-unit">{food.basis}</span>
+              </label>
+            ) : (
+              <button onClick={()=>setUnit('portion')}>
+                {hasServing ? `portion (${fmtNum(servingG,0)} ${food.basis})` : 'portion…'}
               </button>
             )}
           </Segmented>
-          <QtyPresets unit={unit} value={qty} onPick={setQty} />
+          <QtyPresets itemId={food.id} unit={unit} value={qty} onPick={setQty} />
         </div>
 
         {/* Les mêmes cases que sur une carte d'item — mais ici les chiffres
@@ -3791,7 +3849,7 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pick
           )}
           <button className="ghost" onClick={onBack || onClose}>Annuler</button>
           <button className="primary" disabled={!canSave}
-            onClick={()=>onSubmit({ qty:Number(qty), unit, grams, meal, nutriments })}>
+            onClick={()=>{ commitServing(); onSubmit({ qty:Number(qty), unit, grams, meal, nutriments }); }}>
             {pickMode ? 'Ajouter' : 'Enregistrer'}
           </button>
         </div>
