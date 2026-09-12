@@ -10,6 +10,34 @@ la liste des écrans, l'inventaire des fonctionnalités, l'architecture
 technique, et les pièges connus. Un seul fichier, tenu à jour à la main —
 pas de source de vérité parallèle.
 
+## Rôles de session
+
+Le travail se fait dans plusieurs sessions Claude Code en parallèle, chacune
+avec un rôle annoncé par Louis au démarrage (« tu es le Reviewer », ou la
+commande `/reviewer`). **Tant qu'aucun rôle n'est annoncé, aucun n'est pris** —
+ne pas en deviner un d'après la question posée.
+
+| Rôle | Ce qu'il fait | Écrit du code ? | Fiche |
+|---|---|---|---|
+| **Assistant** | Décisions, questions, explications, specs. Recommande au lieu de cataloguer. | non | `/assistant` |
+| **Builder Main** | Développe et pousse sur `Tracklog_V1`, la branche publiée. Une seule session à la fois. | oui | `/builder-main` |
+| **Builder 01, 02…** | Le même métier sur un sujet isolé, branche `claude/<sujet>`. Ne touche jamais `Tracklog_V1`. | oui | `/builder-branche` |
+| **Reviewer & security** | Cherche les bugs et les failles, rapporte par constat (où · scénario qui casse · correctif). | non, sauf demande explicite | `/reviewer` |
+| **Atelier** | Cartographie l'UI/UX, maquette les variantes hors dépôt, découpe les couches. | non dans l'app | `/atelier` |
+
+Les fiches complètes sont dans `.claude/skills/<rôle>/SKILL.md`, récapitulées
+dans `.claude/roles.md`.
+
+- **Un rôle dit ce qu'une session a le droit de faire**, pas seulement ce
+  qu'elle fait bien : la séparation ne sert à rien si une session qui devait
+  lire écrit quand même.
+- **Une seule session écrit sur une branche donnée.** Deux builders sur la même
+  branche se marchent dessus.
+- **Un rôle ne se déborde pas en silence** : si le travail demandé appartient à
+  un autre, le dire et proposer la session qui convient.
+- Seuls les Builders modifient `CLAUDE.md`, et dans le commit qui introduit ce
+  qu'ils y écrivent. Les autres rôles le **proposent**.
+
 ## Fichiers
 
 | Fichier | Rôle |
@@ -24,6 +52,7 @@ pas de source de vérité parallèle.
 | `supabase/functions/analyse-repas/` | Edge Function Deno qui appelle Claude pour décomposer un repas décrit en texte. Existe pour que la clé API Anthropic reste côté serveur — contrairement à la clé anon Supabase, elle n'a aucune protection propre. Déployée sur le projet, `verify_jwt` actif ; il lui faut le secret `ANTHROPIC_API_KEY` pour répondre autre chose qu'une erreur de configuration. |
 | `supabase/functions/tracklog-mcp/` | **Le carnet, ouvert à Claude.** Serveur MCP (Streamable HTTP) branché en « connecteur personnalisé » dans Claude : dire « rentre ça dans Tracklog » dans une conversation écrit la ligne dans le journal. Deux outils — `tracklog_ajout_rapide` (écrire) et `tracklog_journee` (lire). Déployée `--no-verify-jwt` ; il lui faut les secrets `TRACKLOG_MCP_TOKEN` et `TRACKLOG_MCP_USER_ID`. |
 | `tools/tracklog-mcp/` | Le banc d'essai de la fonction ci-dessus — doublures de Deno et de PostgREST, protocole MCP déroulé pour de vrai. Le seul test automatisé du projet, parce que c'est le seul code qu'on ne peut pas essayer dans un navigateur. |
+| `.claude/` | Les **rôles de session** (voir ci-dessus) : une fiche par rôle dans `skills/<rôle>/SKILL.md`, invocable en `/<rôle>`, plus `roles.md` qui les récapitule. Rien d'exécuté par l'app — c'est l'organisation du travail, pas le produit. |
 
 Pas de bundler, pas de `package.json`. Les CDN
 (unpkg React/Babel, jsdelivr) sont épinglés par version + intégrité SRI dans
