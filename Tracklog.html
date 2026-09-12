@@ -1341,9 +1341,19 @@
      mots d'action répétés au bout de chaque ligne. La quantité est détachée du
      nom (sa propre colonne, à droite du groupe nom+marque) — collée dessus,
      elle se lisait comme la fin du nom. */
+  /* Une ligne de journal se supprime en la poussant vers la droite. Le rouge
+     est derrière, immobile ; c'est la ligne qui s'écarte et le découvre. Elle
+     porte donc un fond opaque (celui de sa carte) sans quoi les deux se
+     superposeraient, et `pan-y` pour que le doigt puisse encore faire défiler
+     tant que la direction du geste n'est pas tranchée. */
+  .fd-row-swipe{position:relative;overflow:hidden;transition:height .2s var(--ease),opacity .2s var(--ease)}
+  .fd-row-swipe.gone{opacity:0}
+  .fd-row-del{position:absolute;inset:0;display:flex;align-items:center;gap:7px;padding-left:14px;
+    font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:var(--warn);pointer-events:none}
   .fd-row{display:flex;align-items:baseline;gap:14px;padding:11px 4px;border-top:1px solid var(--line);
-    width:100%;text-align:left;background:none;color:inherit;font:inherit;border-left:none;border-right:none;
-    border-bottom:none;cursor:pointer;transition:background .3s var(--ease)}
+    width:100%;text-align:left;background:var(--bg-2);color:inherit;font:inherit;border-left:none;border-right:none;
+    border-bottom:none;cursor:pointer;touch-action:pan-y;position:relative;
+    transition:background .3s var(--ease),transform .22s var(--ease)}
   .fd-row:hover{background:var(--bg-3)}
   .fd-row-main{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px}
   .fd-row-name{font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
@@ -1655,6 +1665,11 @@
      s'étirait sur toute la largeur, laissant un vide à droite des trois
      boutons — un contour qui promettait une option de plus. */
   .fd-manual-entry .fd-tabs{align-items:flex-start}
+  /* Les modes à gauche, la profondeur du formulaire à droite : ce n'est pas un
+     mode de plus, ça ne doit donc pas être dans la même piste. Sur téléphone
+     les deux passent l'une sous l'autre plutôt que de se tasser. */
+  .fd-quick-tabs{flex-direction:row;align-items:center;justify-content:space-between;
+    flex-wrap:wrap;gap:8px}
   .card.fd-card{padding:16px 18px;margin-bottom:14px}
   .card.fd-card .section-label{margin-bottom:12px}
   .fd-card-note{margin-top:10px;margin-bottom:0}
@@ -1965,8 +1980,8 @@
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, app.sink.jsx l'atelier (#sink, qui rend les composants des deux), et
      le dernier script monte React une fois les trois en place. -->
-<script type="text/babel" src="app.jsx?v=64"></script>
-<script type="text/babel" src="app.food.jsx?v=32"></script>
+<script type="text/babel" src="app.jsx?v=65"></script>
+<script type="text/babel" src="app.food.jsx?v=33"></script>
 <script type="text/babel" src="app.sink.jsx?v=1"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>

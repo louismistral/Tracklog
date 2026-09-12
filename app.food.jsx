@@ -250,6 +250,9 @@ const FOOD_DETAILS = [
    Attention : la couverture des micros sur les produits emballés est faible.
    Un aliment perso saisi à la main, ou plus tard une table CIQUAL, est la
    seule façon d'en avoir sur l'essentiel de ce qu'on mange. */
+/* Deux noms que la ligne de détail écrit court et qu'une carte de graphe ou un
+   formulaire doit écrire en entier. Posé ici, avec les listes qu'il complète. */
+const MICRO_LABELS = { sugars:'Sucres', sat:'Acides gras saturés' };
 const FOOD_MICROS = [
   { key:'calcium',    label:'Calcium',      unit:'mg', off:'calcium',     rda:1000 },
   { key:'iron',       label:'Fer',          unit:'mg', off:'iron',        rda:14 },
@@ -1803,7 +1806,8 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
               <span className="fd-meal-kcal mono">{rows.length ? `${fmtNum(kcal,0)} kcal` : '—'}</span>
             </div>
             {rows.map(l => (
-              <FoodLogRow key={l.id} log={l} onEdit={()=>setEditLog(l)} />
+              <FoodLogRow key={l.id} log={l} onEdit={()=>setEditLog(l)}
+                onDelete={()=>store.removeLog(l.id)} />
             ))}
             <button className="fd-add" onClick={()=>onAdd(meal.id)}>+ Ajouter</button>
           </div>
@@ -1814,7 +1818,8 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
         <div className="card fd-card fd-meal">
           <div className="fd-meal-head"><p className="section-label" style={{margin:0}}>Autre</p></div>
           {byMeal.autre.map(l => (
-            <FoodLogRow key={l.id} log={l} onEdit={()=>setEditLog(l)} />
+            <FoodLogRow key={l.id} log={l} onEdit={()=>setEditLog(l)}
+              onDelete={()=>store.removeLog(l.id)} />
           ))}
         </div>
       )}
@@ -1871,10 +1876,64 @@ function foodForLog(store, log){
    c'est là-dedans qu'on la supprime. Deux mots d'action au bout de chaque ligne
    répétaient « modifier » et « suppr. » autant de fois qu'il y avait de lignes,
    pour un geste qu'on fait rarement. */
-function FoodLogRow({ log, onEdit }){
+function FoodLogRow({ log, onEdit, onDelete }){
   const n = log.nutriments || {};
+  /* Glisser la ligne vers la droite pour la supprimer -----------------------
+     Un geste, pas trois taps (ouvrir la fenêtre, viser Supprimer, confirmer).
+     Le rouge est DERRIÈRE la ligne et se découvre à mesure qu'elle s'écarte :
+     on voit ce qui va arriver pendant qu'on le fait, et lâcher avant le seuil
+     la remet en place — le geste s'annule tout seul.
+
+     Trois précautions :
+       · `touch-action:pan-y` : tant qu'on n'a pas décidé que le geste est
+         horizontal, le doigt doit encore pouvoir faire défiler la page.
+       · La direction se décide au bout de 8 px, en comparant les deux axes.
+         Décider plus tôt volerait un défilement à chaque effleurement.
+       · Un glisser ne doit pas ouvrir la fenêtre d'édition au relâchement,
+         d'où le même garde-fou que les pastilles du rail (`moved`). */
+  const [dx, setDx] = useState(0);
+  const [out, setOut] = useState(false);
+  const g = useRef({ x:0, y:0, w:1, axis:null, moved:false });
+
+  const down = (e) => {
+    if (!onDelete) return;
+    const el = e.currentTarget;
+    g.current = { x:e.clientX, y:e.clientY, w:el.offsetWidth || 1, axis:null, moved:false };
+  };
+  const move = (e) => {
+    if (!onDelete || out) return;
+    const s = g.current;
+    const ddx = e.clientX - s.x, ddy = e.clientY - s.y;
+    if (!s.axis){
+      if (Math.abs(ddx) < 8 && Math.abs(ddy) < 8) return;
+      s.axis = Math.abs(ddx) > Math.abs(ddy) ? 'x' : 'y';
+      if (s.axis === 'x') e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    if (s.axis !== 'x') return;
+    s.moved = true;
+    // Vers la droite seulement, et jamais au-delà de sa propre largeur.
+    setDx(Math.max(0, Math.min(ddx, s.w)));
+  };
+  const up = (e) => {
+    if (!onDelete) return;
+    const s = g.current;
+    if (s.axis === 'x'){
+      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+      if (dx > s.w * 0.42){ setOut(true); setDx(s.w); setTimeout(onDelete, 220); return; }
+    }
+    setDx(0);
+  };
+
   return (
-    <button className="fd-row" onClick={onEdit} title="Modifier cette ligne">
+    <div className={`fd-row-swipe ${out ? 'gone' : ''}`}>
+      <span className="fd-row-del" aria-hidden="true">
+        <TrashIcon size={13} /> Supprimer
+      </span>
+    <button className="fd-row" title="Modifier cette ligne"
+      style={{ transform: dx ? `translateX(${dx}px)` : undefined,
+               transition: dx && !out ? 'none' : undefined }}
+      onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
+      onClick={()=>{ if (!g.current.moved) onEdit(); }}>
       <span className="fd-row-main">
         <span className="fd-row-name">{log.name}</span>
         {log.brand && <span className="fd-row-brand">{log.brand}</span>}
@@ -1889,6 +1948,7 @@ function FoodLogRow({ log, onEdit }){
       </span>
       <span className="fd-row-kcal">{fmtNum(n.kcal, 0)}<i>kcal</i></span>
     </button>
+    </div>
   );
 }
 
@@ -3405,6 +3465,12 @@ function QuickAddTab({ seed, initialMeal, pickMode, onNewMeal, onSubmit, onCance
   const [scanOpen, setScanOpen] = useState(false);
   const [scanNonce, setScanNonce] = useState(0);
   const [meal, setMeal] = useState(initialMeal || defaultMealForNow());
+  /* Simple / Approfondi — le même partage que l'analyse IA, et le même mot.
+     En approfondi, les micronutriments s'ajoutent aux quatre macros : ils
+     passent par le même `vals`, donc la mise à l'échelle au poids et le
+     « pour 100 » les emportent sans qu'une ligne de calcul change. C'est le
+     seul chemin pour qu'un aliment porte des micros sans étiquette. */
+  const [advanced, setAdvanced] = useState(false);
 
   const isItem = mode === 'aliment';             // ce mode fabrique-t-il un aliment ?
   const seedReason = seed?.reason || '';         // 'unknown' | 'empty' — pourquoi on atterrit ici
@@ -3448,13 +3514,22 @@ function QuickAddTab({ seed, initialMeal, pickMode, onNewMeal, onSubmit, onCance
 
   return (
     <div className="fd-manual-entry">
-      <div className="fd-tabs">
+      <div className="fd-tabs fd-quick-tabs">
         <Segmented size="small" scrollx>
           {QUICK_MODES.map(m => (
             <button key={m.id} className={mode===m.id?'on':''}
                     onClick={()=>{ setMode(m.id); if (m.id === 'repas') onNewMeal(); }}>{m.label}</button>
           ))}
         </Segmented>
+        {/* À droite de la barre de modes : ce n'est pas un quatrième mode mais
+            la profondeur du même formulaire. Caché pour un repas, qui n'a pas
+            de valeurs à lui — ce sont celles de ses ingrédients. */}
+        {mode !== 'repas' && (
+          <Segmented size="small">
+            <button className={!advanced?'on':''} onClick={()=>setAdvanced(false)}>Simple</button>
+            <button className={advanced?'on':''} onClick={()=>setAdvanced(true)}>Approfondi</button>
+          </Segmented>
+        )}
       </div>
 
       <p className="fd-note serif">
@@ -3533,6 +3608,23 @@ function QuickAddTab({ seed, initialMeal, pickMode, onNewMeal, onSubmit, onCance
                     onChange={v=>setVals(s => ({ ...s, [m.key]: v }))} onKeyDown={enterSubmits} />
         ))}
       </div>
+
+      {/* Les micros, dans les mêmes rangées que les macros (`NumField`) et dans
+          les unités de l'app. Laissé vide = pas renseigné, jamais zéro : un 0
+          affirmerait qu'il n'y en a pas. */}
+      {advanced && (
+        <div className="card fd-card">
+          <p className="section-label">Détail et micronutriments</p>
+          <p className="fd-note serif fd-card-note" style={{marginTop:0,marginBottom:12}}>
+            Tout est facultatif — ce qui reste vide n'est pas compté comme zéro,
+            simplement comme non renseigné.
+          </p>
+          {[...FOOD_DETAILS, ...FOOD_MICROS].map(d => (
+            <NumField key={d.key} label={MICRO_LABELS[d.key] || d.label} unit={d.unit} value={vals[d.key]}
+                      onChange={v=>setVals(s => ({ ...s, [d.key]: v }))} onKeyDown={enterSubmits} />
+          ))}
+        </div>
+      )}
 
       {/* Section 2 — le poids, et ce que les macros au-dessus décrivent. */}
       {isItem && (
@@ -3979,7 +4071,6 @@ const FOOD_CHART_ID = (key) => 'food:' + key;
 /* Les micros n'ont pas, comme les macros, une couleur qu'on apprend une fois :
    on leur en distribue une du nuancier de l'app pour que deux graphes voisins
    ne se confondent pas — et elle se change comme celle d'un tracker. */
-const MICRO_LABELS = { sugars:'Sucres', sat:'Acides gras saturés' };
 const FOOD_MICRO_SPECS = [...FOOD_DETAILS, ...FOOD_MICROS].map((d, i) => ({
   key: d.key,
   label: MICRO_LABELS[d.key] || d.label,
