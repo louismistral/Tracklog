@@ -380,12 +380,14 @@ const sortGoals = (rows) => [...rows].sort((a, b) => a.fromDay < b.fromDay ? -1 
 function foodLogFromRow(r){
   return { id:r.id, day:r.day, meal:r.meal || 'autre', foodId:r.food_id || null, name:r.name,
            brand:r.brand || '', qty:Number(r.qty), unit:r.unit || 'g', grams:Number(r.grams),
-           nutriments:r.nutriments || {}, ts:Number(r.ts) };
+           nutriments:r.nutriments || {}, ts:Number(r.ts),
+           groupId:r.group_id || null, groupName:r.group_name || '', groupQty:r.group_qty != null ? Number(r.group_qty) : null };
 }
 function foodLogToRow(l, userId){
   return { id:l.id, user_id:userId, day:l.day, meal:l.meal || 'autre', food_id:l.foodId || null, name:l.name,
            brand:l.brand || null, qty:l.qty, unit:l.unit || 'g', grams:l.grams,
-           nutriments:l.nutriments || {}, ts:l.ts };
+           nutriments:l.nutriments || {}, ts:l.ts,
+           group_id:l.groupId || null, group_name:l.groupName || null, group_qty:l.groupQty ?? null };
 }
 
 /* ============================================================
@@ -1417,8 +1419,17 @@ function useFoodStore(userId){
   // Les lignes partent en UNE insertion, pas une par ingrédient : une recette de
   // huit composants faisait huit allers-retours réseau à la suite avant de
   // rendre la main, et c'est ça qu'on sentait en refermant la page.
-  const addMealToDay = (mealObj, day, mealSlot, share = 1) => {
+  const addMealToDay = (mealObj, day, mealSlot, share = 1, portions = null) => {
     const now = Date.now();
+    /* Les lignes d'un même versement portent le même `groupId` : c'est ce qui
+       fait d'elles un ensemble qu'on peut replier, supprimer ou re-doser d'un
+       geste. Un identifiant NEUF à chaque fois — ajouter deux fois le même
+       repas dans la journée fait deux ensembles, ce qui est bien ce qui s'est
+       passé. Le nom est un instantané, comme les valeurs : renommer la recette
+       plus tard ne réécrit pas l'histoire. */
+    const groupId = uid('g_');
+    const group = { groupId, groupName: mealObj.name || 'Repas',
+                    groupQty: portions != null ? portions : share };
     const rows = (mealObj.items || [])
       .map(it => ({ it, grams: (Number(it.grams) || 0) * share }))
       .filter(x => x.grams > 0)
@@ -1429,6 +1440,7 @@ function useFoodStore(userId){
         // et l'oublier ici faisait une ligne de 250 g qui comptait pour 1 kg.
         name: it.name, brand:'', qty: grams, unit:'g', grams,
         nutriments: itemNutriments({ ...it, grams }),
+        ...group,
       }));
     if (rows.length){
       setLogs(s => [...rows, ...s]);
@@ -1440,6 +1452,49 @@ function useFoodStore(userId){
       });
     }
     if (mealObj.id) saveMeal({ ...mealObj, lastUsedAt: now });
+  };
+
+  /* ---- Ce qu'on fait à un ensemble ------------------------------------------
+     Supprimer le repas supprime tout le monde, et changer sa part change tout
+     le monde : c'est la promesse du groupe. Le re-dosage se fait par un RAPPORT
+     entre l'ancienne part et la nouvelle, appliqué aux lignes telles qu'elles
+     sont — pas en repartant de la recette. La recette a pu être modifiée, ou
+     supprimée, depuis ; les lignes, elles, portent leur instantané, et c'est
+     lui qui fait foi (même règle que partout ailleurs dans le journal). */
+  const removeGroup = (groupId) => {
+    const before = logs.filter(l => l.groupId === groupId);
+    if (!before.length) return;
+    setLogs(s => s.filter(l => l.groupId !== groupId));
+    supabase.from('food_logs').delete().eq('group_id', groupId).then(({ error }) => {
+      if (!error) return;
+      setLogs(s => [...before, ...s]);
+      writeFailed(`le repas « ${before[0].groupName || 'sans nom'} »`, error);
+    });
+  };
+  const setGroupQty = (groupId, qty) => {
+    const before = logs.filter(l => l.groupId === groupId);
+    if (!before.length) return;
+    const from = Number(before[0].groupQty) || 1;
+    const to = Number(qty) || 0;
+    if (to <= 0) return removeGroup(groupId);       // zéro portion = ne l'avoir pas mangé
+    const k = to / from;
+    if (k === 1) return;
+    const next = before.map(l => ({
+      ...l, groupQty: to,
+      qty: +(l.qty * k).toFixed(3), grams: +(l.grams * k).toFixed(3),
+      nutriments: scaleNutriments(l.nutriments, 100 * k),   // « pour 100 » : ×k
+    }));
+    const byId = Object.fromEntries(next.map(l => [l.id, l]));
+    setLogs(s => s.map(l => byId[l.id] || l));
+    Promise.all(next.map(l =>
+      supabase.from('food_logs').update(foodLogToRow(l, userId)).eq('id', l.id)
+    )).then(res => {
+      const err = res.find(r => r.error);
+      if (!err) return;
+      const prev = Object.fromEntries(before.map(l => [l.id, l]));
+      setLogs(s => s.map(l => prev[l.id] || l));
+      writeFailed('la part du repas', err.error);
+    });
   };
 
   // Régler un objectif, c'est le poser À PARTIR d'un jour — celui qu'on
@@ -1493,7 +1548,7 @@ function useFoodStore(userId){
            refFoods, refByBarcode,
            saveFood, updateFood, removeFood, toggleFavorite,
            saveMeal, removeMeal, addMealToDay, toggleMealFavorite,
-           addLog, updateLog, removeLog, saveGoals, totalsForDay };
+           addLog, updateLog, removeLog, removeGroup, setGroupQty, saveGoals, totalsForDay };
 }
 
 /* ============================================================
@@ -1805,9 +1860,18 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
               <p className="section-label" style={{margin:0}}>{meal.label}</p>
               <span className="fd-meal-kcal mono">{rows.length ? `${fmtNum(kcal,0)} kcal` : '—'}</span>
             </div>
-            {rows.map(l => (
-              <FoodLogRow key={l.id} log={l} onEdit={()=>setEditLog(l)}
-                onDelete={()=>store.removeLog(l.id)} />
+            {groupBlocks(rows).map(b => b.kind === 'row' ? (
+              <FoodLogRow key={b.row.id} log={b.row} onEdit={()=>setEditLog(b.row)}
+                onDelete={()=>store.removeLog(b.row.id)} />
+            ) : (
+              <FoodGroupBlock key={b.id} group={b}
+                onQty={(q)=>store.setGroupQty(b.id, q)}
+                onDelete={()=>store.removeGroup(b.id)}>
+                {b.rows.map(l => (
+                  <FoodLogRow key={l.id} log={l} onEdit={()=>setEditLog(l)}
+                    onDelete={()=>store.removeLog(l.id)} />
+                ))}
+              </FoodGroupBlock>
             ))}
             <button className="fd-add" onClick={()=>onAdd(meal.id)}>+ Ajouter</button>
           </div>
@@ -1817,9 +1881,18 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
       {(byMeal.autre || []).length > 0 && (
         <div className="card fd-card fd-meal">
           <div className="fd-meal-head"><p className="section-label" style={{margin:0}}>Autre</p></div>
-          {byMeal.autre.map(l => (
-            <FoodLogRow key={l.id} log={l} onEdit={()=>setEditLog(l)}
-              onDelete={()=>store.removeLog(l.id)} />
+          {groupBlocks(byMeal.autre).map(b => b.kind === 'row' ? (
+            <FoodLogRow key={b.row.id} log={b.row} onEdit={()=>setEditLog(b.row)}
+              onDelete={()=>store.removeLog(b.row.id)} />
+          ) : (
+            <FoodGroupBlock key={b.id} group={b}
+              onQty={(q)=>store.setGroupQty(b.id, q)}
+              onDelete={()=>store.removeGroup(b.id)}>
+              {b.rows.map(l => (
+                <FoodLogRow key={l.id} log={l} onEdit={()=>setEditLog(l)}
+                  onDelete={()=>store.removeLog(l.id)} />
+              ))}
+            </FoodGroupBlock>
           ))}
         </div>
       )}
@@ -1877,13 +1950,7 @@ function foodForLog(store, log){
            nutriments: log.grams > 0 ? per100 : {}, source:'custom' };
 }
 
-/* Une ligne de journal : la ligne entière ouvre sa fenêtre de modification, et
-   c'est là-dedans qu'on la supprime. Deux mots d'action au bout de chaque ligne
-   répétaient « modifier » et « suppr. » autant de fois qu'il y avait de lignes,
-   pour un geste qu'on fait rarement. */
-function FoodLogRow({ log, onEdit, onDelete }){
-  const n = log.nutriments || {};
-  /* Glisser la ligne vers la droite pour la supprimer -----------------------
+/* Glisser vers la droite pour supprimer -------------------------------------
      Un geste, pas trois taps (ouvrir la fenêtre, viser Supprimer, confirmer).
      Le rouge est DERRIÈRE la ligne et se découvre à mesure qu'elle s'écarte :
      on voit ce qui va arriver pendant qu'on le fait, et lâcher avant le seuil
@@ -1895,7 +1962,11 @@ function FoodLogRow({ log, onEdit, onDelete }){
        · La direction se décide au bout de 8 px, en comparant les deux axes.
          Décider plus tôt volerait un défilement à chaque effleurement.
        · Un glisser ne doit pas ouvrir la fenêtre d'édition au relâchement,
-         d'où le même garde-fou que les pastilles du rail (`moved`). */
+         d'où le même garde-fou que les pastilles du rail (`moved`).
+
+   Un hook et pas un composant : une ligne et l'en-tête d'un repas se
+   supprimeront du même geste sans partager leur mise en page. */
+function useSwipeAway(onDelete){
   const [dx, setDx] = useState(0);
   const [out, setOut] = useState(false);
   const g = useRef({ x:0, y:0, w:1, axis:null, moved:false });
@@ -1929,16 +2000,34 @@ function FoodLogRow({ log, onEdit, onDelete }){
     setDx(0);
   };
 
+  return {
+    out,
+    // Ce qu'on pose sur l'élément qui glisse…
+    handlers: { onPointerDown:down, onPointerMove:move, onPointerUp:up, onPointerCancel:up },
+    style: { transform: dx ? `translateX(${dx}px)` : undefined,
+             transition: dx && !out ? 'none' : undefined },
+    // …et le garde-fou du clic.
+    tap: (fn) => () => { if (!g.current.moved) fn(); },
+  };
+}
+
+// Le rouge qui se découvre derrière ce qui glisse.
+const SwipeDel = () => (
+  <span className="fd-row-del" aria-hidden="true"><TrashIcon size={13} /> Supprimer</span>
+);
+
+/* Une ligne de journal : la ligne entière ouvre sa fenêtre de modification, et
+   c'est là-dedans qu'on la supprime. Deux mots d'action au bout de chaque ligne
+   répétaient « modifier » et « suppr. » autant de fois qu'il y avait de lignes,
+   pour un geste qu'on fait rarement. */
+function FoodLogRow({ log, onEdit, onDelete }){
+  const n = log.nutriments || {};
+  const sw = useSwipeAway(onDelete);
   return (
-    <div className={`fd-row-swipe ${out ? 'gone' : ''}`}>
-      <span className="fd-row-del" aria-hidden="true">
-        <TrashIcon size={13} /> Supprimer
-      </span>
+    <div className={`fd-row-swipe ${sw.out ? 'gone' : ''}`}>
+      <SwipeDel />
     <button className="fd-row" title="Modifier cette ligne"
-      style={{ transform: dx ? `translateX(${dx}px)` : undefined,
-               transition: dx && !out ? 'none' : undefined }}
-      onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
-      onClick={()=>{ if (!g.current.moved) onEdit(); }}>
+      style={sw.style} {...sw.handlers} onClick={sw.tap(onEdit)}>
       <span className="fd-row-main">
         <span className="fd-row-name">{log.name}</span>
         {log.brand && <span className="fd-row-brand">{log.brand}</span>}
@@ -1955,6 +2044,81 @@ function FoodLogRow({ log, onEdit, onDelete }){
     </button>
     </div>
   );
+}
+
+/* ---- Un repas versé dans la journée ---------------------------------------
+   Ses lignes restent des lignes de journal ordinaires — corrigeables et
+   supprimables une par une, chacune avec son instantané. Ce qui change est
+   qu'on peut aussi les prendre ENSEMBLE : les replier, les supprimer d'un coup,
+   ou changer la part mangée, ce qui repèse tout le monde.
+
+   Pas de tabulation : décaler les lignes vers la droite les sortirait de
+   l'alignement des colonnes de macros, et il faudrait relire deux grilles au
+   lieu d'une. C'est un filet vertical à gauche qui dit l'appartenance — le même
+   procédé que le cadre d'une bulle d'explication, et il tient à n'importe
+   quelle profondeur si un jour un repas en contient un autre. */
+function FoodGroupBlock({ group, children, onQty, onDelete }){
+  const [open, setOpen] = useState(true);
+  const sw = useSwipeAway(onDelete);
+  const kcal = group.rows.reduce((s, l) => s + (l.nutriments.kcal || 0), 0);
+  const n = group.rows.length;
+  const q = Number(group.qty) || 0;
+  return (
+    <div className={`fd-group ${open ? 'open' : ''}`}>
+      <div className={`fd-row-swipe ${sw.out ? 'gone' : ''}`}>
+        <SwipeDel />
+        <button className="fd-row fd-group-head" style={sw.style} {...sw.handlers}
+                onClick={sw.tap(()=>setOpen(o=>!o))}
+                aria-expanded={open} title={open ? 'Replier le repas' : 'Dérouler le repas'}>
+          <span className="fd-row-main">
+            <span className="fd-group-caret" aria-hidden="true"><ChevronDown /></span>
+            <span className="fd-row-name">{group.name}</span>
+            <span className="fd-row-qty mono">
+              {q ? `${fmtNum(q, q % 1 ? 1 : 0)} portion${q > 1 ? 's' : ''} · ` : ''}
+              {n} ingrédient{n > 1 ? 's' : ''}
+            </span>
+          </span>
+          {/* La part se règle au bout de la ligne, pas dans une fenêtre : c'est
+              le seul réglage d'un ensemble, il n'a pas besoin d'une page. */}
+          <span className="fd-row-kcal">{fmtNum(kcal, 0)}<i>kcal</i></span>
+        </button>
+      </div>
+      {open && (
+        <div className="fd-group-body">
+          {children}
+          {onQty && (
+            <div className="fd-group-foot">
+              <span className="fd-group-lab">Portions</span>
+              <div className="fd-group-qty">
+                <button type="button" className="icon-btn sm" aria-label="Une portion de moins"
+                        onClick={()=>onQty(Math.max(0, +(q - 0.5).toFixed(2)))}>−</button>
+                <span className="mono">{fmtNum(q, q % 1 ? 1 : 0)}</span>
+                <button type="button" className="icon-btn sm" aria-label="Une portion de plus"
+                        onClick={()=>onQty(+(q + 0.5).toFixed(2))}>+</button>
+              </div>
+              <span className="tc-empty-note">chaque ingrédient suit</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Les lignes d'une carte de repas, rangées en blocs : soit une ligne seule,
+   soit un ensemble et ses lignes. L'ordre suit celui d'arrivée — un ensemble se
+   place là où sa première ligne se serait trouvée, donc rien ne saute. */
+function groupBlocks(rows){
+  const out = [], seen = {};
+  for (const l of rows){
+    if (!l.groupId){ out.push({ kind:'row', row:l }); continue; }
+    if (seen[l.groupId]){ seen[l.groupId].rows.push(l); continue; }
+    const block = { kind:'group', id:l.groupId, name:l.groupName || 'Repas',
+                    qty:l.groupQty, rows:[l] };
+    seen[l.groupId] = block;
+    out.push(block);
+  }
+  return out;
 }
 
 // Détail réglementaire + micros, avec le % du repère journalier européen quand
@@ -2388,7 +2552,7 @@ function MealPortionModal({ meal, initialMeal, pickMode, onClose, onSubmit }){
           <input type="number" step="any" min="0" inputMode="decimal" value={eaten} placeholder="combien ?"
                  aria-label="Portions prises"
                  onChange={e=>setEaten(e.target.value)}
-                 onKeyDown={e=>{ if (e.key === 'Enter' && canSave) onSubmit({ items: scaled, meal: slot, share }); }} />
+                 onKeyDown={e=>{ if (e.key === 'Enter' && canSave) onSubmit({ items: scaled, meal: slot, share, portions: eatenPortions }); }} />
           <span className="fd-qty-unit">portion{eatenPortions > 1 ? 's' : ''}</span>
           <QtyPresets itemId={meal.id} unit="portion" value={eaten} onPick={setEaten} />
           <button type="button" className="fd-preset-all" onClick={()=>setEaten(String(portions))}>
@@ -2417,7 +2581,7 @@ function MealPortionModal({ meal, initialMeal, pickMode, onClose, onSubmit }){
         <div className="modal-actions">
           <button className="ghost" onClick={onClose}>Annuler</button>
           <button className="primary" disabled={!canSave}
-                  onClick={()=>onSubmit({ items: scaled, meal: slot, share })}>Ajouter</button>
+                  onClick={()=>onSubmit({ items: scaled, meal: slot, share, portions: eatenPortions })}>Ajouter</button>
         </div>
       </div>
     </div>
@@ -2512,14 +2676,14 @@ function MealsTab({ store, day, initialMeal, favOnly, query, sortMode = 'recent'
           initialMeal={mealSlot}
           pickMode={pickMode}
           onClose={()=>setPortioning(null)}
-          onSubmit={async ({ items, meal:slot, share })=>{
+          onSubmit={async ({ items, meal:slot, share, portions })=>{
             const m = portioning;
             setPortioning(null);
             // Verser dans une recette : ce sont les ingrédients pesés qui
             // partent. Verser dans une journée : le magasin en fait une ligne
             // par ingrédient, et note le repas comme récemment utilisé.
             if (onPick){ onPick({ ...m, items }); return; }
-            store.addMealToDay(m, day, slot, share);
+            store.addMealToDay(m, day, slot, share, portions);
             onDone();
           }}
         />

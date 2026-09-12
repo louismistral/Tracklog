@@ -1341,6 +1341,26 @@
      mots d'action répétés au bout de chaque ligne. La quantité est détachée du
      nom (sa propre colonne, à droite du groupe nom+marque) — collée dessus,
      elle se lisait comme la fin du nom. */
+  /* Un repas versé dans la journée : ses lignes sont les mêmes que les autres,
+     mais un filet vertical à gauche dit qu'elles vont ensemble. Pas de
+     tabulation — décaler les lignes les sortirait de l'alignement des colonnes
+     de macros, et il faudrait relire deux grilles au lieu d'une. Le filet, lui,
+     tient à n'importe quelle profondeur si un repas en contient un autre. */
+  /* Le nom du repas ne se fait pas tronquer par son propre décompte : la
+     mention « 1,5 portions · 3 ingrédients » passe à la ligne en dessous
+     plutôt que de manger la place du nom. */
+  .fd-group-head .fd-row-main{flex-wrap:wrap;row-gap:2px}
+  .fd-group-head .fd-row-name{color:var(--ink);font-weight:500}
+  .fd-group-head .fd-row-qty{flex-basis:100%}
+  .fd-group-caret{display:inline-flex;color:var(--ink-3);flex-shrink:0;
+    transition:transform .3s var(--ease)}
+  .fd-group.open .fd-group-caret{transform:rotate(180deg)}
+  .fd-group-body{border-left:1px solid var(--line-2);margin-left:4px;padding-left:10px}
+  .fd-group-body .fd-row{border-top-color:transparent}
+  .fd-group-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 4px 4px}
+  .fd-group-lab{font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)}
+  .fd-group-qty{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2)}
+
   /* Une ligne de journal se supprime en la poussant vers la droite. Le rouge
      est derrière, immobile ; c'est la ligne qui s'écarte et le découvre. Elle
      porte donc un fond opaque (celui de sa carte) sans quoi les deux se
@@ -1992,7 +2012,7 @@
      Food, app.sink.jsx l'atelier (#sink, qui rend les composants des deux), et
      le dernier script monte React une fois les trois en place. -->
 <script type="text/babel" src="app.jsx?v=66"></script>
-<script type="text/babel" src="app.food.jsx?v=34"></script>
+<script type="text/babel" src="app.food.jsx?v=35"></script>
 <script type="text/babel" src="app.sink.jsx?v=1"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
