@@ -2336,11 +2336,16 @@ function MicroPanel({ totals }){
    choses différentes selon la recette. Seul le POIDS se règle — ce n'est pas
    une propriété de l'aliment mais la quantité qu'on en met. Pour autre chose,
    l'onglet Créer fabrique l'aliment qu'on veut vraiment. */
-function IngredientRow({ item, onPatch, onRemove }){
+function IngredientRow({ item, onPatch, onRemove, onDragStart, dragging }){
   const n = itemNutriments(item);
   return (
-    <div className="fd-ing">
+    <div className={`fd-ing ${dragging ? 'dragging' : ''}`}>
       <div className="fd-ing-main">
+        {/* La même poignée que partout ailleurs — les étapes de la recette
+            juste en dessous se réordonnent déjà comme ça. L'ordre des
+            ingrédients est celui de la liste enregistrée : rien à stocker de
+            plus, une recette se relit dans l'ordre où on l'a rangée. */}
+        {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
         <span className="fd-ing-name">{item.name || 'Ingrédient'}</span>
         <span className="fd-ing-qty">
           <input type="number" step="any" min="0" inputMode="decimal" value={item.grams}
@@ -2405,15 +2410,22 @@ function IngredientPicker({ store, onPick, onBlank }){
 function IngredientEditor({ items, onChange, store, onAdd, children }){
   const totals = itemsTotals(items);
   const patch = (id, p) => onChange(items.map(it => it.id === id ? { ...it, ...p } : it));
+  const byId = useMemo(() => Object.fromEntries(items.map(it => [it.id, it])), [items]);
+  const ids = useMemo(() => items.map(it => it.id), [items]);
+  const { order, dragId, startDrag, setNodeRef } = useDragReorder(
+    ids, (next) => onChange(next.map(id => byId[id]).filter(Boolean)));
   return (
     <div className="fd-ing-editor">
       {items.length === 0
         ? <p className="fd-note serif">Aucun ingrédient pour l'instant.</p>
-        : items.map(it => (
-            <IngredientRow key={it.id} item={it}
-              onPatch={p=>patch(it.id, p)}
-              onRemove={()=>onChange(items.filter(x => x.id !== it.id))} />
-          ))}
+        : order.map(id => byId[id] ? (
+            <div key={id} ref={setNodeRef(id)}>
+              <IngredientRow item={byId[id]}
+                onPatch={p=>patch(id, p)}
+                onRemove={()=>onChange(items.filter(x => x.id !== id))}
+                onDragStart={startDrag(id)} dragging={dragId===id} />
+            </div>
+          ) : null)}
 
       {onAdd
         ? <button className="fd-add full" onClick={onAdd}>＋ Ajouter un ingrédient</button>
