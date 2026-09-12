@@ -1651,6 +1651,7 @@ function FoodPage({ store, sub, onSub }){
           store={store} day={day} onDay={setDay}
           onAdd={(meal)=>setAddOpen({ meal, day })}
           onGoals={(d)=>setGoalsDay(d || dayKey(Date.now()))}
+          onNewMeal={(draft)=>setMealDraft(draft)}
         />
       ) : (
         /* Plus d'onglet « Aliments » : ce qui est à soi se gère dans la page
@@ -1694,11 +1695,17 @@ function FoodPage({ store, sub, onSub }){
       )}
       {mealDraft && (
         <MealEditModal
-          meal={mealDraft.id ? mealDraft : null}
+          /* Le brouillon est passé tel quel, id ou pas : un repas fabriqué à
+             partir d'une sélection de la journée arrive avec ses ingrédients
+             déjà pesés, et `meal={null}` les aurait jetés. C'est l'existence en
+             base, pas l'existence d'un id, qui décide s'il y a quelque chose à
+             supprimer. */
+          meal={mealDraft}
           store={store}
           onClose={()=>setMealDraft(null)}
           onSave={(m)=>{ store.saveMeal({ ...mealDraft, ...m }); setMealDraft(null); }}
-          onDelete={mealDraft.id ? ()=>{ store.removeMeal(mealDraft.id); setMealDraft(null); } : null}
+          onDelete={store.meals.some(m => m.id === mealDraft.id)
+            ? ()=>{ store.removeMeal(mealDraft.id); setMealDraft(null); } : null}
         />
       )}
     </div>
@@ -1754,9 +1761,87 @@ function FoodSources(){
 }
 
 /* ---- Jour ----------------------------------------------------------------- */
-function FoodDayView({ store, day, onDay, onAdd, onGoals }){
+// Les lignes d'un jour, dans l'ordre où la page les montre.
+const dayLogsOf = (store, day) => store.logsByDay[day] || [];
+
+function FoodDayView({ store, day, onDay, onAdd, onGoals, onNewMeal }){
   const [showMicros, setShowMicros] = useState(false);
   const [editLog, setEditLog] = useState(null);
+  /* ---- Sélectionner plusieurs lignes ---------------------------------------
+     Un mode, pas une case sur chaque ligne : une case permanente ajouterait du
+     bruit à un journal qu'on lit dix fois par jour pour un geste qu'on fait
+     rarement. Tant qu'il est éteint, la journée se comporte exactement comme
+     avant ; allumé, taper une ligne la coche au lieu de l'ouvrir, et le
+     glisser-supprimer se met en retrait — deux gestes destructeurs sur la même
+     surface se marcheraient dessus. */
+  const [selecting, setSelecting] = useState(false);
+  const [sel, setSel] = useState(() => new Set());
+  const [copyOpen, setCopyOpen] = useState(false);
+  const selCount = sel.size;
+  const toggleSel = (id) => setSel(s => {
+    const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
+  });
+  // L'en-tête d'un repas coche ou décoche tout le monde d'un coup : c'est ce
+  // que « prendre ce repas » veut dire quand on sélectionne.
+  const toggleRows = (rows) => setSel(s => {
+    const n = new Set(s);
+    const all = rows.every(l => n.has(l.id));
+    for (const l of rows) all ? n.delete(l.id) : n.add(l.id);
+    return n;
+  });
+  const stopSel = () => { setSel(new Set()); setSelecting(false); };
+  const selected = useMemo(() => dayLogsOf(store, day).filter(l => sel.has(l.id)), [store.logs, day, sel]);
+
+  const deleteSelected = () => {
+    if (!selCount) return;
+    if (!confirm(`Supprimer ${selCount} ligne${selCount > 1 ? 's' : ''} du journal ?`)) return;
+    for (const l of selected) store.removeLog(l.id);
+    stopSel();
+  };
+  /* Copier ailleurs : de nouvelles lignes, avec leur instantané tel quel — on
+     copie ce qui a été mangé, pas un lien vers une fiche qui pourrait changer.
+     Un ensemble copié reste un ensemble, sous un identifiant NEUF : c'est un
+     autre repas pris un autre jour, pas le même vu deux fois. */
+  const copySelected = ({ day: toDay, meal: toMeal }) => {
+    const remap = {};
+    for (const l of selected){
+      const g = l.groupId ? (remap[l.groupId] = remap[l.groupId] || uid('g_')) : null;
+      // Les propriétés recopiées une à une, et surtout pas un `{ id, ts, ...rest }` :
+      // dans un fichier chargé après app.jsx, un reste d'objet écrase le
+      // `_excluded` de Babel et fait recopier ses propres propriétés sur le
+      // <div> de `Segmented` (voir le piège du reste d'objet dans CLAUDE.md).
+      // `id` et `ts` sont simplement omis — `addLog` les pose lui-même, et un
+      // `undefined` explicite les écraserait par du vide.
+      store.addLog({
+        day: toDay, meal: toMeal, groupId: g,
+        groupName: l.groupName, groupQty: l.groupQty,
+        foodId: l.foodId, name: l.name, brand: l.brand,
+        qty: l.qty, unit: l.unit, grams: l.grams, nutriments: l.nutriments,
+      });
+    }
+    setCopyOpen(false); stopSel();
+  };
+  /* En faire un repas : les lignes deviennent des ingrédients. Une ligne porte
+     ses valeurs en absolu, un ingrédient les porte POUR 100 g — la conversion
+     se fait ici, sinon la recette dirait n'importe quoi dès qu'on change un
+     poids. Le brouillon n'est pas enregistré : l'éditeur s'ouvre, on décide. */
+  /* Ce qu'une ligne reçoit, selon le mode. Écrit une fois : les deux endroits
+     qui rendent des lignes (les quatre repas, et « Autre ») doivent se
+     comporter exactement pareil. */
+  const rowProps = (l) => selecting
+    ? { selecting: true, selected: sel.has(l.id), onToggle: ()=>toggleSel(l.id) }
+    : { onEdit: ()=>setEditLog(l), onDelete: ()=>store.removeLog(l.id) };
+
+  const mealFromSelected = () => {
+    const items = selected.filter(l => l.grams > 0).map(l => mkItem({
+      name: l.name, grams: l.grams, foodId: l.foodId || null,
+      per100: scaleNutriments(l.nutriments, (100 / l.grams) * 100),
+    }));
+    if (!items.length) return;
+    stopSel();
+    onNewMeal({ id: uid('m_'), name:'', items, steps:[], source:'custom',
+                favorite:false, portions:1, createdAt: Date.now(), lastUsedAt: null });
+  };
   const dayLogs = store.logsByDay[day] || [];
   const totals = useMemo(() => sumNutriments(dayLogs.map(l => l.nutriments)), [dayLogs]);
   const goals = store.effectiveGoalsAt(day);
@@ -1848,6 +1933,15 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
         </button>
       </div>
 
+      {/* L'entrée du mode sélection : un lien discret, à côté de rien. Un
+          bouton plein l'aurait mis au même niveau qu'« Ajouter », alors qu'on
+          s'en sert cent fois moins souvent. */}
+      {dayLogs.length > 0 && !selecting && (
+        <div className="fd-sel-entry">
+          <button className="fd-link" onClick={()=>setSelecting(true)}>Sélectionner</button>
+        </div>
+      )}
+
       {MEALS.map(meal => {
         const rows = byMeal[meal.id] || [];
         const kcal = rows.reduce((s, l) => s + (l.nutriments.kcal || 0), 0);
@@ -1861,16 +1955,15 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
               <span className="fd-meal-kcal mono">{rows.length ? `${fmtNum(kcal,0)} kcal` : '—'}</span>
             </div>
             {groupBlocks(rows).map(b => b.kind === 'row' ? (
-              <FoodLogRow key={b.row.id} log={b.row} onEdit={()=>setEditLog(b.row)}
-                onDelete={()=>store.removeLog(b.row.id)} />
+              <FoodLogRow key={b.row.id} log={b.row} {...rowProps(b.row)} />
             ) : (
               <FoodGroupBlock key={b.id} group={b}
-                onQty={(q)=>store.setGroupQty(b.id, q)}
-                onDelete={()=>store.removeGroup(b.id)}>
-                {b.rows.map(l => (
-                  <FoodLogRow key={l.id} log={l} onEdit={()=>setEditLog(l)}
-                    onDelete={()=>store.removeLog(l.id)} />
-                ))}
+                onQty={selecting ? null : (q)=>store.setGroupQty(b.id, q)}
+                onDelete={selecting ? null : ()=>store.removeGroup(b.id)}
+                selecting={selecting}
+                selected={b.rows.every(l => sel.has(l.id))}
+                onToggle={()=>toggleRows(b.rows)}>
+                {b.rows.map(l => <FoodLogRow key={l.id} log={l} {...rowProps(l)} />)}
               </FoodGroupBlock>
             ))}
             <button className="fd-add" onClick={()=>onAdd(meal.id)}>+ Ajouter</button>
@@ -1882,19 +1975,37 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals }){
         <div className="card fd-card fd-meal">
           <div className="fd-meal-head"><p className="section-label" style={{margin:0}}>Autre</p></div>
           {groupBlocks(byMeal.autre).map(b => b.kind === 'row' ? (
-            <FoodLogRow key={b.row.id} log={b.row} onEdit={()=>setEditLog(b.row)}
-              onDelete={()=>store.removeLog(b.row.id)} />
+            <FoodLogRow key={b.row.id} log={b.row} {...rowProps(b.row)} />
           ) : (
             <FoodGroupBlock key={b.id} group={b}
-              onQty={(q)=>store.setGroupQty(b.id, q)}
-              onDelete={()=>store.removeGroup(b.id)}>
-              {b.rows.map(l => (
-                <FoodLogRow key={l.id} log={l} onEdit={()=>setEditLog(l)}
-                  onDelete={()=>store.removeLog(l.id)} />
-              ))}
+              onQty={selecting ? null : (q)=>store.setGroupQty(b.id, q)}
+              onDelete={selecting ? null : ()=>store.removeGroup(b.id)}
+              selecting={selecting}
+              selected={b.rows.every(l => sel.has(l.id))}
+              onToggle={()=>toggleRows(b.rows)}>
+              {b.rows.map(l => <FoodLogRow key={l.id} log={l} {...rowProps(l)} />)}
             </FoodGroupBlock>
           ))}
         </div>
+      )}
+
+      {/* Collée en bas tant que le mode dure : les lignes à cocher peuvent être
+          n'importe où dans la page, les actions doivent rester sous le pouce. */}
+      {selecting && <div className="fd-selbar-space" aria-hidden="true" />}
+      {selecting && (
+        <div className="fd-selbar">
+          <span className="fd-selbar-n mono">{selCount || 'aucune'} {selCount > 1 ? 'lignes' : 'ligne'}</span>
+          <div className="fd-selbar-acts">
+            <button className="period-arch go" disabled={!selCount} onClick={()=>setCopyOpen(true)}>Copier</button>
+            <button className="period-arch go" disabled={!selCount} onClick={mealFromSelected}>En faire un repas</button>
+            <button className="period-arch" disabled={!selCount} onClick={deleteSelected}>Supprimer</button>
+            <button className="period-arch go" onClick={stopSel}>Terminé</button>
+          </div>
+        </div>
+      )}
+
+      {copyOpen && (
+        <CopyToModal day={day} onClose={()=>setCopyOpen(false)} onSubmit={copySelected} n={selCount} />
       )}
 
       <div className="fd-micros-block">
@@ -2020,14 +2131,21 @@ const SwipeDel = () => (
    c'est là-dedans qu'on la supprime. Deux mots d'action au bout de chaque ligne
    répétaient « modifier » et « suppr. » autant de fois qu'il y avait de lignes,
    pour un geste qu'on fait rarement. */
-function FoodLogRow({ log, onEdit, onDelete }){
+function FoodLogRow({ log, onEdit, onDelete, selecting = false, selected = false, onToggle }){
   const n = log.nutriments || {};
   const sw = useSwipeAway(onDelete);
   return (
     <div className={`fd-row-swipe ${sw.out ? 'gone' : ''}`}>
-      <SwipeDel />
-    <button className="fd-row" title="Modifier cette ligne"
-      style={sw.style} {...sw.handlers} onClick={sw.tap(onEdit)}>
+      {/* Pas de rouge derrière une ligne qu'on coche : le glisser est en
+          retrait pendant la sélection, et le fond translucide de l'état choisi
+          l'aurait laissé transparaître. */}
+      {!selecting && <SwipeDel />}
+    <button className={`fd-row ${selecting ? 'picking' : ''} ${selected ? 'picked' : ''}`}
+      title={selecting ? 'Choisir cette ligne' : 'Modifier cette ligne'}
+      aria-pressed={selecting ? selected : undefined}
+      style={sw.style} {...(selecting ? {} : sw.handlers)}
+      onClick={selecting ? onToggle : sw.tap(onEdit)}>
+      {selecting && <span className="fd-tick" aria-hidden="true">{selected ? '✓' : ''}</span>}
       <span className="fd-row-main">
         <span className="fd-row-name">{log.name}</span>
         {log.brand && <span className="fd-row-brand">{log.brand}</span>}
@@ -2057,7 +2175,7 @@ function FoodLogRow({ log, onEdit, onDelete }){
    lieu d'une. C'est un filet vertical à gauche qui dit l'appartenance — le même
    procédé que le cadre d'une bulle d'explication, et il tient à n'importe
    quelle profondeur si un jour un repas en contient un autre. */
-function FoodGroupBlock({ group, children, onQty, onDelete }){
+function FoodGroupBlock({ group, children, onQty, onDelete, selecting = false, selected = false, onToggle }){
   const [open, setOpen] = useState(true);
   const sw = useSwipeAway(onDelete);
   const kcal = group.rows.reduce((s, l) => s + (l.nutriments.kcal || 0), 0);
@@ -2066,12 +2184,15 @@ function FoodGroupBlock({ group, children, onQty, onDelete }){
   return (
     <div className={`fd-group ${open ? 'open' : ''}`}>
       <div className={`fd-row-swipe ${sw.out ? 'gone' : ''}`}>
-        <SwipeDel />
-        <button className="fd-row fd-group-head" style={sw.style} {...sw.handlers}
-                onClick={sw.tap(()=>setOpen(o=>!o))}
-                aria-expanded={open} title={open ? 'Replier le repas' : 'Dérouler le repas'}>
+        {!selecting && <SwipeDel />}
+        <button className={`fd-row fd-group-head ${selecting ? 'picking' : ''} ${selected ? 'picked' : ''}`}
+                style={sw.style} {...(selecting ? {} : sw.handlers)}
+                onClick={selecting ? onToggle : sw.tap(()=>setOpen(o=>!o))}
+                aria-expanded={selecting ? undefined : open}
+                title={selecting ? 'Choisir tout le repas' : (open ? 'Replier le repas' : 'Dérouler le repas')}>
+          {selecting && <span className="fd-tick" aria-hidden="true">{selected ? '✓' : ''}</span>}
           <span className="fd-row-main">
-            <span className="fd-group-caret" aria-hidden="true"><ChevronDown /></span>
+            {!selecting && <span className="fd-group-caret" aria-hidden="true"><ChevronDown /></span>}
             <span className="fd-row-name">{group.name}</span>
             <span className="fd-row-qty mono">
               {q ? `${fmtNum(q, q % 1 ? 1 : 0)} portion${q > 1 ? 's' : ''} · ` : ''}
@@ -2101,6 +2222,43 @@ function FoodGroupBlock({ group, children, onQty, onDelete }){
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* Copier une sélection ailleurs. Deux questions et pas une de plus : quel
+   jour, quel repas. Le jour se choisit dans un champ de date natif — c'est un
+   saut ponctuel vers une date quelconque, pas une navigation, et sortir le
+   calendrier de l'Historique ici serait deux fois plus de page pour la même
+   réponse. */
+function CopyToModal({ day, n, onClose, onSubmit }){
+  const [toDay, setToDay] = useState(day);
+  const [toMeal, setToMeal] = useState(defaultMealForNow());
+  return (
+    <div className="scrim" onClick={onClose}>
+      <div className="modal fd-modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420}}>
+        <h2>Copier ailleurs</h2>
+        <div className="modal-sub">
+          {n} ligne{n > 1 ? 's' : ''} — les valeurs partent telles quelles, l'original reste.
+        </div>
+        <div className="field">
+          <label>Jour</label>
+          <input type="date" className="range-custom-date" value={toDay}
+                 onChange={e=>setToDay(e.target.value || day)} />
+        </div>
+        <div className="field" style={{borderBottom:'none'}}>
+          <label>Repas</label>
+          <Segmented size="small" scrollx>
+            {MEALS.map(m => (
+              <button key={m.id} className={toMeal===m.id?'on':''} onClick={()=>setToMeal(m.id)}>{m.label}</button>
+            ))}
+          </Segmented>
+        </div>
+        <div className="modal-actions">
+          <button className="ghost" onClick={onClose}>Annuler</button>
+          <button className="primary" onClick={()=>onSubmit({ day: toDay, meal: toMeal })}>Copier</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3431,11 +3589,12 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
 
       {mealDraft && (
         <MealEditModal
-          meal={mealDraft.id ? mealDraft : null}
+          meal={mealDraft}
           store={store}
           onClose={()=>setMealDraft(null)}
           onSave={(m)=>{ store.saveMeal({ ...mealDraft, ...m }); setMealDraft(null); setTab('mesitems'); setMine('repas'); }}
-          onDelete={mealDraft.id ? ()=>{ store.removeMeal(mealDraft.id); setMealDraft(null); } : null}
+          onDelete={store.meals.some(m => m.id === mealDraft.id)
+            ? ()=>{ store.removeMeal(mealDraft.id); setMealDraft(null); } : null}
         />
       )}
     </div>
