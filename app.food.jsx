@@ -139,6 +139,15 @@ function TrashIcon({ size = 12 }){
     </svg>
   );
 }
+// Trier une liste. Trois barres décroissantes : l'ordre, pas le contenu.
+function SortIcon({ size = 12 }){
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke="currentColor"
+         strokeWidth="1.3" strokeLinecap="round" aria-hidden="true" focusable="false">
+      <path d="M2 3.5h10M2 7h6.5M2 10.5h3.5" />
+    </svg>
+  );
+}
 // Montrer ou cacher les vignettes d'une liste.
 function ImageIcon({ size = 12 }){
   return (
@@ -401,6 +410,36 @@ function sumNutriments(list){
   }
   return out;
 }
+/* Un ajout rapide n'a pas de quantité. Ce qu'on tape EST ce qu'on a mangé : le
+   « 100 g » que la ligne portait était une convention interne (elle donne au
+   snapshot un « pour 100 » cohérent), pas un poids constaté — affiché, il
+   racontait un pesage qui n'a pas eu lieu. La ligne le dit donc par son unité,
+   et n'affiche plus rien. */
+const UNIT_NONE = 'aucune';
+
+/* Comment ranger « Mes items ». Un registre plutôt que des `if` répartis :
+   aliments et repas se trient par les mêmes questions, et une liste qui se
+   range autrement selon l'onglet demanderait de retenir laquelle fait quoi.
+   `key` sert au tri des aliments (qui ont des calories) ; les repas retombent
+   sur le nom quand la clé ne veut rien dire pour eux. */
+const ITEM_SORTS = [
+  { id:'recent', label:'Récents' },
+  { id:'az',     label:'A → Z'   },
+  { id:'za',     label:'Z → A'   },
+  { id:'kcal-',  label:'kcal ↓'  },
+  { id:'kcal+',  label:'kcal ↑'  },
+];
+const sortItems = (arr, mode, { name, kcal, used }) => {
+  const by = (f) => [...arr].sort(f);
+  switch (mode){
+    case 'az':    return by((a,b) => name(a).localeCompare(name(b), 'fr'));
+    case 'za':    return by((a,b) => name(b).localeCompare(name(a), 'fr'));
+    case 'kcal-': return by((a,b) => (kcal(b) || 0) - (kcal(a) || 0));
+    case 'kcal+': return by((a,b) => (kcal(a) || 0) - (kcal(b) || 0));
+    default:      return by((a,b) => used(b) - used(a));
+  }
+};
+
 // Combien de grammes vaut la quantité saisie, selon l'unité choisie.
 function resolveGrams(qty, unit, food){
   const q = Number(qty) || 0;
@@ -1839,7 +1878,9 @@ function FoodLogRow({ log, onEdit }){
       <span className="fd-row-main">
         <span className="fd-row-name">{log.name}</span>
         {log.brand && <span className="fd-row-brand">{log.brand}</span>}
-        <span className="fd-row-qty mono">{fmtNum(log.qty, 1)} {log.unit === 'portion' ? (log.qty > 1 ? 'portions' : 'portion') : log.unit}</span>
+        {log.unit !== UNIT_NONE && (
+          <span className="fd-row-qty mono">{fmtNum(log.qty, 1)} {log.unit === 'portion' ? (log.qty > 1 ? 'portions' : 'portion') : log.unit}</span>
+        )}
       </span>
       <span className="fd-row-macros mono">
         <span>{fmtMacro(n.protein)}<i>P</i></span>
@@ -2318,7 +2359,7 @@ function MealPortionModal({ meal, initialMeal, pickMode, onClose, onSubmit }){
   );
 }
 
-function MealsTab({ store, day, initialMeal, favOnly, query, pickMode, onPick, onDone, onNew, onEdit }){
+function MealsTab({ store, day, initialMeal, favOnly, query, sortMode = 'recent', pickMode, onPick, onDone, onNew, onEdit }){
   const [mealSlot, setMealSlot] = useState(initialMeal || defaultMealForNow());
   const [portioning, setPortioning] = useState(null);   // le repas dont on choisit la part
   const compBar = useCompBar();
@@ -2326,8 +2367,14 @@ function MealsTab({ store, day, initialMeal, favOnly, query, pickMode, onPick, o
     const needle = (query || '').trim().toLowerCase();
     let arr = favOnly ? store.meals.filter(m => m.favorite) : store.meals;
     if (needle) arr = arr.filter(m => m.name.toLowerCase().includes(needle));
-    return [...arr].sort((a,b) => (b.lastUsedAt || b.createdAt) - (a.lastUsedAt || a.createdAt));
-  }, [store.meals, favOnly, query]);
+    // Les mêmes tris que les aliments — un repas a un nom, une date d'usage, et
+    // des calories : celles d'une portion, la seule qui se compare à un aliment.
+    return sortItems(arr, sortMode, {
+      name: m => m.name || '',
+      kcal: m => (itemsTotals(m.items || {}).kcal || 0) / mealPortions(m),
+      used: m => m.lastUsedAt || m.createdAt,
+    });
+  }, [store.meals, favOnly, query, sortMode]);
 
   return (
     <>
@@ -2694,6 +2741,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
   const [quickKey, setQuickKey] = useState(0);
   const [mealDraft, setMealDraft] = useState(null);     // repas en cours de création/édition
   const [picked, setPicked] = useState(null);           // aliment choisi → étape quantité
+  const [pendingSave, setPendingSave] = useState(null); // à enregistrer SI on valide
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [results, setResults] = useState(null);
@@ -2705,7 +2753,11 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
   // « Mes items » : la bascule aliments/repas, l'étoile, et le filtre.
   const [mine, setMine] = useState('aliments');   // aliments | repas
   const [favOnly, setFavOnly] = useState(false);
-  const [libQuery, setLibQuery] = useState('');
+  const [sortMode, setSortMode] = useState('recent');
+  const [sortOpen, setSortOpen] = useState(false);
+  // Une seule recherche pour les deux onglets. Chercher « poulet » dehors puis
+  // passer à ses items, c'est la même question posée à une autre source : la
+  // retaper était le seul travail que le changement d'onglet demandait.
   // Le scanner s'arrête au premier code lu. Si ce code ne donne rien, il faut le
   // relancer : changer sa clé le remonte, caméra comprise.
   const [scanNonce, setScanNonce] = useState(0);
@@ -2735,7 +2787,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
   const handleCode = useCallback(async (code) => {
     setMsg('');
     const cached = store.foods.find(f => f.barcode === code);
-    if (cached){ setScanOpen(false); setPicked(cached); return; }
+    if (cached){ setScanOpen(false); setPicked(cached); setPendingSave(null); return; }
     setBusy(true);
     try {
       const found = await offFetchProduct(code);
@@ -2752,9 +2804,10 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
         needsFood(found);
         return;
       }
-      const saved = store.saveFood(found);
+      // Comme une ligne de recherche : le produit scanné n'entre dans les items
+      // qu'une fois la quantité validée (voir `pendingSave`).
       setScanOpen(false);
-      setPicked(saved || found);
+      setPicked(found); setPendingSave(found);
     } catch(e){
       setMsg(e.name === 'AbortError' ? 'Open Food Facts ne répond pas. Réessaie.' : (e.message || 'Recherche impossible.'));
       setScanNonce(n => n + 1);
@@ -2791,12 +2844,15 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
   // Aperçu à la frappe : on laisse retomber la saisie une demi-seconde pour ne
   // pas brûler le quota d'OFF à chaque lettre.
   useEffect(() => {
+    // Seulement depuis l'onglet Recherche : la même saisie sert à filtrer ses
+    // propres items, et ça n'a aucune raison de dépenser le quota d'OFF.
+    if (tab !== 'recherche') return;
     const q = query.trim();
     if (q.length < 3){ setResults(null); setSearchErr(''); setVia(''); return; }
     if (/^\d{8,14}$/.test(q)) return;                     // un code se cherche au bouton
     const t = setTimeout(() => runSearch(q), 500);
     return () => clearTimeout(t);
-  }, [query, runSearch]);
+  }, [query, runSearch, tab]);
 
   useEffect(() => () => { try { abortRef.current && abortRef.current.abort(); } catch {} }, []);
 
@@ -2822,18 +2878,21 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
     onClose();
   };
 
+  /* Un aliment du dehors rejoint la bibliothèque au moment où on s'en SERT,
+     pas au moment où on le regarde. Il était enregistré dès le clic : ouvrir
+     une fiche pour voir ses calories, puis annuler, laissait quand même un item
+     de plus dans « Mes items ». On garde donc la fiche de côté (`pendingSave`)
+     et c'est la validation de la quantité qui l'enregistre. */
   const pickFromSearch = async (f) => {
     if (!foodIsUsable(f)){ needsFood(f); return; }
-    const saved = store.saveFood(f);
-    setPicked(saved || f);
+    setPicked(f); setPendingSave(f);
   };
 
-  // Un aliment de la table rejoint la bibliothèque à la première utilisation :
-  // ensuite il sort en tête, instantanément, même hors ligne. L'identifiant est
-  // refait au passage — celui de la table est le même pour tout le monde.
+  // Un aliment de la table reçoit un identifiant à lui au passage — celui de la
+  // table est le même pour tout le monde.
   const pickFromRef = async (f) => {
-    const saved = store.saveFood({ ...f, id: uid('f_'), lastUsedAt: Date.now() });
-    setPicked(saved || f);
+    const copy = { ...f, id: uid('f_'), lastUsedAt: Date.now() };
+    setPicked(copy); setPendingSave(copy);
   };
 
   /* Les trois provenances en une seule liste. Ce qui les distingue est déjà
@@ -2884,17 +2943,21 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
   // Choisir une ligne : ce qui est déjà à soi s'ouvre tel quel, une fiche de la
   // table ou d'Open Food Facts rejoint d'abord la bibliothèque.
   const pickAny = (f) => {
-    if (store.foods.some(x => x.id === f.id)) return setPicked(f);
+    if (store.foods.some(x => x.id === f.id)){ setPendingSave(null); return setPicked(f); }
     if (f.source === 'ref') return pickFromRef(f);
     return pickFromSearch(f);
   };
 
   const myFoods = useMemo(() => {
-    const q = libQuery.trim().toLowerCase();
+    const q = query.trim().toLowerCase();
     let list = favOnly ? store.foods.filter(f => f.favorite) : store.foods;
     if (q) list = list.filter(f => foodLabel(f).toLowerCase().includes(q) || (f.barcode || '').includes(q));
-    return [...list].sort((a,b) => (b.lastUsedAt || b.createdAt) - (a.lastUsedAt || a.createdAt)).slice(0, 60);
-  }, [store.foods, libQuery, favOnly]);
+    return sortItems(list, sortMode, {
+      name: foodLabel,
+      kcal: f => (f.nutriments || {}).kcal,
+      used: f => f.lastUsedAt || f.createdAt,
+    }).slice(0, 60);
+  }, [store.foods, query, favOnly, sortMode]);
 
   if (picked){
     return (
@@ -2904,12 +2967,14 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
         initialMeal={meal || defaultMealForNow()}
         pickMode={pick}
         onClose={onClose}
-        onBack={()=>{ setPicked(null); setScanNonce(n => n + 1); }}
+        onBack={()=>{ setPicked(null); setPendingSave(null); setScanNonce(n => n + 1); }}
         onSubmit={({ qty, unit, grams, meal:m, nutriments })=>{
+          // C'est ici que l'aliment devient un item : on s'en sert vraiment.
+          if (pendingSave) store.saveFood(pendingSave);
           if (pick){ onPickItems([itemFromFood(picked, grams)]); return; }
           // Si l'aliment n'a pas pu être enregistré (réseau, conflit), on note quand
           // même le repas : le snapshot suffit à le lire, seul le lien est perdu.
-          const linked = store.foods.some(f => f.id === picked.id) ? picked.id : null;
+          const linked = pendingSave || store.foods.some(f => f.id === picked.id) ? picked.id : null;
           store.addLog({ day, meal:m, foodId:linked, name:picked.name, brand:picked.brand,
                          qty, unit, grams, nutriments });
           onClose();
@@ -3023,8 +3088,8 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
               icon={<ScanIcon />} onIcon={()=>setScanOpen(v=>!v)} iconOn={scanOpen}
               iconLabel={scanOpen ? 'Fermer le scanner' : 'Scanner un code-barres'}
               className="fd-search-bar">
-              <input placeholder="chercher dans mes items…" value={libQuery}
-                onChange={e=>setLibQuery(e.target.value)}
+              <input placeholder="chercher dans mes items…" value={query}
+                onChange={e=>setQuery(e.target.value)}
                 onKeyDown={e=>{ if(e.key==='Enter') e.target.blur(); }} />
             </IconBar>
 
@@ -3039,6 +3104,11 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
                 réduisant aux favoris, l'autre en montrant ou cachant les
                 vignettes. Deux objets, donc deux contours. */}
             <IconBar detached className="fd-mine-bar" buttons={[
+              // Ce qui manque à ses items, on le fabrique : le « + » mène là où
+              // on pose les chiffres soi-même, avec ce qu'on cherchait déjà écrit.
+              { icon:<PlusIcon size={13} />, onClick:()=>openQuick({ name: q, mode: mine === 'repas' ? 'repas' : 'aliment' }),
+                label: mine === 'repas' ? 'Créer un repas' : 'Créer un aliment' },
+              { icon:<SortIcon />, onClick:()=>setSortOpen(v=>!v), on:sortOpen, label:'Trier' },
               { icon:<StarIcon filled={favOnly} />, onClick:()=>setFavOnly(v=>!v), on:favOnly,
                 label: favOnly ? 'Voir tout' : 'Ne voir que les favoris' },
               { icon:<ImageIcon />, onClick:()=>setThumbs(v=>!v), on:thumbs,
@@ -3050,11 +3120,25 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
               </Segmented>
             </IconBar>
 
+            {/* Le tri se déplie sous la barre, comme celui du rail : cinq options
+                ne tiennent pas dans un rond, et un menu déroulant les cacherait. */}
+            {sortOpen && (
+              <div className="fd-sort-panel">
+                <Segmented size="small" scrollx>
+                  {ITEM_SORTS.map(o => (
+                    <button key={o.id} className={sortMode===o.id?'on':''}
+                      onClick={()=>setSortMode(o.id)}>{o.label}</button>
+                  ))}
+                </Segmented>
+              </div>
+            )}
+
             {mine === 'aliments' ? (
               <div className="fd-list">
                 {myFoods.length
                   ? myFoods.map(f => (
-                      <FoodPickRow key={f.id} food={f} showImage={thumbs} onPick={()=>setPicked(f)}
+                      <FoodPickRow key={f.id} food={f} showImage={thumbs}
+                        onPick={()=>{ setPendingSave(null); setPicked(f); }}
                         favorite={f.favorite} onToggleFavorite={()=>store.toggleFavorite(f.id)}
                         onForget={()=>forgetFood(f)}
                         refByBarcode={store.refByBarcode} />
@@ -3068,7 +3152,7 @@ function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
             ) : (
               <MealsTab
                 store={store} day={day} initialMeal={meal}
-                favOnly={favOnly} query={libQuery}
+                favOnly={favOnly} query={query} sortMode={sortMode}
                 pickMode={pick}
                 onPick={pick ? (m)=>onPickItems(m.items) : null}
                 onDone={onClose}
@@ -3352,7 +3436,7 @@ function QuickAddTab({ seed, initialMeal, pickMode, onNewMeal, onSubmit, onCance
     if (!canSave) return;
     onSubmit({
       name: name.trim() || 'Ajout rapide',
-      qty: eatenGrams, unit: isItem ? basis : 'g', grams: eatenGrams, meal, nutriments,
+      qty: eatenGrams, unit: isItem ? basis : UNIT_NONE, grams: eatenGrams, meal, nutriments,
       per100: per100Values,
       basis,
       keep: isItem,

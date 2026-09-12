@@ -551,6 +551,10 @@
      qu'un actif. Le raccourci ne garde que ceux qui ont de la matière : quatorze
      graphes d'un coup ne se lisent pas, mais la pastille d'un micro vide reste
      là — savoir qu'il n'est renseigné nulle part est une information. */
+  /* Le tri de « Mes items », déplié sous la barre à icône plutôt qu'enfermé
+     dans un menu : cinq options qui doivent rester visibles pour se comparer. */
+  .fd-sort-panel{margin:-4px 0 12px}
+
   .fd-micro-pick{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-bottom:18px}
   .fd-micro-pick .member{padding:5px 10px;font-size:11px;gap:6px}
   .fd-micro-pick .member .dot{width:7px;height:7px}
@@ -927,6 +931,14 @@
   .dragging:hover{transform:none}
   body.dragging-reorder{cursor:grabbing}
   body.dragging-reorder *{user-select:none !important}
+  /* Ce qui s'arme à l'appui maintenu ne doit pas être sélectionnable. La règle
+     ci-dessus n'arrive qu'une fois le glisser commencé — trop tard : pendant
+     les ~350 ms d'attente, le téléphone a déjà surligné le texte alentour et
+     sorti sa loupe. Les surfaces concernées le disent donc en permanence : la
+     poignée, le rond numéroté d'une étape, et le graphe qu'on balaie du doigt.
+     (`-webkit-touch-callout` coupe en plus le menu long-press d'iOS.) */
+  .drag-handle,.fd-step-n,.chart-svg,.tabs button,.member,.seg-track button{
+    -webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
   /* The highlight bar parked in the target gap (positioned in JS, viewport coords). */
   .drop-indicator{position:fixed;display:none;z-index:999;pointer-events:none;
                   background:var(--accent);border-radius:3px;
@@ -1953,8 +1965,8 @@
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, app.sink.jsx l'atelier (#sink, qui rend les composants des deux), et
      le dernier script monte React une fois les trois en place. -->
-<script type="text/babel" src="app.jsx?v=63"></script>
-<script type="text/babel" src="app.food.jsx?v=31"></script>
+<script type="text/babel" src="app.jsx?v=64"></script>
+<script type="text/babel" src="app.food.jsx?v=32"></script>
 <script type="text/babel" src="app.sink.jsx?v=1"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
