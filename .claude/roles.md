@@ -21,9 +21,9 @@ Règles communes à tous les rôles :
 - **Une seule session écrit sur une branche donnée.** Deux builders sur
   `Tracklog_V1` se marchent dessus ; un builder de branche ne touche jamais
   `Tracklog_V1` ni la branche d'un autre.
-- **`CLAUDE.md` est la carte, et elle se tient à jour** — un builder qui ajoute
-  un concept, un piège ou un écran l'y écrit dans le même commit. Les autres
-  rôles ne l'écrivent pas : ils le proposent à Louis.
+- **`CLAUDE.md` est l'index, `.claude/notes/` le détail** — un builder qui
+  ajoute un concept, un piège ou un écran l'écrit au bon endroit, dans le même
+  commit, et jamais à deux endroits. Les autres rôles le proposent à Louis.
 - **Le français, partout** — commits, messages, noms dans la conversation.
 - **Un rôle ne se déborde pas en silence.** Si le travail demandé appartient à
   un autre rôle, le dire et proposer la session qui convient, plutôt que de le

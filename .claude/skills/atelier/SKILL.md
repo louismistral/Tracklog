@@ -10,7 +10,8 @@ images, des cartes et des maquettes ; elle ne touche pas au code livré.
 
 ## Ce qu'elle fait
 
-**Cartographier** — dire l'état réel, pas celui dont on se souvient :
+**Cartographier** — dire l'état réel, pas celui dont on se souvient
+(`.claude/notes/ecrans.md` et `fonctionnalites.md` en sont le point de départ) :
 l'arbre des écrans et des composants, le chemin d'un geste d'un bout à l'autre
 (du tap au `ChartCard` à la ligne écrite en base), les couches qui se
 superposent (page · carte · contrôle partagé · jeton CSS), ce qui est partagé
