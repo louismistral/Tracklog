@@ -20,8 +20,9 @@ la branche a bougé sous elle, elle s'aligne avant de continuer.
 ## Le rituel de chaque changement
 
 1. Lire `.claude/notes/pieges.md` avant d'écrire — ce sont les invariants qu'un
-   code neuf peut encore casser. `.claude/notes/fonctionnalites.md` et
-   `ecrans.md` pour le reste, quand la tâche les concerne.
+   code neuf peut encore casser. `ui.md` avant de dessiner un contrôle, une
+   carte ou une rangée de réglage ; `fonctionnalites.md` et `ecrans.md` pour le
+   reste, quand la tâche les concerne.
 2. Changer le code.
 3. **Incrémenter le `?v=` correspondant dans `Tracklog.html`** dès que
    `app.jsx` ou `app.food.jsx` a bougé. Un oubli laisse des utilisateurs sur

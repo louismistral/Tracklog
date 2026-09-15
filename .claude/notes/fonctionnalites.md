@@ -76,3 +76,14 @@ retrouver la raison de sa forme actuelle).
 - **Objectifs : la troisième macro se propose** — deux macros posées et une cible calorique ne laissent qu'une inconnue : le troisième champ l'affiche en placeholder, dans l'unité de SON mode (g, %, g/kg). Rien n'est enregistré tant qu'on n'a pas tapé — c'est une suggestion, pas une valeur.
 - **Détail réglementaire + micronutriments** avec % des repères journaliers (AJR) quand disponibles.
 - **PWA installable**, thème système, auth email/mot de passe + lien magique + réinitialisation.
+
+## L'inférence se paie deux fois, et une seule est facturée
+
+`analyse-repas` appelle Claude avec une clé API : chaque analyse coûte des
+tokens, et c'est le chemin des *autres* utilisateurs. `tracklog-mcp` inverse la
+flèche — ce n'est plus Tracklog qui appelle Claude, c'est Claude qui écrit dans
+Tracklog depuis une conversation, donc sous un abonnement déjà payé. Les deux
+coexistent volontairement : l'onglet IA reste la porte de l'app, le connecteur
+est celle du propriétaire du compte. Il n'existe aucun moyen supporté d'utiliser
+un abonnement comme identifiant d'API depuis une application — l'inversion est
+la seule réponse, pas une astuce.
