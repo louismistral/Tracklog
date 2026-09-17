@@ -10,7 +10,7 @@
   // before any script loads, so it cannot read it. Adding a style means adding
   // its id here too — and a stored value outside the list falls back to dark
   // rather than leaving the page with no tokens at all.
-  var STYLE_IDS = ['dark', 'light', 'matrix'];
+  var STYLE_IDS = ['dark', 'light', 'matrix', 'paper', 'paper-dark'];
   try{
     var t = localStorage.getItem('tracklog.theme');
     if (STYLE_IDS.indexOf(t) !== -1) document.documentElement.dataset.theme = t;
@@ -44,7 +44,10 @@
 <meta http-equiv="Expires" content="0" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=VT323&display=swap" rel="stylesheet">
+<!-- Une famille de plus ne coûte que sa déclaration @font-face : Google ne sert
+     le fichier de police qu'au premier usage réel, donc un compte resté sur
+     « Aristide » ne télécharge ni VT323 ni les serifs du style Papier. -->
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=VT323&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Lora:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   /* ============================================================
      Tracklog — "Aristide" dark editorial theme
@@ -216,9 +219,67 @@
        Mono — la mise en page la plus serrée de l'app. Mesuré avec la vraie
        VT323 : à 0.6 les chiffres débordent de leur colonne et se télescopent,
        0.55 passe. En dessous, VT323 rend ses petites capitales de 9 px
-       illisibles — sa hauteur d'x vaut deux tiers de celle de Geist. */
+       illisibles : sa hauteur d'x vaut 0.46 de son cadratin là où Geist est à
+       0.53, et le peu qui les sépare se voit à 9 px. */
     --tracking-body: 0.06em;
     --font-size-adjust: 0.55;
+  }
+  /* Papier — thème tweakcn, un livre de poche : canvas parchemin, encre brune,
+     serifs partout. Il arrive en DEUX variantes (claire et sombre) là où Matrix
+     n'en avait qu'une ; un Style de Tracklog est plat, donc il en fait deux, et
+     ce qu'elles partagent — la police, les coins, l'ombre — est posé une seule
+     fois ici plutôt que recopié dans chacune. */
+  :root[data-theme="paper"], :root[data-theme="paper-dark"]{
+    --font-sans: "Libre Baskerville", Georgia, serif;
+    --font-serif: "Lora", Georgia, serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+    /* Lora dessine une vraie italique, contrairement à VT323 : les grands
+       titres gardent donc celle d'« Aristide ». */
+    --font-serif-style: italic;
+    --radius: 4px;
+    /* Une ombre portée chaude et courte, décalée vers le bas-droite — c'est
+       elle qui fait le papier posé sur la table plutôt que la carte à plat. */
+    --shadow-card: 2px 3px 5px 0 hsl(28 13% 20% / .12), 2px 1px 2px -1px hsl(28 13% 20% / .12);
+    /* Pas de `--font-size-adjust` ici, et c'est mesuré, pas négligé : Libre
+       Baskerville a exactement la hauteur d'x de Geist (0.53) et IBM Plex Mono
+       la chasse de Geist Mono. Seule sa largeur change — 11 % de plus que Geist
+       sur du texte courant, ce que la mise en page absorbe. */
+  }
+  :root[data-theme="paper"]{
+    --background: #f5f1e6;
+    --card: #fffcf5;
+    --muted: #ece5d8;
+    --foreground: #4a3f35;
+    --muted-foreground: #7d6b56;
+    --muted-foreground-2: #a2937e;
+    --border: #dbd0ba;
+    --border-strong: #c7b99c;
+    --primary: #a67c52;
+    --primary-hover: color-mix(in oklab, #a67c52 84%, #000);
+    --primary-foreground: #ffffff;
+    --primary-soft: rgba(166,124,82,.14);
+    --accent: #d4c8aa;
+    --accent-foreground: #4a3f35;
+    --destructive: #b54a35;
+    --vignette: rgba(74,63,53,.06);
+  }
+  :root[data-theme="paper-dark"]{
+    --background: #2d2621;
+    --card: #3a322c;
+    --muted: #312b26;
+    --foreground: #ece5d8;
+    --muted-foreground: #c5bcac;
+    --muted-foreground-2: #8c8274;
+    --border: #4a4039;
+    --border-strong: #5e5248;
+    --primary: #c0a080;
+    --primary-hover: color-mix(in oklab, #c0a080 84%, #000);
+    --primary-foreground: #2d2621;
+    --primary-soft: rgba(192,160,128,.16);
+    --accent: #59493e;
+    --accent-foreground: #ece5d8;
+    --destructive: #b54a35;
+    --vignette: rgba(0,0,0,.4);
   }
   *{box-sizing:border-box}
   html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation;overflow-x:hidden;scroll-behavior:smooth}
@@ -377,6 +438,12 @@
   .style-swatch[data-style="matrix"] i:nth-child(1){background:#000000}
   .style-swatch[data-style="matrix"] i:nth-child(2){background:#00ff41}
   .style-swatch[data-style="matrix"] i:nth-child(3){background:#00ff41}
+  .style-swatch[data-style="paper"] i:nth-child(1){background:#f5f1e6}
+  .style-swatch[data-style="paper"] i:nth-child(2){background:#4a3f35}
+  .style-swatch[data-style="paper"] i:nth-child(3){background:#a67c52}
+  .style-swatch[data-style="paper-dark"] i:nth-child(1){background:#2d2621}
+  .style-swatch[data-style="paper-dark"] i:nth-child(2){background:#ece5d8}
+  .style-swatch[data-style="paper-dark"] i:nth-child(3){background:#c0a080}
   .style-name{font-size:13px;color:var(--foreground)}
   .style-hint{font-size:11px;color:var(--muted-foreground-2);line-height:1.45}
 
@@ -2094,7 +2161,7 @@
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, app.sink.jsx l'atelier (#sink, qui rend les composants des deux), et
      le dernier script monte React une fois les trois en place. -->
-<script type="text/babel" src="app.jsx?v=68"></script>
+<script type="text/babel" src="app.jsx?v=69"></script>
 <script type="text/babel" src="app.food.jsx?v=38"></script>
 <script type="text/babel" src="app.sink.jsx?v=2"></script>
 <script type="text/babel">mountTracklog();</script>
