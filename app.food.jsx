@@ -15,10 +15,11 @@
                         ne se réécrit pas tout seul.
      nutrition_goals  = les objectifs du jour (kcal + macros).
 
-   Ce fichier est un second <script type="text/babel">, chargé
-   après app.jsx : tout ce que app.jsx déclare au premier niveau
-   (supabase, uid, dayKey, useState…) est visible ici, et le
-   montage de React est déclenché après les deux (mountTracklog).
+   Ce fichier est chargé après app.core.jsx, app.ui.jsx,
+   app.charts.jsx et app.jsx : tout ce qu'ils déclarent au premier
+   niveau (supabase, uid, dayKey, useState, Segmented, ChartCard…)
+   est visible ici, et le montage de React est déclenché une fois
+   tous les fichiers en place (mountTracklog).
 
    Le seul pont avec le reste de l'app : les 4 compteurs du jour
    (kcal, protéines, glucides, lipides) affichés dans Log → Jour
@@ -1807,9 +1808,9 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals, onNewMeal }){
     for (const l of selected){
       const g = l.groupId ? (remap[l.groupId] = remap[l.groupId] || uid('g_')) : null;
       // Les propriétés recopiées une à une, et surtout pas un `{ id, ts, ...rest }` :
-      // dans un fichier chargé après app.jsx, un reste d'objet écrase le
+      // dans un fichier chargé après app.ui.jsx, un reste d'objet écrase le
       // `_excluded` de Babel et fait recopier ses propres propriétés sur le
-      // <div> de `Segmented` (voir le piège du reste d'objet dans CLAUDE.md).
+      // <div> de `Segmented` (voir le piège du reste d'objet dans pieges.md).
       // `id` et `ts` sont simplement omis — `addLog` les pose lui-même, et un
       // `undefined` explicite les écraserait par du vide.
       store.addLog({

@@ -123,11 +123,17 @@
 })();
 </script>
 
-<!-- Trois fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
-     sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
-     Food, app.sink.jsx l'atelier (#sink, qui rend les composants des deux), et
-     le dernier script monte React une fois les trois en place. -->
-<script type="text/babel" src="app.jsx?v=69"></script>
+<!-- Six fichiers, un seul montage. Babel exécute les scripts dans l'ordre où ils
+     sont écrits ici, et cet ordre est celui des dépendances : app.core.jsx pose
+     l'espace de noms (React, supabase, le modèle, les registres), app.ui.jsx les
+     briques partagées, app.charts.jsx ce qui dessine les données, app.jsx l'app
+     et ses écrans, app.food.jsx la page Food, app.sink.jsx l'atelier (#sink, qui
+     rend les composants des autres), et le dernier script monte React une fois
+     les six en place. Réordonner, c'est casser. -->
+<script type="text/babel" src="app.core.jsx?v=1"></script>
+<script type="text/babel" src="app.ui.jsx?v=1"></script>
+<script type="text/babel" src="app.charts.jsx?v=1"></script>
+<script type="text/babel" src="app.jsx?v=70"></script>
 <script type="text/babel" src="app.food.jsx?v=38"></script>
 <script type="text/babel" src="app.sink.jsx?v=2"></script>
 <script type="text/babel">mountTracklog();</script>
