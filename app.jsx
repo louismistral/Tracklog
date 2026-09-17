@@ -113,10 +113,10 @@ const AGGREGATES = [
 
 /* ---- Styles ---------------------------------------------------------------
    Un style = un jeu de variables CSS sous :root[data-theme="<id>"] dans
-   Tracklog.html, plus une ligne ici. Rien d'autre à toucher : l'interface des
+   styles.css, plus une ligne ici. Rien d'autre à toucher : l'interface des
    paramètres se construit à partir de cette liste, et le petit script en tête
    de page valide la valeur stockée contre les mêmes identifiants.
-   Pour en ajouter un : un bloc de tokens dans le <style>, une entrée ici, et
+   Pour en ajouter un : un bloc de tokens dans styles.css, une entrée ici, et
    son identifiant dans STYLE_IDS de Tracklog.html. */
 const STYLES = [
   { id:'dark',       label:'Sombre', hint:'Aristide — canvas presque noir, encre crème', themeColor:'#100f0d' },

@@ -18,9 +18,9 @@
        nulle part.
 
    Pourquoi une route (#sink) et pas un fichier HTML à part, comme le
-   font les projets shadcn : la feuille de style entière vit dans le
-   <style> de Tracklog.html et les composants ne sont exportés nulle
-   part — il n'y a pas de registre à parcourir. Une page séparée
+   font les projets shadcn : la feuille de style entière vit dans
+   styles.css et les composants ne sont exportés nulle part — il n'y a
+   pas de registre à parcourir. Une page séparée
    demanderait une copie du CSS, donc deux vérités qui divergent, ce
    qu'une page d'atelier est précisément censée empêcher. Ouverte
    depuis l'app, elle hérite de tout, gratuitement.

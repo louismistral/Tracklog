@@ -51,7 +51,8 @@ Fiches complètes dans `.claude/skills/<rôle>/SKILL.md`, récapitulées dans
 
 | Fichier | Rôle |
 |---|---|
-| `Tracklog.html` | Page unique. Tout le CSS inline (thème « Aristide »), puis les `<script>` qui chargent React/Supabase/Babel depuis un CDN et les trois `.jsx` en JSX brut — transformé dans le navigateur par Babel standalone, pas de build. |
+| `Tracklog.html` | Page unique. Charge `styles.css`, puis les `<script>` qui chargent React/Supabase/Babel depuis un CDN et les trois `.jsx` en JSX brut — transformé dans le navigateur par Babel standalone, pas de build. |
+| `styles.css` | Tout le CSS (thème « Aristide » et les autres styles). Chargé par un `<link>` posé avant `<body>`, au même endroit que l'ancien `<style>` inline — le script de tête qui pose `data-theme` et l'accent s'exécute avant, la feuille se charge donc sans jamais faire flasher le mauvais thème. |
 | `app.jsx` | Cœur : modèle trackers/entries, auth, tous les écrans sauf Food. ~4200 lignes. |
 | `app.food.jsx` | Page Food : bibliothèque d'aliments, scanner de code-barres, journal de repas, objectifs. ~3000 lignes. |
 | `app.sink.jsx` | **L'atelier**, page `#sink` : toutes les briques partagées dans tous leurs états, sur des données fabriquées en mémoire. Pas un onglet — une page pour celui qui fabrique l'app. ~700 lignes. |
@@ -153,7 +154,7 @@ Les briques d'interface elles-mêmes — `Segmented`, `IconBar`, `NumField`,
 ## Architecture technique
 
 - **Aucun build.** JSX transformé dans le navigateur par `@babel/standalone` : toute modif d'un `.jsx` est visible au rechargement.
-- **Cache-busting manuel** — le `?v=N` des `<script src="app.jsx?v=N">` s'incrémente à la main dans `Tracklog.html`.
+- **Cache-busting manuel** — le `?v=N` des `<script src="app.jsx?v=N">` (quatre fichiers : les trois `.jsx` et `styles.css`) s'incrémente à la main dans `Tracklog.html`.
 - **Un seul espace de noms.** `app.food.jsx` et `app.sink.jsx` dépendent du scope global posé par `app.jsx` (React, `supabase`, `dayKey`, `uid`, `startOfDay`…) : trois `<script>` chargés dans cet ordre, montés ensemble par `mountTracklog()`, un seul jeu d'aides Babel (voir `pieges.md`).
 - **Persistance : Supabase** (Postgres + auth). Tables : `trackers`, `entries`, `chronos`, `foods`, `food_logs`, `nutrition_goals` (clé `(user_id, from_day)`), `meals`, `user_settings`, `feedback`, `service_connections` + `oauth_pending`. Clé anonyme publique dans `app.jsx` — protégée par RLS, pas un secret.
 - **`service_connections` : RLS activée sans aucune policy.** La clé anon ne peut ni lire ni écrire les jetons OAuth, même pour leur propriétaire ; seule la fonction Edge, en clé de service, y touche. `oauth_pending` est son pendant éphémère (vérifieur PKCE + `state`).
@@ -161,4 +162,4 @@ Les briques d'interface elles-mêmes — `Segmented`, `IconBar`, `NumField`,
 - **Les migrations s'appliquent directement.** Le connecteur Supabase (MCP) donne accès au projet `drrmqrhsfgermgblndzz` : `apply_migration` (DDL), `execute_sql` (inspection), `deploy_edge_function`. Le faire directement évite l'écart entre « le code est poussé » et « la base suit », qui a déjà cassé l'enregistrement des trackers. Exception : les **secrets** se posent à la main.
 - **Le compte fait autorité, `localStorage` n'est qu'un miroir** (`useSyncedPref`). Reste vraiment local ce qui est un **état de travail** sur cet appareil : mode Solo/Multi des chronos, état et mode du rail. `AccountPrefsContext` porte `{ prefs, savePrefs }` jusqu'aux composants trop loin dans l'arbre — au premier chef le scanner de Food.
 - **Drag & drop maison** (`useDragReorder`) — pointer events, pas de librairie ; un ordre global par tracker, chaque vue réordonne un sous-ensemble reconstitué dans l'ordre complet.
-- **Aucun framework CSS** — tout le style est dans le `<style>` de `Tracklog.html`, thème « Aristide » (variables `--background`, `--foreground`, `--primary`…, au format shadcn, clair/sombre via `data-theme`). Les jetons partagés entre les deux thèmes (`--primary`, `--primary-hover`, `--primary-foreground`, `--secondary`, `--input`, `--ring`…) vivent en alias dans le `:root{}` de base, pas redits par thème — un thème shadcn/tweakcn externe n'a qu'à redéfinir `--background`/`--foreground`/`--card`/`--border`/`--muted`/`--destructive` pour que tout le reste suive.
+- **Aucun framework CSS** — tout le style est dans `styles.css`, chargé par un `<link>` (pas d'inline dans `Tracklog.html`), thème « Aristide » (variables `--background`, `--foreground`, `--primary`…, au format shadcn, clair/sombre via `data-theme`). Les jetons partagés entre les deux thèmes (`--primary`, `--primary-hover`, `--primary-foreground`, `--secondary`, `--input`, `--ring`…) vivent en alias dans le `:root{}` de base, pas redits par thème — un thème shadcn/tweakcn externe n'a qu'à redéfinir `--background`/`--foreground`/`--card`/`--border`/`--muted`/`--destructive` pour que tout le reste suive.
