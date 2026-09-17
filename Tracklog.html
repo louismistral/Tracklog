@@ -44,7 +44,7 @@
 <meta http-equiv="Expires" content="0" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=VT323&display=swap" rel="stylesheet">
 <style>
   /* ============================================================
      Tracklog — "Aristide" dark editorial theme
@@ -55,12 +55,50 @@
      original so app.jsx behaviour is identical.
      ============================================================ */
   :root{
-    --radius: 3px;
     --ease: cubic-bezier(.19,1,.22,1);
     /* Largeur de l'intitulé d'une rangée de réglage. Un seul nombre : le cadre
        d'explication s'en sert pour remonter jusqu'au bord gauche de sa rangée
        (voir `.info-panel` plus bas), et deux valeurs auraient divergé. */
     --label-w: 82px;
+
+    /* ---- Ce qu'un Style peut déplacer -----------------------------------
+       Ce bloc porte les valeurs d'« Aristide » : un thème ne redéclare que ce
+       qui diffère chez lui. Sombre et Clair ne changent que la couleur et ne
+       touchent donc à rien d'ici ; Matrix change aussi la police, les coins et
+       la lueur, et les écrase tous.
+
+       Les trois familles de police, plutôt qu'un nom écrit 56 fois dans la
+       feuille : sans ça, changer de police voulait dire relire tout le CSS. */
+    --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+    --font-serif: "Instrument Serif", serif;
+    --font-mono: "Geist Mono", ui-monospace, monospace;
+    /* L'italique du serif d'affichage est un choix de thème, pas une fatalité :
+       un terminal n'a pas d'italique dessinée, et la pencher de force donne
+       une oblique synthétique qui se voit. */
+    --font-serif-style: italic;
+
+    /* Trois rayons, parce que trois intentions : le coin d'une carte, la
+       pastille (une piste, un badge, un bouton rond-à-texte) et le rond plein
+       (point de couleur, bouton à icône). Un thème à coins carrés doit pouvoir
+       rendre les trois rectangulaires — c'est ce que dit `--radius: 0` chez
+       shadcn — sans qu'on aille rouvrir 59 déclarations. */
+    --radius: 3px;
+    --radius-pill: 999px;
+    --radius-round: 50%;
+
+    /* Lueur et interlettrage : éteints par défaut, donc invisibles pour un
+       thème qui n'en veut pas. `--text-glow` se pose sur `body` et descend par
+       héritage ; `--shadow-card` est appliqué à la famille des cartes. */
+    --shadow-card: none;
+    --text-glow: none;
+    --tracking-body: normal;
+    /* Toutes les tailles de Tracklog sont en pixels et calées sur la hauteur
+       d'x de Geist. Une police qui en a une plus petite rendrait les petites
+       capitales de 9 px illisibles sans qu'aucun nombre n'ait changé — VT323
+       dessine une hauteur d'x deux tiers de celle de Geist. `font-size-adjust`
+       recale l'œil sans toucher aux tailles : c'est la seule façon de changer
+       de police sans rouvrir chaque déclaration. */
+    --font-size-adjust: none;
 
     /* Blanc constant sur un remplissage destructive : assez saturé dans tous
        les thèmes pour qu'un texte blanc y garde un bon contraste — contraire-
@@ -137,9 +175,13 @@
     --vignette: rgba(33,29,23,.05);
   }
   /* Matrix — thème tweakcn (https://tweakcn.com/themes/cmll14cgf000204ky5ms2fdgj) :
-     canvas noir, encre vert phosphore. Couleurs seulement — Tracklog n'a pas
-     encore de jeton pour la police/le rayon/les ombres par thème (VT323, coins
-     carrés et lueur verte du thème d'origine ne sont donc pas repris ici). */
+     un terminal à phosphore vert. Le seul thème qui déplace autre chose que la
+     couleur — police, coins et lueur viennent avec, sinon il ne reste qu'un
+     Sombre repeint en vert.
+     Un écart assumé au thème d'origine : il donne `--font-serif: Georgia`, mais
+     Tracklog s'en sert pour ses grands titres en italique, et une italique
+     Georgia au milieu d'un terminal casse précisément l'illusion que le thème
+     cherche. Le serif d'affichage suit donc le terminal, sans italique. */
   :root[data-theme="matrix"]{
     --background: #000000;
     --card: #050505;
@@ -157,10 +199,34 @@
     --accent-foreground: #000;
     --destructive: #ff0000;
     --vignette: rgba(0,0,0,.6);
+
+    --font-sans: "VT323", "Courier New", monospace;
+    --font-serif: "VT323", "Courier New", monospace;
+    --font-mono: "VT323", "Courier New", monospace;
+    --font-serif-style: normal;
+
+    --radius: 0;
+    --radius-pill: 0;
+    --radius-round: 0;
+
+    --shadow-card: 0 0 15px 2px color-mix(in srgb, var(--primary) 16%, transparent);
+    --text-glow: 0 0 6px color-mix(in srgb, var(--primary) 45%, transparent);
+    /* Ces deux nombres sont bornés par la même chose : les colonnes de macros
+       d'une carte d'aliment, larges de 27 px et calées sur la chasse de Geist
+       Mono — la mise en page la plus serrée de l'app. Mesuré avec la vraie
+       VT323 : à 0.6 les chiffres débordent de leur colonne et se télescopent,
+       0.55 passe. En dessous, VT323 rend ses petites capitales de 9 px
+       illisibles — sa hauteur d'x vaut deux tiers de celle de Geist. */
+    --tracking-body: 0.06em;
+    --font-size-adjust: 0.55;
   }
   *{box-sizing:border-box}
   html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation;overflow-x:hidden;scroll-behavior:smooth}
-  html,body{margin:0;padding:0;background:var(--background);color:var(--foreground);font-family:"Geist",ui-sans-serif,system-ui,sans-serif;font-feature-settings:"ss01","cv11";-webkit-font-smoothing:antialiased;transition:background .3s var(--ease),color .3s var(--ease)}
+  html,body{margin:0;padding:0;background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-feature-settings:"ss01","cv11";-webkit-font-smoothing:antialiased;transition:background .3s var(--ease),color .3s var(--ease)}
+  /* La lueur du texte et l'interlettrage courant sont hérités depuis `body` :
+     tout ce qui ne pose pas explicitement le sien suit le thème, et les
+     intitulés qui ont déjà leur propre interlettrage gardent le leur. */
+  body{text-shadow:var(--text-glow);letter-spacing:var(--tracking-body);font-size-adjust:var(--font-size-adjust)}
   body{min-height:100vh;overflow-x:hidden;touch-action:manipulation}
   ::selection{background:var(--primary);color:var(--primary-foreground)}
   ::-webkit-scrollbar{width:10px;height:10px}
@@ -176,8 +242,8 @@
       radial-gradient(120% 80% at 50% -10%, color-mix(in srgb, var(--primary) 7%, transparent), transparent 55%),
       radial-gradient(100% 100% at 50% 120%, var(--vignette), transparent 55%)}
 
-  .mono{font-family:"Geist Mono",ui-monospace,monospace;font-feature-settings:"tnum"}
-  .serif{font-family:"Instrument Serif",serif;font-style:italic;font-weight:400}
+  .mono{font-family:var(--font-mono);font-feature-settings:"tnum"}
+  .serif{font-family:var(--font-serif);font-style:var(--font-serif-style);font-weight:400}
   button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;padding:0}
   input,select,textarea{font-family:inherit;font-size:14px;color:inherit;background:transparent;border:none;outline:none}
   /* Ce qui se tape doit se voir. Un champ transparent et sans bordure est
@@ -223,7 +289,7 @@
   .topbar{display:flex;align-items:baseline;justify-content:space-between;gap:24px;margin-bottom:14px;padding-bottom:22px;border-bottom:1px solid var(--border)}
   .brand{display:flex;align-items:baseline;gap:12px}
   .brand .mark{width:9px;height:9px;background:var(--primary);border-radius:0;transform:translateY(-1px) rotate(45deg);box-shadow:0 0 16px color-mix(in srgb, var(--primary) 60%, transparent)}
-  .brand h1{font-family:"Instrument Serif",serif;font-style:italic;font-weight:400;font-size:28px;letter-spacing:0;margin:0;line-height:1}
+  .brand h1{font-family:var(--font-serif);font-style:var(--font-serif-style);font-weight:400;font-size:28px;letter-spacing:0;margin:0;line-height:1}
   .brand .by{font-size:11px;color:var(--muted-foreground-2);text-transform:uppercase;letter-spacing:0.16em}
   .tabs{display:flex;gap:26px;background:none;padding:0;border:none}
   .tabs button{padding:2px 0;border-radius:0;font-size:11px;color:var(--muted-foreground-2);font-weight:500;letter-spacing:0.16em;text-transform:uppercase;position:relative;transition:color .4s var(--ease)}
@@ -240,14 +306,14 @@
   .account-btn:hover{color:var(--primary)}
   /* Settings: a gear replaces the two loose "Mot de passe"/"Déconnexion" text
      buttons that used to sit in the top bar — one icon, one destination. */
-  .gear-btn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;color:var(--muted-foreground-2);transition:color .3s var(--ease),background .3s var(--ease)}
+  .gear-btn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:var(--radius-round);color:var(--muted-foreground-2);transition:color .3s var(--ease),background .3s var(--ease)}
   .gear-btn:hover{color:var(--foreground);background:var(--muted)}
   .gear-btn.active{color:var(--primary)}
   .gear-btn svg{transition:transform .4s var(--ease)}
   .gear-btn:hover svg{transform:rotate(25deg)}
   .settings-view{max-width:480px}
   .settings-card{margin-bottom:20px}
-  .settings-section-title{font-family:"Instrument Serif",serif;font-style:italic;font-size:19px;margin:0 0 6px;
+  .settings-section-title{font-family:var(--font-serif);font-style:var(--font-serif-style);font-size:19px;margin:0 0 6px;
     display:flex;flex-wrap:wrap;align-items:center;gap:8px}
   .settings-value{font-size:13px;color:var(--muted-foreground)}
   .settings-hint{font-size:12px;color:var(--muted-foreground-2);line-height:1.6;margin:12px 0 0}
@@ -283,10 +349,10 @@
     text-align:left;cursor:pointer;transition:background .3s var(--ease)}
   .archive-row:first-child{border-top:none}
   .archive-row:hover{background:var(--muted)}
-  .archive-row .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .archive-row .dot{width:8px;height:8px;border-radius:var(--radius-round);flex-shrink:0}
   .archive-name{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .badge,.archive-type,.rail-sort-tag,.tc-badge,.tk-chip,.master-tag,.ms-partial{
-    padding:2px 8px;border-radius:999px}
+    padding:2px 8px;border-radius:var(--radius-pill)}
   .archive-type{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted-foreground-2);
     border:1px solid var(--border-strong);flex-shrink:0}
   .settings-hint .k{color:var(--muted-foreground)}
@@ -332,7 +398,7 @@
   .rail-toggle:hover{color:var(--foreground)}
   .rail-toggle svg{transition:transform .3s var(--ease)}
   .rail-toggle.open svg{transform:rotate(180deg)}
-  .rail-count{background:var(--primary);color:var(--primary-foreground);font-size:10px;font-family:"Geist Mono",monospace;border-radius:999px;padding:1px 7px;line-height:1.5}
+  .rail-count{background:var(--primary);color:var(--primary-foreground);font-size:10px;font-family:var(--font-mono);border-radius:var(--radius-pill);padding:1px 7px;line-height:1.5}
   /* An active sort is announced on the collapsed toggle, so the list order is never
      silently different from the one you arranged. */
   .rail-sort-tag{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted-foreground);border:1px solid var(--border-strong)}
@@ -343,8 +409,8 @@
      porte, dans la plupart des polices, une hauteur de ligne plus grande que le
      texte autour de lui — sans le forcer, la même classe .pill.add rendait à
      30px ou 33px selon que le bouton portait ce caractère ou non. */
-  .pill{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;font-size:12px;line-height:1;letter-spacing:0.02em;background:transparent;border:1px solid var(--border-strong);color:var(--muted-foreground);transition:color .4s var(--ease),border-color .4s var(--ease),background .4s var(--ease),transform .4s var(--ease)}
-  .pill .dot{width:7px;height:7px;border-radius:50%;background:var(--primary)}
+  .pill{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:var(--radius-pill);font-size:12px;line-height:1;letter-spacing:0.02em;background:transparent;border:1px solid var(--border-strong);color:var(--muted-foreground);transition:color .4s var(--ease),border-color .4s var(--ease),background .4s var(--ease),transform .4s var(--ease)}
+  .pill .dot{width:7px;height:7px;border-radius:var(--radius-round);background:var(--primary)}
   .pill:hover{border-color:var(--muted-foreground);color:var(--foreground);transform:translateY(-1px)}
   .pill.active{background:var(--secondary);color:var(--secondary-foreground);border-color:var(--secondary)}
   .pill.active .dot{outline:2px solid rgba(16,15,13,.25)}
@@ -380,7 +446,7 @@
   .goal-macro-derived{font-size:12px;color:var(--muted-foreground-2);white-space:nowrap;flex-shrink:0}
   .field textarea{resize:none;min-height:20px;line-height:1.4}
   .scale{display:flex;gap:6px;flex-wrap:wrap}
-  .scale button{width:34px;height:34px;border-radius:0;border:1px solid var(--border-strong);font-size:13px;color:var(--muted-foreground);font-family:"Geist Mono",monospace;transition:all .35s var(--ease)}
+  .scale button{width:34px;height:34px;border-radius:0;border:1px solid var(--border-strong);font-size:13px;color:var(--muted-foreground);font-family:var(--font-mono);transition:all .35s var(--ease)}
   .scale button:hover{border-color:var(--muted-foreground);color:var(--foreground)}
   .scale button.on{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
   /* Scale slider — fills the room left of the save button. The accent portion is
@@ -391,12 +457,12 @@
     background:linear-gradient(to right,var(--primary) var(--fill,50%),var(--border-strong) var(--fill,50%))}
   .scale-slider input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:var(--border-strong)}
   .scale-slider input[type=range]::-moz-range-progress{height:3px;border-radius:2px;background:var(--primary)}
-  .scale-slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;background:var(--foreground);border:none;margin-top:-5.5px;transition:transform .2s var(--ease),background .2s var(--ease)}
-  .scale-slider input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--foreground);border:none}
+  .scale-slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:var(--radius-round);background:var(--foreground);border:none;margin-top:-5.5px;transition:transform .2s var(--ease),background .2s var(--ease)}
+  .scale-slider input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:var(--radius-round);background:var(--foreground);border:none}
   .scale-slider input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.15)}
   .scale-slider input[type=range]:active::-webkit-slider-thumb{background:var(--primary)}
   .scale-slider input[type=range]:focus-visible{outline:2px solid var(--primary);outline-offset:4px;border-radius:4px}
-  .scale-val{font-family:"Geist Mono",monospace;font-feature-settings:"tnum";font-size:15px;font-weight:500;flex-shrink:0;min-width:34px;text-align:right}
+  .scale-val{font-family:var(--font-mono);font-feature-settings:"tnum";font-size:15px;font-weight:500;flex-shrink:0;min-width:34px;text-align:right}
   .scale-val.unset{color:var(--muted-foreground-2)}
   .scale-val .scale-max{font-size:11px;color:var(--muted-foreground-2);font-weight:400}
   /* Barre à icône (IconBar) — une barre pleine largeur et un seul bouton rond.
@@ -412,7 +478,7 @@
      le même liseré de 3 px que la piste d'une sub-nav autour de son thumb,
      et un rond assez grand pour être une vraie cible au doigt. */
   .icon-bar.inset{gap:6px;background:var(--muted);border:1px solid var(--border);
-    border-radius:999px;padding:3px 3px 3px 16px;transition:border-color .35s var(--ease)}
+    border-radius:var(--radius-pill);padding:3px 3px 3px 16px;transition:border-color .35s var(--ease)}
   .icon-bar.inset .icon-bar-btn{width:34px;height:34px}
   .icon-bar.inset:focus-within{border-color:var(--border-strong)}
   .icon-bar.detached{gap:10px;flex-wrap:wrap}
@@ -421,7 +487,7 @@
      la barre — sinon il flotterait comme du texte à côté d'un bouton. Un
      contenu qui a déjà son contour (une bascule Segmented) n'en reçoit pas. */
   .icon-bar.detached>.icon-bar-field>input{background:var(--muted);border:1px solid var(--border);
-    border-radius:999px;padding:9px 16px;transition:border-color .35s var(--ease)}
+    border-radius:var(--radius-pill);padding:9px 16px;transition:border-color .35s var(--ease)}
   .icon-bar.detached>.icon-bar-field>input:focus{border-color:var(--border-strong)}
   .icon-bar-btn{width:30px;height:30px}
   .icon-bar-btn:hover:not(:disabled){color:var(--primary);border-color:var(--primary)}
@@ -430,16 +496,16 @@
   .icon-bar.inset .icon-bar-btn.on{border-color:var(--primary)}
 
   .bool{display:flex;gap:8px}
-  .bool button{padding:7px 15px;border-radius:999px;border:1px solid var(--border-strong);font-size:12px;color:var(--muted-foreground);transition:all .35s var(--ease)}
+  .bool button{padding:7px 15px;border-radius:var(--radius-pill);border:1px solid var(--border-strong);font-size:12px;color:var(--muted-foreground);transition:all .35s var(--ease)}
   .bool button.on{background:var(--secondary);color:var(--secondary-foreground);border-color:var(--secondary)}
   .save{margin-top:18px;display:flex;justify-content:space-between;align-items:center;gap:12px}
   .btn-primary,.save button.primary,.modal-actions .primary,.submit-all,.chrono-add-big,.fd-primary{
-    background:var(--primary);color:var(--primary-foreground);border-radius:999px;padding:12px 22px;
+    background:var(--primary);color:var(--primary-foreground);border-radius:var(--radius-pill);padding:12px 22px;
     font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em}
   /* Le même bouton d'accent, un cran plus petit : celui qui vit DANS un panneau
      (Analyser, dans l'onglet IA) plutôt qu'au pied d'une modale. Il n'avait
      jusqu'ici aucune règle du tout et se rendait en texte nu. */
-  button.primary.sm{background:var(--primary);color:var(--primary-foreground);border-radius:999px;padding:8px 16px;
+  button.primary.sm{background:var(--primary);color:var(--primary-foreground);border-radius:var(--radius-pill);padding:8px 16px;
     font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.12em;
     transition:background .35s var(--ease)}
   button.primary.sm:hover:not(:disabled){background:var(--primary-hover)}
@@ -455,16 +521,16 @@
   .entry{display:grid;grid-template-columns:92px 1fr auto;gap:20px;padding:16px 6px;border-bottom:1px solid var(--border);align-items:baseline;transition:padding-left .4s var(--ease),background .4s var(--ease)}
   .entry:last-child{border-bottom:none}
   .entry:hover{padding-left:14px}
-  .entry .when{font-size:11px;color:var(--muted-foreground-2);font-family:"Geist Mono",monospace;font-feature-settings:"tnum";text-transform:uppercase;letter-spacing:0.05em}
+  .entry .when{font-size:11px;color:var(--muted-foreground-2);font-family:var(--font-mono);font-feature-settings:"tnum";text-transform:uppercase;letter-spacing:0.05em}
   .entry .what{display:flex;flex-direction:column;gap:3px}
   .entry .name{font-size:14px;display:flex;align-items:center;gap:8px}
-  .entry .name .dot{width:6px;height:6px;border-radius:50%}
+  .entry .name .dot{width:6px;height:6px;border-radius:var(--radius-round)}
   .entry .note{font-size:13px;color:var(--muted-foreground-2);line-height:1.45}
-  .entry .val{font-family:"Geist Mono",monospace;font-size:16px;font-feature-settings:"tnum";font-weight:500}
+  .entry .val{font-family:var(--font-mono);font-size:16px;font-feature-settings:"tnum";font-weight:500}
   .entry .val .u{color:var(--muted-foreground-2);font-weight:400;font-size:12px;margin-left:3px}
   .entry .actions{opacity:0;transition:opacity .4s var(--ease);display:flex;gap:4px}
   .entry:hover .actions{opacity:1}
-  .entry .actions button{font-size:10px;color:var(--muted-foreground-2);padding:4px 8px;border-radius:999px;text-transform:uppercase;letter-spacing:0.08em;transition:color .3s,background .3s}
+  .entry .actions button{font-size:10px;color:var(--muted-foreground-2);padding:4px 8px;border-radius:var(--radius-pill);text-transform:uppercase;letter-spacing:0.08em;transition:color .3s,background .3s}
   .entry .actions button:hover{color:var(--foreground);background:var(--muted)}
   .entry .actions button:last-child:hover{color:var(--destructive)}
 
@@ -488,12 +554,12 @@
   .day-groups.reordering .fd-log-head{margin-bottom:0}
   .day-groups.reordering .fd-log-head .fd-link{display:none}
   .empty{padding:80px 20px;text-align:center;color:var(--muted-foreground-2);font-size:13px;text-transform:uppercase;letter-spacing:0.1em}
-  .empty .em-serif{font-family:"Instrument Serif",serif;font-style:italic;font-size:30px;color:var(--muted-foreground);margin-bottom:10px;display:block;text-transform:none;letter-spacing:0}
+  .empty .em-serif{font-family:var(--font-serif);font-style:var(--font-serif-style);font-size:30px;color:var(--muted-foreground);margin-bottom:10px;display:block;text-transform:none;letter-spacing:0}
 
   /* Initial boot placeholder, swapped for the React app once it mounts (or
      for an explanatory message if boot fails — see the watchdog script). */
   .boot-fallback{padding:120px 20px;text-align:center;color:var(--muted-foreground-2);font-size:13px}
-  .boot-fallback .em-serif{font-family:"Instrument Serif",serif;font-style:italic;font-size:30px;color:var(--muted-foreground);margin-bottom:14px;display:block}
+  .boot-fallback .em-serif{font-family:var(--font-serif);font-style:var(--font-serif-style);font-size:30px;color:var(--muted-foreground);margin-bottom:14px;display:block}
   .boot-fallback p{max-width:440px;margin:0 auto;line-height:1.6;font-size:13px}
 
   /* Vues */
@@ -522,9 +588,9 @@
      ------------------------------------------------------------------ */
   .seg-track{position:relative;display:inline-flex;gap:6px;flex-wrap:wrap}
   .seg-track.wrap{flex-wrap:wrap}
-  .seg-thumb{position:absolute;top:0;left:0;background:var(--secondary);border-radius:999px;z-index:0;
+  .seg-thumb{position:absolute;top:0;left:0;background:var(--secondary);border-radius:var(--radius-pill);z-index:0;
     transition:transform .35s var(--ease),width .35s var(--ease),height .35s var(--ease);pointer-events:none}
-  .seg-track button,.seg-track .seg-opt{position:relative;z-index:1;padding:7px 12px;border:1px solid var(--border-strong);border-radius:999px;
+  .seg-track button,.seg-track .seg-opt{position:relative;z-index:1;padding:7px 12px;border:1px solid var(--border-strong);border-radius:var(--radius-pill);
     font-size:12px;color:var(--muted-foreground);background:transparent;font-family:inherit;
     transition:color .35s var(--ease),border-color .35s var(--ease)}
   .seg-track button.on,.seg-track .seg-opt.on{color:var(--secondary-foreground);border-color:transparent}
@@ -542,7 +608,7 @@
      avec une base de 0 dans un inline-flex dimensionné sur son contenu, le champ
      se réduisait à zéro et l'option n'affichait plus que son mot. */
   .seg-track .seg-opt input{flex:none;width:4.5em;min-width:0;background:none;border:none;padding:0;color:inherit;
-    font-family:"Geist Mono",monospace;font-feature-settings:"tnum";font-size:12px;text-align:right}
+    font-family:var(--font-mono);font-feature-settings:"tnum";font-size:12px;text-align:right}
   .seg-track .seg-opt input::placeholder{color:inherit;opacity:.55}
   .seg-track .seg-opt .np-unit{color:inherit;opacity:.7}
 
@@ -555,7 +621,7 @@
      n'aurait aucun sens sur deux lignes) — donc elle ne doit pas non plus
      déborder. Elle glisse. `scrollx` reste utile pour ce qu'il ajoute : les
      options qui remplissent la largeur et le recentrage de l'option choisie. */
-  .seg-track.compact,.seg-track.small{gap:2px;background:var(--card);padding:3px;border-radius:999px;border:1px solid var(--border);
+  .seg-track.compact,.seg-track.small{gap:2px;background:var(--card);padding:3px;border-radius:var(--radius-pill);border:1px solid var(--border);
     flex-wrap:nowrap;max-width:100%;overflow-x:auto;scrollbar-width:none}
   .seg-track.compact::-webkit-scrollbar,.seg-track.small::-webkit-scrollbar{display:none}
   /* `wrap` doit gagner sur le `nowrap` de la piste compacte : à égalité de
@@ -636,8 +702,8 @@
     background:linear-gradient(to right,var(--primary) var(--fill,0%),var(--border-strong) var(--fill,0%))}
   .per-row input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:var(--border-strong)}
   .per-row input[type=range]::-moz-range-progress{height:3px;border-radius:2px;background:var(--primary)}
-  .per-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:13px;height:13px;border-radius:50%;background:var(--foreground);border:none;margin-top:-5px;transition:transform .2s var(--ease),background .2s var(--ease)}
-  .per-row input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:var(--foreground);border:none}
+  .per-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:13px;height:13px;border-radius:var(--radius-round);background:var(--foreground);border:none;margin-top:-5px;transition:transform .2s var(--ease),background .2s var(--ease)}
+  .per-row input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:var(--radius-round);background:var(--foreground);border:none}
   .per-row input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.15)}
   .per-row input[type=range]:focus-visible{outline:2px solid var(--primary);outline-offset:4px;border-radius:4px}
   .per-row-n{font-size:12px;color:var(--muted-foreground-2);font-feature-settings:"tnum";min-width:9px;text-align:right}
@@ -659,9 +725,9 @@
   /* Master legend */
   .master-legend{display:flex;flex-wrap:wrap;gap:8px 26px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)}
   .lg-item{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--muted-foreground)}
-  .lg-dot{width:8px;height:8px;border-radius:50%}
+  .lg-dot{width:8px;height:8px;border-radius:var(--radius-round)}
   .lg-name{color:var(--muted-foreground)}
-  .lg-val{color:var(--foreground);font-weight:500;font-size:12px;font-feature-settings:"tnum";font-family:"Geist Mono",monospace}
+  .lg-val{color:var(--foreground);font-weight:500;font-size:12px;font-feature-settings:"tnum";font-family:var(--font-mono)}
 
   /* Trend foot */
   .trend-foot{margin-top:16px;padding-top:16px;border-top:1px solid var(--border);font-size:13px;color:var(--muted-foreground-2);line-height:1.6;max-width:560px}
@@ -675,14 +741,14 @@
   /* A long name is cut with an ellipsis rather than pushing the stats out of the
      card — see "Un nom long se coupe" below. */
   .chart-head .name>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .chart-head .name .dot{width:8px;height:8px;border-radius:50%}
+  .chart-head .name .dot{width:8px;height:8px;border-radius:var(--radius-round)}
   /* Quatre statistiques et un engrenage ne tiennent pas sur la ligne d'un nom
      sur un téléphone : la rangée de droite passe alors dessous, entière, plutôt
      que de pousser l'engrenage hors de la carte — `html{overflow-x:hidden}`
      l'aurait simplement coupé, hors d'atteinte. */
   .chart-head{flex-wrap:wrap}
   .chart-head .stats{display:flex;flex-wrap:wrap;gap:8px 22px;font-size:11px;color:var(--muted-foreground-2);text-transform:uppercase;letter-spacing:0.06em;min-width:0}
-  .chart-head .stats .v{color:var(--foreground);font-family:"Geist Mono",monospace;font-weight:500;font-size:14px;font-feature-settings:"tnum";letter-spacing:0}
+  .chart-head .stats .v{color:var(--foreground);font-family:var(--font-mono);font-weight:500;font-size:14px;font-feature-settings:"tnum";letter-spacing:0}
   .chart-head-right{display:flex;align-items:center;gap:14px}
 
   /* ------------------------------------------------------------------
@@ -695,7 +761,7 @@
      La couleur et la réaction au survol restent propres à chaque
      usage à côté — un survol qui vire au rouge pour une suppression
      n'a pas à ressembler à un survol neutre. */
-  .icon-btn{cursor:pointer;width:26px;height:26px;padding:0;border-radius:50%;flex-shrink:0;
+  .icon-btn{cursor:pointer;width:26px;height:26px;padding:0;border-radius:var(--radius-round);flex-shrink:0;
     display:inline-flex;align-items:center;justify-content:center;background:transparent;
     border:1px solid var(--border-strong);color:var(--muted-foreground-2);
     transition:color .3s var(--ease),border-color .3s var(--ease),background .3s var(--ease)}
@@ -708,7 +774,7 @@
   .chart-edit-btn:hover{color:var(--muted-foreground);border-color:var(--muted-foreground);background:var(--primary-soft)}
   .chart-svg{width:100%;height:160px;display:block}
   .chart-svg-wrap{width:100%}
-  .chart-axis{font-family:"Geist Mono",monospace;font-size:10px;fill:var(--muted-foreground-2)}
+  .chart-axis{font-family:var(--font-mono);font-size:10px;fill:var(--muted-foreground-2)}
 
   /* Floating tooltip that pops up while scrubbing a chart with mouse or touch */
   .chart-tooltip{position:absolute;top:8px;transform:translateX(-50%);z-index:5;
@@ -719,7 +785,7 @@
   .chart-tooltip.right{transform:translateX(-100%);animation:none}
   @keyframes tooltip-in{from{opacity:0;transform:translateX(-50%) translateY(-3px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
   .chart-tooltip-date{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted-foreground-2);margin-bottom:3px}
-  .chart-tooltip-value{font-family:"Geist Mono",monospace;font-size:14px;font-feature-settings:"tnum";color:var(--foreground)}
+  .chart-tooltip-value{font-family:var(--font-mono);font-size:14px;font-feature-settings:"tnum";color:var(--foreground)}
   .chart-tooltip-close,.chart-tooltip-edit{position:absolute;background:var(--card)}
   .chart-tooltip-close{top:-8px;right:-8px}
   .chart-tooltip-edit{bottom:-8px;right:-8px;color:var(--primary)}
@@ -742,10 +808,10 @@
   .gv-card:hover{border-color:var(--border-strong);transform:translateY(-2px)}
   .gv-card .label{font-size:10px;color:var(--muted-foreground-2);text-transform:uppercase;letter-spacing:0.12em;display:flex;align-items:center;justify-content:space-between;gap:6px}
   .gv-card .label>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .gv-card .label .dot{width:6px;height:6px;border-radius:50%}
-  .gv-card .v{font-family:"Geist Mono",monospace;font-size:26px;font-weight:500;font-feature-settings:"tnum"}
+  .gv-card .label .dot{width:6px;height:6px;border-radius:var(--radius-round)}
+  .gv-card .v{font-family:var(--font-mono);font-size:26px;font-weight:500;font-feature-settings:"tnum"}
   .gv-card .v .u{color:var(--muted-foreground-2);font-size:13px;font-weight:400;margin-left:3px}
-  .gv-card .trend{font-size:11px;color:var(--muted-foreground-2);font-family:"Geist Mono",monospace}
+  .gv-card .trend{font-size:11px;color:var(--muted-foreground-2);font-family:var(--font-mono)}
   .gv-card .trend.up{color:var(--primary)}
   .gv-card .trend.down{color:var(--muted-foreground-2)}
 
@@ -777,7 +843,7 @@
      d'ajout, garde son propre `.scrim` — un vrai calque, pas la page en
      dessous qui referait semblant d'en être un. */
   .fd-add-page .scrim{padding:20px}
-  .modal h2,.fd-add-head-txt h2{margin:0 0 4px;font-family:"Instrument Serif",serif;font-style:italic;font-weight:400;font-size:24px;letter-spacing:0}
+  .modal h2,.fd-add-head-txt h2{margin:0 0 4px;font-family:var(--font-serif);font-style:var(--font-serif-style);font-weight:400;font-size:24px;letter-spacing:0}
   .modal .modal-sub,.fd-add-head-txt .modal-sub{font-size:12px;color:var(--muted-foreground-2);margin-bottom:0;text-transform:uppercase;letter-spacing:0.1em}
   .typegrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}
   .typegrid button{padding:12px 8px;border:1px solid var(--border-strong);border-radius:var(--radius);font-size:12px;color:var(--muted-foreground);background:transparent;text-align:left;display:flex;flex-direction:column;gap:3px;transition:all .35s var(--ease)}
@@ -796,7 +862,7 @@
      qui s'adapte à un nombre décidé ailleurs. */
   .swatch-row{display:grid;grid-template-columns:repeat(10,1fr);gap:6px}
   @media (max-width:420px){ .swatch-row{gap:5px} }
-  .swatch{border-radius:50%;border:1px solid var(--border-strong);position:relative;transition:transform .3s var(--ease)}
+  .swatch{border-radius:var(--radius-round);border:1px solid var(--border-strong);position:relative;transition:transform .3s var(--ease)}
   .swatch{width:100%;aspect-ratio:1;min-width:0}
   .swatch:hover{transform:scale(1.12)}
   .swatch.on{outline:2px solid var(--foreground);outline-offset:2px}
@@ -814,7 +880,7 @@
      la couleur pleine, la luminosité du noir au blanc en passant par elle. */
   .color-editor{display:flex;gap:14px;align-items:flex-start;margin-top:12px;padding:14px;
     background:var(--muted);border:1px solid var(--border);border-radius:var(--radius)}
-  .ce-preview{width:52px;height:52px;border-radius:50%;border:1px solid var(--border-strong);flex-shrink:0}
+  .ce-preview{width:52px;height:52px;border-radius:var(--radius-round);border:1px solid var(--border-strong);flex-shrink:0}
   .ce-rows{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px}
   /* Deux lignes par curseur : l'intitulé et la valeur au-dessus, la piste
      dessous sur toute la largeur. Une seule ligne obligeait à couper
@@ -830,8 +896,8 @@
   .ce-row input[type=range]::-moz-range-track{height:8px;border-radius:4px;background:var(--track);
     border:1px solid var(--border-strong)}
   .ce-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
-    width:14px;height:14px;border-radius:50%;background:var(--background);border:2px solid var(--foreground);margin-top:-4px}
-  .ce-row input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
+    width:14px;height:14px;border-radius:var(--radius-round);background:var(--background);border:2px solid var(--foreground);margin-top:-4px}
+  .ce-row input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:var(--radius-round);
     background:var(--background);border:2px solid var(--foreground)}
   .ce-hex input[type=color]{grid-column:1 / -1;width:100%;height:26px;padding:0;
     border:1px solid var(--border-strong);border-radius:4px;background:var(--card);cursor:pointer}
@@ -855,16 +921,16 @@
     .modal-actions{gap:6px 8px}
     .modal-actions .danger{order:2;flex:1 0 100%;margin-right:0;text-align:left;padding-left:0}
   }
-  .modal-actions .ghost{font-size:11px;padding:10px 16px;border-radius:999px;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:0.12em;transition:color .3s,background .3s}
+  .modal-actions .ghost{font-size:11px;padding:10px 16px;border-radius:var(--radius-pill);color:var(--muted-foreground);text-transform:uppercase;letter-spacing:0.12em;transition:color .3s,background .3s}
   .modal-actions .ghost:hover{background:var(--muted);color:var(--foreground)}
   .modal-actions .primary{transition:background .3s var(--ease)}
   .modal-actions .primary:hover{background:var(--primary-hover)}
   .modal-actions .primary:disabled{opacity:0.3;cursor:not-allowed}
-  .modal-actions .danger{font-size:11px;padding:10px 12px;border-radius:999px;color:var(--destructive);margin-right:auto;text-transform:uppercase;letter-spacing:0.12em;transition:background .3s}
+  .modal-actions .danger{font-size:11px;padding:10px 12px;border-radius:var(--radius-pill);color:var(--destructive);margin-right:auto;text-transform:uppercase;letter-spacing:0.12em;transition:background .3s}
   .modal-actions .danger:hover{background:var(--primary-soft)}
 
   /* Modal sections (Cœur / Paramètres) */
-  .modal-section{font-family:"Instrument Serif",serif;font-style:italic;font-size:17px;color:var(--muted-foreground);margin:22px 0 2px;padding-top:16px;border-top:1px solid var(--border)}
+  .modal-section{font-family:var(--font-serif);font-style:var(--font-serif-style);font-size:17px;color:var(--muted-foreground);margin:22px 0 2px;padding-top:16px;border-top:1px solid var(--border)}
   .modal-section.first{border-top:none;padding-top:2px;margin-top:8px}
 
   /* Le contrôle d'une rangée, son « i », et le cadre que le « i » déplie —
@@ -885,7 +951,7 @@
      ce qu'on vient de lire. Le cadre reste dans le DOM, replié à zéro, pour que
      l'ouverture ET la fermeture s'animent : `grid-template-rows: 0fr → 1fr` est
      la seule façon d'animer vers une hauteur automatique. */
-  .info-btn{font-size:11px;font-style:italic;font-family:"Instrument Serif",serif;flex-shrink:0}
+  .info-btn{font-size:11px;font-style:var(--font-serif-style);font-family:var(--font-serif);flex-shrink:0}
   .info-btn:hover,.info-btn.on{border-color:var(--primary);color:var(--primary)}
   /* `contain:inline-size` : sans ça, le cadre replié pèse quand même sa largeur
      de texte dans le calcul de la rangée qui l'héberge — et une rangée qui se
@@ -911,9 +977,9 @@
   /* Le nom par lequel on désigne la chose expliquée — c'est le mot à retenir,
      celui qu'on retrouvera dans le reste de l'app et dans une conversation. */
   .info-panel-t{display:block;font-size:9px;text-transform:uppercase;letter-spacing:0.14em;
-    color:var(--primary);margin-bottom:5px;font-family:"Geist",ui-sans-serif,sans-serif}
+    color:var(--primary);margin-bottom:5px;font-family:var(--font-sans)}
   .info-panel-b{display:block;font-size:12px;line-height:1.6;color:var(--muted-foreground);
-    font-family:"Geist",ui-sans-serif,sans-serif;font-style:normal}
+    font-family:var(--font-sans);font-style:normal}
   .info-panel-b .k{color:var(--foreground);font-weight:500}
   @media (prefers-reduced-motion:reduce){ .info-panel{transition:none} }
 
@@ -928,9 +994,9 @@
   .demo-body{display:block;font-size:12px;color:var(--muted-foreground)}
   .demo-row{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap}
   .demo-lab{font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted-foreground-2)}
-  .demo-pill{font-size:10px;padding:3px 8px;border-radius:999px;background:var(--muted);color:var(--muted-foreground)}
+  .demo-pill{font-size:10px;padding:3px 8px;border-radius:var(--radius-pill);background:var(--muted);color:var(--muted-foreground)}
   .demo-i{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;
-    border-radius:50%;border:1px solid var(--border-strong);font-size:9px;color:var(--muted-foreground-2);font-style:italic}
+    border-radius:var(--radius-round);border:1px solid var(--border-strong);font-size:9px;color:var(--muted-foreground-2);font-style:italic}
   .demo-date{font-size:12px;color:var(--muted-foreground)}
   .demo-wk{font-size:10px;color:var(--muted-foreground-2);letter-spacing:0.1em}
   .demo-macros{display:flex;align-items:baseline;gap:9px;font-variant-numeric:tabular-nums;font-size:12px;flex-wrap:wrap}
@@ -948,7 +1014,7 @@
   .choice-del{font-size:16px;line-height:1}
   .choice-del:hover{border-color:var(--destructive);color:var(--destructive)}
   .choice-del:disabled{opacity:.3;cursor:not-allowed}
-  .choice-add,.choices button,.member{font-size:12px;line-height:1;color:var(--muted-foreground);padding:7px 13px;border-radius:999px;background:transparent}
+  .choice-add,.choices button,.member{font-size:12px;line-height:1;color:var(--muted-foreground);padding:7px 13px;border-radius:var(--radius-pill);background:transparent}
   .choice-add{align-self:flex-start;border:1px dashed var(--border-strong);transition:border-color .3s,color .3s}
   .choice-add:hover{border-color:var(--primary);color:var(--primary)}
 
@@ -997,14 +1063,14 @@
   /* Master member picker (in the tracker modal) */
   .member-picker{display:flex;flex-wrap:wrap;gap:6px;width:100%}
   .member{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--border-strong);transition:all .35s var(--ease)}
-  .member .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .member .dot{width:8px;height:8px;border-radius:var(--radius-round);flex-shrink:0}
   .member:hover{border-color:var(--muted-foreground);color:var(--foreground)}
   .member.on{background:var(--secondary);color:var(--secondary-foreground);border-color:var(--secondary)}
   .member.on .dot{outline:1px solid var(--background);outline-offset:1px}
 
   /* Active period (dates + archive) */
   .period-row{display:flex;gap:10px;width:100%}
-  .period-arch{align-self:flex-start;margin-top:2px;font-size:10px;color:var(--muted-foreground-2);border:1px solid var(--border-strong);border-radius:999px;padding:8px 14px;text-transform:uppercase;letter-spacing:0.12em;transition:all .35s var(--ease)}
+  .period-arch{align-self:flex-start;margin-top:2px;font-size:10px;color:var(--muted-foreground-2);border:1px solid var(--border-strong);border-radius:var(--radius-pill);padding:8px 14px;text-transform:uppercase;letter-spacing:0.12em;transition:all .35s var(--ease)}
   .period-arch:hover{border-color:var(--destructive);color:var(--destructive)}
   /* `.go` : la même pastille discrète qu'« Archiver », dont seul le sens du
      survol change — une action neutre (connecter, synchroniser) ne doit pas
@@ -1024,13 +1090,13 @@
   .num-pill input{min-width:2.4em}
   .period-row{flex-wrap:wrap}
   .np-lab{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted-foreground-2);flex-shrink:0}
-  .num-pill input{width:100%;min-width:0;font-family:"Geist Mono",monospace;font-feature-settings:"tnum";
+  .num-pill input{width:100%;min-width:0;font-family:var(--font-mono);font-feature-settings:"tnum";
     font-size:14px;text-align:right;background:none}
   .np-unit{font-size:11px;color:var(--muted-foreground-2);flex-shrink:0}
   .date-pill{cursor:pointer;touch-action:auto;flex:1;justify-content:space-between}
   .date-pill.open{border-color:var(--muted-foreground)}
   .date-pill .mono{font-size:13px}
-  .date-pill-clear{width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+  .date-pill-clear{width:16px;height:16px;border-radius:var(--radius-round);display:inline-flex;align-items:center;justify-content:center;
     font-size:9px;color:var(--muted-foreground-2);flex-shrink:0;transition:all .25s var(--ease)}
   .date-pill-clear:hover{color:var(--destructive);background:var(--muted)}
   /* `.cal` (déjà utilisé par l'Historique) porte sa propre carte — pas de
@@ -1048,7 +1114,7 @@
   .submit-all-bar{display:flex;justify-content:flex-end;margin-bottom:-4px}
   .submit-all{display:inline-flex;align-items:center;gap:9px;transition:background .3s var(--ease),transform .3s var(--ease)}
   .submit-all:hover{background:var(--primary-hover);transform:translateY(-1px)}
-  .sa-count{font-family:"Geist Mono",monospace;background:rgba(255,255,255,.22);border-radius:999px;padding:1px 7px;font-size:10px;letter-spacing:0}
+  .sa-count{font-family:var(--font-mono);background:rgba(255,255,255,.22);border-radius:var(--radius-pill);padding:1px 7px;font-size:10px;letter-spacing:0}
   .day-groups{display:flex;flex-direction:column;gap:28px}
   .day-group .section-label{margin-bottom:12px}
 
@@ -1066,10 +1132,10 @@
   /* Le contour que portait la pastille « master » est passé au nom : une seule
      marque au lieu de trois, et elle nomme la chose au lieu de la catégoriser. */
   .ms-name{font-size:12px;font-weight:500;letter-spacing:0.04em;overflow:hidden;text-overflow:ellipsis;
-    white-space:nowrap;border:1px solid currentColor;border-radius:999px;padding:4px 11px;min-width:0}
-  .ms-meter{flex:1;height:6px;border-radius:999px;background:var(--muted);overflow:hidden;min-width:40px}
-  .ms-fill{height:100%;border-radius:999px;transition:width .6s var(--ease)}
-  .ms-val{flex-shrink:0;font-family:"Geist Mono",monospace;font-size:20px;font-weight:500;font-feature-settings:"tnum";min-width:56px;text-align:right}
+    white-space:nowrap;border:1px solid currentColor;border-radius:var(--radius-pill);padding:4px 11px;min-width:0}
+  .ms-meter{flex:1;height:6px;border-radius:var(--radius-pill);background:var(--muted);overflow:hidden;min-width:40px}
+  .ms-fill{height:100%;border-radius:var(--radius-pill);transition:width .6s var(--ease)}
+  .ms-val{flex-shrink:0;font-family:var(--font-mono);font-size:20px;font-weight:500;font-feature-settings:"tnum";min-width:56px;text-align:right}
   .ms-val .ms-unit{font-size:11px;color:var(--muted-foreground-2);margin-left:1px}
   @media (max-width:640px){
     .ms-head{width:auto;flex:1}
@@ -1107,10 +1173,10 @@
      entrées précédentes · effacer · paramètres · noter — the geste principal (noter/ajouter)
      always lands rightmost; the joker, a rarer and more deliberate choice, always leftmost. */
   .tc-actions{display:flex;align-items:center;gap:5px;flex-shrink:0}
-  .tc-act{height:26px;min-width:26px;padding:0 4px;border-radius:999px;border:1px solid var(--border-strong);
+  .tc-act{height:26px;min-width:26px;padding:0 4px;border-radius:var(--radius-pill);border:1px solid var(--border-strong);
     background:none;color:var(--muted-foreground-2);cursor:pointer;flex-shrink:0;
     display:inline-flex;align-items:center;justify-content:center;
-    font-family:"Geist Mono",monospace;font-size:11px;font-feature-settings:"tnum";
+    font-family:var(--font-mono);font-size:11px;font-feature-settings:"tnum";
     transition:color .3s var(--ease),border-color .3s var(--ease),background .3s var(--ease),opacity .3s var(--ease)}
   .tc-act:hover{color:var(--muted-foreground);border-color:var(--muted-foreground)}
   .tc-act.icon{width:26px;padding:0}
@@ -1124,7 +1190,7 @@
   .tc-act.joker:hover{opacity:1}
   .tc-act.joker.on{opacity:1;color:var(--primary);border-color:var(--primary);background:var(--primary-soft)}
   .tc-act.primary{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground);padding:0 10px;
-    font-family:"Geist",ui-sans-serif,sans-serif;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em}
+    font-family:var(--font-sans);font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em}
   .tc-act.primary:hover{background:var(--primary-hover);border-color:var(--primary-hover)}
   .tc-act.primary:disabled{opacity:0.3;cursor:not-allowed}
   /* A jokered day replaces the entry composer with this line instead — the dash is the
@@ -1143,12 +1209,12 @@
   /* Time on the left, actions pushed right up against the value, value last on the right edge. */
   .tc-log-row{display:flex;align-items:baseline;gap:8px;padding:8px 2px;border-top:1px solid var(--border)}
   .tc-log-row:first-of-type{border-top:none}
-  .tc-log-row .t{font-family:"Geist Mono",monospace;font-size:10.5px;color:var(--muted-foreground-2);letter-spacing:0.03em;font-feature-settings:"tnum";flex-shrink:0}
-  .tc-log-row .v{font-family:"Geist Mono",monospace;font-size:13px;font-weight:500;text-align:right;font-feature-settings:"tnum";flex-shrink:0}
+  .tc-log-row .t{font-family:var(--font-mono);font-size:10.5px;color:var(--muted-foreground-2);letter-spacing:0.03em;font-feature-settings:"tnum";flex-shrink:0}
+  .tc-log-row .v{font-family:var(--font-mono);font-size:13px;font-weight:500;text-align:right;font-feature-settings:"tnum";flex-shrink:0}
   .tc-log-row .v .u{color:var(--muted-foreground-2);font-weight:400;font-size:11px;margin-left:2px}
   .tc-log-actions{display:flex;gap:2px;margin-left:auto;min-width:0;opacity:0;transition:opacity .3s var(--ease)}
   .tc-log-row:hover .tc-log-actions{opacity:1}
-  .tc-log-actions button{font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted-foreground-2);padding:3px 7px;border-radius:999px;transition:color .3s,background .3s}
+  .tc-log-actions button{font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted-foreground-2);padding:3px 7px;border-radius:var(--radius-pill);transition:color .3s,background .3s}
   .tc-log-actions button:hover{color:var(--foreground);background:var(--muted)}
   .tc-log-actions button.del:hover{color:var(--destructive)}
   @media (hover:none){ .tc-log-actions{opacity:1} }
@@ -1156,19 +1222,19 @@
   /* Chrono — stopwatch cards. A running one is ringed in accent so the board reads
      at a glance: what is counting right now, and what is only banked. */
   .chrono-empty{padding:70px 20px;text-align:center}
-  .chrono-empty .em-serif{font-family:"Instrument Serif",serif;font-style:italic;font-size:30px;color:var(--muted-foreground)}
+  .chrono-empty .em-serif{font-family:var(--font-serif);font-style:var(--font-serif-style);font-size:30px;color:var(--muted-foreground)}
   .chrono-empty-sub{font-size:13px;color:var(--muted-foreground-2);line-height:1.6;max-width:44ch;margin:0 auto 26px}
   .chrono-add-big{transition:background .35s var(--ease),transform .35s var(--ease)}
   .chrono-add-big:hover{background:var(--primary-hover);transform:translateY(-1px)}
-  .chrono-add{margin-top:16px;padding:12px 20px;border-radius:999px;border:1px dashed var(--border-strong);color:var(--muted-foreground-2);font-size:10px;text-transform:uppercase;letter-spacing:0.12em;transition:color .35s var(--ease),border-color .35s var(--ease)}
+  .chrono-add{margin-top:16px;padding:12px 20px;border-radius:var(--radius-pill);border:1px dashed var(--border-strong);color:var(--muted-foreground-2);font-size:10px;text-transform:uppercase;letter-spacing:0.12em;transition:color .35s var(--ease),border-color .35s var(--ease)}
   .chrono-add:hover{color:var(--primary);border-color:var(--primary)}
   .chrono-card.running{border-color:var(--primary);background:var(--primary-soft)}
   .chrono-link{overflow:hidden;text-overflow:ellipsis;max-width:45%}
-  .chrono-time{font-family:"Geist Mono",monospace;font-feature-settings:"tnum";font-size:32px;font-weight:500;letter-spacing:0.01em;color:var(--muted-foreground);transition:color .4s var(--ease)}
+  .chrono-time{font-family:var(--font-mono);font-feature-settings:"tnum";font-size:32px;font-weight:500;letter-spacing:0.01em;color:var(--muted-foreground);transition:color .4s var(--ease)}
   .chrono-time.running{color:var(--foreground)}
   .chrono-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
   .chrono-secondary{display:flex;gap:4px;align-items:center;margin-left:auto}
-  .chrono-btn{font-size:10px;text-transform:uppercase;letter-spacing:0.1em;padding:8px 14px;border-radius:999px;border:1px solid var(--border-strong);color:var(--muted-foreground);transition:color .3s,border-color .3s,background .3s}
+  .chrono-btn{font-size:10px;text-transform:uppercase;letter-spacing:0.1em;padding:8px 14px;border-radius:var(--radius-pill);border:1px solid var(--border-strong);color:var(--muted-foreground);transition:color .3s,border-color .3s,background .3s}
   .chrono-btn:hover{color:var(--foreground);border-color:var(--muted-foreground)}
   .chrono-btn.start{background:var(--secondary);color:var(--secondary-foreground);border-color:var(--secondary)}
   .chrono-btn.start:hover{background:var(--secondary-hover);border-color:var(--secondary-hover)}
@@ -1180,7 +1246,7 @@
   .chrono-save{width:100%;justify-content:center}
   .chrono-bar{display:flex;gap:6px;align-items:center;margin-bottom:16px}
   .chrono-detached{padding:50px 20px;text-align:center;color:var(--muted-foreground-2)}
-  .chrono-detached .em-serif{font-family:"Instrument Serif",serif;font-style:italic;font-size:22px;color:var(--muted-foreground)}
+  .chrono-detached .em-serif{font-family:var(--font-serif);font-style:var(--font-serif-style);font-size:22px;color:var(--muted-foreground)}
 
   /* Floating picture-in-picture window: no page chrome, so the cards fill it edge to
      edge in a single column, and the clock stays the biggest thing in a small pane. */
@@ -1231,7 +1297,7 @@
   }
 
   .tk-chip{font-size:10px;color:var(--muted-foreground-2);border:1px solid var(--border);text-transform:uppercase;letter-spacing:0.06em}
-  .de-today{font-size:10px;color:var(--muted-foreground);border:1px solid var(--border-strong);border-radius:999px;padding:8px 14px;background:transparent;text-transform:uppercase;letter-spacing:0.12em;transition:all .35s var(--ease)}
+  .de-today{font-size:10px;color:var(--muted-foreground);border:1px solid var(--border-strong);border-radius:var(--radius-pill);padding:8px 14px;background:transparent;text-transform:uppercase;letter-spacing:0.12em;transition:all .35s var(--ease)}
   .de-today:hover{background:var(--secondary);border-color:var(--secondary);color:var(--secondary-foreground)}
   /* Master marker (diamond) */
   .master-mark{width:10px;height:10px;flex-shrink:0;transform:rotate(45deg);border-radius:2px}
@@ -1267,37 +1333,37 @@
   .member{max-width:min(100%,240px)}
   .member>span:not(.dot):not(.master-mark){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* Coverage hint: an index built on some of its members, not all of them. */
-  .ms-partial{font-size:9px;font-family:"Geist Mono",monospace;color:var(--muted-foreground-2);border:1px solid var(--border-strong);margin-left:6px;white-space:nowrap}
+  .ms-partial{font-size:9px;font-family:var(--font-mono);color:var(--muted-foreground-2);border:1px solid var(--border-strong);margin-left:6px;white-space:nowrap}
   .chart-head .name .master-mark{margin-right:2px}
 
   /* History calendar + day editor */
   .cal{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px 22px;margin-bottom:30px;max-width:440px}
   .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
-  .cal-title{font-family:"Instrument Serif",serif;font-style:italic;font-weight:400;font-size:20px;text-transform:capitalize;letter-spacing:0}
+  .cal-title{font-family:var(--font-serif);font-style:var(--font-serif-style);font-weight:400;font-size:20px;text-transform:capitalize;letter-spacing:0}
   .cal-nav{font-size:17px;line-height:1;color:var(--muted-foreground);transition:all .35s var(--ease)}
   .cal-nav:hover{background:var(--secondary);border-color:var(--secondary);color:var(--secondary-foreground)}
   .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
   .cal-dow{text-align:center;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted-foreground-2);padding-bottom:4px}
-  .cal-cell{position:relative;aspect-ratio:1;border-radius:0;display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--muted-foreground);border:1px solid transparent;font-feature-settings:"tnum";font-family:"Geist Mono",monospace;transition:background .3s var(--ease),color .3s var(--ease)}
+  .cal-cell{position:relative;aspect-ratio:1;border-radius:0;display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--muted-foreground);border:1px solid transparent;font-feature-settings:"tnum";font-family:var(--font-mono);transition:background .3s var(--ease),color .3s var(--ease)}
   .cal-cell.blank{pointer-events:none}
   .cal-cell:not(.blank):hover{background:var(--muted);color:var(--foreground)}
   .cal-cell.today{border-color:var(--border-strong);color:var(--foreground);font-weight:600}
   .cal-cell.sel{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}
-  .cal-dot{position:absolute;bottom:5px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:var(--primary)}
+  .cal-dot{position:absolute;bottom:5px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:var(--radius-round);background:var(--primary)}
   .cal-cell.sel .cal-dot{background:var(--primary-foreground)}
 
   .day-editor-head{display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap}
-  .de-title{font-family:"Instrument Serif",serif;font-style:italic;font-weight:400;font-size:28px;color:var(--foreground);text-transform:capitalize;line-height:1;letter-spacing:0}
-  .de-sub{font-size:11px;color:var(--muted-foreground-2);text-transform:uppercase;letter-spacing:0.08em;font-family:"Geist Mono",monospace}
+  .de-title{font-family:var(--font-serif);font-style:var(--font-serif-style);font-weight:400;font-size:28px;color:var(--foreground);text-transform:capitalize;line-height:1;letter-spacing:0}
+  .de-sub{font-size:11px;color:var(--muted-foreground-2);text-transform:uppercase;letter-spacing:0.08em;font-family:var(--font-mono)}
   /* Week number, next to a day's title — plain metadata, not a status, so it stays
      neutral rather than borrowing the accent the way a master's tag does.
      Géométrie partagée avec .today-progress : les deux étiquettes de la ligne du
      Log ont la même hauteur, quelle que soit la police de chacune. */
   .week-tag,.today-progress{display:inline-flex;align-items:center;background:transparent;
     font-size:11px;line-height:1.45;font-style:normal;text-transform:none;letter-spacing:0.02em;
-    color:var(--muted-foreground-2);border:1px solid var(--border-strong);border-radius:999px;padding:2px 9px}
+    color:var(--muted-foreground-2);border:1px solid var(--border-strong);border-radius:var(--radius-pill);padding:2px 9px}
   .week-tag{vertical-align:middle;margin-left:10px}
-  .today-progress{font-family:"Geist Mono",monospace;color:var(--muted-foreground);letter-spacing:0.05em;padding:2px 12px}
+  .today-progress{font-family:var(--font-mono);color:var(--muted-foreground);letter-spacing:0.05em;padding:2px 12px}
   .de-today{margin-left:auto}
   .day-entries{margin-top:4px}
 
@@ -1307,7 +1373,7 @@
      ============================================================ */
   .fd-datebar{display:flex;align-items:center;gap:14px;margin-bottom:20px}
   .fd-date{display:flex;flex-direction:column;gap:2px;min-width:0}
-  .fd-date-main{font-family:"Instrument Serif",serif;font-style:italic;font-size:26px;color:var(--foreground);text-transform:capitalize;line-height:1}
+  .fd-date-main{font-family:var(--font-serif);font-style:var(--font-serif-style);font-size:26px;color:var(--foreground);text-transform:capitalize;line-height:1}
   .fd-date-sub{font-size:10px;color:var(--muted-foreground-2);letter-spacing:0.08em}
   .cal-nav:disabled{opacity:.3}
 
@@ -1318,7 +1384,7 @@
   .fd-total.lead{grid-column:1 / -1}
   .fd-total-head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:24px}
   .fd-total-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:var(--muted-foreground-2)}
-  .fd-total-v{font-family:"Geist Mono",monospace;font-size:22px;color:var(--foreground);line-height:1;display:flex;align-items:baseline;gap:4px}
+  .fd-total-v{font-family:var(--font-mono);font-size:22px;color:var(--foreground);line-height:1;display:flex;align-items:baseline;gap:4px}
   .fd-total.lead .fd-total-v{font-size:28px}
   .fd-total-v .u{font-size:10px;color:var(--muted-foreground-2)}
   .fd-total-goal{font-size:10px;color:var(--muted-foreground-2);letter-spacing:0.06em}
@@ -1421,10 +1487,10 @@
   .fd-row-qty{font-size:11px;color:var(--muted-foreground-2);flex-shrink:0}
   .fd-row-macros{display:flex;gap:10px;font-size:11px;color:var(--muted-foreground-2);flex-shrink:0}
   .fd-row-macros i{font-style:normal;opacity:.6;margin-left:2px}
-  .fd-row-kcal{font-family:"Geist Mono",monospace;font-size:13px;color:var(--foreground);flex-shrink:0}
+  .fd-row-kcal{font-family:var(--font-mono);font-size:13px;color:var(--foreground);flex-shrink:0}
   .fd-row-kcal i{font-style:normal;font-size:9px;color:var(--muted-foreground-2);margin-left:3px}
 
-  .fd-add{margin-top:8px;font-size:11px;color:var(--muted-foreground-2);background:none;border:1px dashed var(--border-strong);border-radius:999px;padding:7px 14px;transition:all .35s var(--ease)}
+  .fd-add{margin-top:8px;font-size:11px;color:var(--muted-foreground-2);background:none;border:1px dashed var(--border-strong);border-radius:var(--radius-pill);padding:7px 14px;transition:all .35s var(--ease)}
   .fd-add:hover{color:var(--foreground);border-color:var(--muted-foreground-2)}
   /* La même pastille pointillée, mais pleine largeur : « il y a une ligne de
      plus à écrire ici », dans l'éditeur de repas comme dans sa recette. */
@@ -1448,7 +1514,7 @@
   .fd-reticle span:nth-child(4){bottom:0;right:0;border-left:none;border-top:none}
   .fd-scan-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-size:12px;line-height:1.6;color:#efe9dd;background:rgba(0,0,0,.72)}
   .fd-scan-overlay.err{color:#ffb4a0}
-  .fd-torch{position:absolute;left:10px;bottom:10px;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#fff;background:var(--scrim);border:1px solid rgba(255,255,255,.4);border-radius:999px;padding:6px 12px}
+  .fd-torch{position:absolute;left:10px;bottom:10px;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#fff;background:var(--scrim);border:1px solid rgba(255,255,255,.4);border-radius:var(--radius-pill);padding:6px 12px}
   .fd-torch.on{background:var(--primary);border-color:var(--primary)}
   /* Interrupteur caméra — en bas à droite du cadre, visible allumé comme éteint */
   /* Éteinte, la balise vidéo vide resterait un rectangle noir devant le fond */
@@ -1456,7 +1522,7 @@
   .fd-scan-view.off video{display:none}
   .fd-cam-toggle{position:absolute;right:10px;bottom:10px;display:inline-flex;align-items:center;gap:6px;
     font-size:10px;text-transform:uppercase;letter-spacing:0.1em;cursor:pointer;
-    color:#fff;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.45);border-radius:999px;padding:6px 12px;
+    color:#fff;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.45);border-radius:var(--radius-pill);padding:6px 12px;
     transition:background .3s var(--ease),border-color .3s var(--ease)}
   .fd-cam-toggle.on{background:var(--primary);border-color:var(--primary)}
   .fd-scan-view.off .fd-cam-toggle{color:var(--foreground);background:var(--card);border-color:var(--border-strong)}
@@ -1470,7 +1536,7 @@
      contour plutôt qu'un aplat : c'est une étiquette de provenance, pas un
      état à défendre. Elle se lit sur une ligne de résultat comme sur une
      carte de bibliothèque, donc la taille est la même partout. */
-  .item-tag{display:inline-block;flex-shrink:0;font-size:9px;line-height:1;padding:4px 8px;border-radius:999px;
+  .item-tag{display:inline-block;flex-shrink:0;font-size:9px;line-height:1;padding:4px 8px;border-radius:var(--radius-pill);
     text-transform:uppercase;letter-spacing:0.12em;border:1px solid currentColor;
     background:transparent;white-space:nowrap;cursor:default}
   .item-tag.o-ref{color:var(--origin-ref)}
@@ -1491,7 +1557,7 @@
   .fd-ing-name{flex:1;min-width:0;font-size:13px;padding:5px 0;color:var(--foreground);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fd-ing-qty{display:inline-flex;align-items:baseline;gap:2px;flex-shrink:0}
-  .fd-ing-qty input{width:58px;text-align:right;font-family:"Geist Mono",monospace;font-size:13px;padding:5px 4px}
+  .fd-ing-qty input{width:58px;text-align:right;font-family:var(--font-mono);font-size:13px;padding:5px 4px}
   .fd-ing-qty>i{font-size:10px;color:var(--muted-foreground-2);font-style:normal}
   .fd-ing-kcal{flex-shrink:0;font-size:13px;color:var(--foreground);min-width:62px;text-align:right}
   .fd-ing-kcal>i{font-size:9px;color:var(--muted-foreground-2);font-style:normal;margin-left:2px}
@@ -1519,7 +1585,7 @@
   .fd-ai-drop:hover{color:var(--primary);border-color:var(--primary)}
   .fd-ai-drop input[type=file]{display:none}
   .fd-ai-drop-plus{display:flex;align-items:center;justify-content:center;width:38px;height:38px;
-    border-radius:50%;border:1px solid currentColor}
+    border-radius:var(--radius-round);border:1px solid currentColor}
   .fd-ai-drop-label{font-size:10px;text-transform:uppercase;letter-spacing:0.12em}
   .fd-ai-drop.filled{min-height:0;border-style:solid;cursor:default;padding:0;aspect-ratio:16/10;background:#000}
   .fd-ai-drop.filled img{width:100%;height:100%;object-fit:contain;display:block}
@@ -1549,7 +1615,7 @@
      qu'il en faut (hauteur pilotée en JS, voir autoGrowStep). */
   .fd-steps{display:flex;flex-direction:column;gap:8px}
   .fd-step{display:flex;align-items:flex-start;gap:10px}
-  .fd-step-n{font-family:"Geist Mono",monospace;font-size:11px;color:var(--muted-foreground);
+  .fd-step-n{font-family:var(--font-mono);font-size:11px;color:var(--muted-foreground);
     touch-action:pan-y;margin-top:1px}
   .fd-step-n:hover{color:var(--primary);border-color:var(--primary)}
   .fd-step-n.on{color:var(--primary-foreground);background:var(--primary);border-color:var(--primary)}
@@ -1563,10 +1629,10 @@
   /* Le minuteur d'une étape : une pastille de la hauteur du bouton d'à côté,
      qui porte la durée au repos et le décompte quand ça tourne. */
   .fd-step-timer{display:inline-flex;align-items:center;gap:3px;flex-shrink:0;height:26px;margin-top:3px;
-    padding:0 9px;border:1px solid var(--border);border-radius:999px;color:var(--muted-foreground-2);
+    padding:0 9px;border:1px solid var(--border);border-radius:var(--radius-pill);color:var(--muted-foreground-2);
     font-size:11px;transition:color .3s var(--ease),border-color .3s var(--ease)}
   .fd-step-timer:focus-within{border-color:var(--border-strong);color:var(--muted-foreground)}
-  .fd-step-timer input{width:26px;text-align:right;font-size:11px;font-family:"Geist Mono",monospace;padding:0}
+  .fd-step-timer input{width:26px;text-align:right;font-size:11px;font-family:var(--font-mono);padding:0}
   .fd-step-timer input::-webkit-outer-spin-button,
   .fd-step-timer input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
   .fd-step-timer input[type=number]{-moz-appearance:textfield}
@@ -1606,7 +1672,7 @@
   .fd-item-thumb{grid-area:img;width:42px;height:42px;flex-shrink:0}
   .fd-item-thumb img{width:100%;height:100%;object-fit:cover;border-radius:2px;background:var(--muted)}
   .fd-item-ph{width:100%;height:100%;border-radius:2px;background:var(--muted);display:flex;
-    align-items:center;justify-content:center;font-family:"Instrument Serif",serif;font-style:italic;color:var(--muted-foreground-2)}
+    align-items:center;justify-content:center;font-family:var(--font-serif);font-style:var(--font-serif-style);color:var(--muted-foreground-2)}
   /* Le nom et sa sous-catégorie se posent l'un sous l'autre plutôt que de se
      tronquer tous les deux quand la carte porte aussi une image. */
   .fd-item-name{grid-area:name;display:flex;flex-wrap:wrap;align-items:baseline;gap:1px 7px;min-width:0;
@@ -1659,7 +1725,7 @@
      gagne — la colonne des calories se retrouvait large de 28 px avec son
      unité qui débordait sur les protéines. */
   .fd-macro-row .mc-kcal{width:auto;flex:1 1 auto;min-width:0;justify-content:flex-start;color:var(--foreground)}
-  .mc b{font-family:"Geist Mono",monospace;font-feature-settings:"tnum";font-size:11px;
+  .mc b{font-family:var(--font-mono);font-feature-settings:"tnum";font-size:11px;
     font-weight:400;color:currentColor;line-height:1.2;text-align:right}
   .mc-kcal b{font-size:12.5px;min-width:3.2ch;text-align:left}
   .mc u{font-size:7px;letter-spacing:0.02em;text-transform:uppercase;text-decoration:none;
@@ -1694,7 +1760,7 @@
               display:flex;flex-wrap:wrap;align-items:center;gap:6px 20px}
   .fd-src-credit{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted-foreground-2)}
   .fd-src-lic{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted-foreground-2);
-              border:1px solid var(--border-strong);border-radius:999px;padding:2px 7px}
+              border:1px solid var(--border-strong);border-radius:var(--radius-pill);padding:2px 7px}
   /* Le crédit passe à la ligne pour accueillir son cadre d'explication, comme
      partout ailleurs : l'explication vit sous ce qu'elle explique. */
   .fd-src-credit{flex-wrap:wrap}
@@ -1729,9 +1795,9 @@
   .fd-title-field{border-bottom:none;padding-top:0}
   .fd-title-field input{font-size:16px}
   .fd-code-bar{margin:2px 0 10px}
-  .fd-code-bar input{font-family:"Geist Mono",monospace;letter-spacing:0.06em}
+  .fd-code-bar input{font-family:var(--font-mono);letter-spacing:0.06em}
   .fd-qty-inline{display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap}
-  .fd-qty-inline input{width:84px;font-family:"Geist Mono",monospace;text-align:right}
+  .fd-qty-inline input{width:84px;font-family:var(--font-mono);text-align:right}
   /* Le corps d'un `NumField` : l'input prend la place, l'unité colle à sa
      droite — la même rangée dense que tout `.field`, jamais un pavé à part
      pour les macros. */
@@ -1746,8 +1812,8 @@
   /* Quantité */
   .fd-qty-unit{font-size:12px;color:var(--muted-foreground-2);text-transform:uppercase;letter-spacing:0.1em}
   .fd-qty{display:flex;align-items:center;gap:10px;margin:6px 0 16px;flex-wrap:wrap}
-  .fd-qty input{width:120px;font-size:20px;font-family:"Geist Mono",monospace;text-align:right}
-  .fd-qty input::placeholder{font-family:"Geist",ui-sans-serif,sans-serif;font-size:13px}
+  .fd-qty input{width:120px;font-size:20px;font-family:var(--font-mono);text-align:right}
+  .fd-qty input::placeholder{font-family:var(--font-sans);font-size:13px}
   /* La bascule d'unité (g / portion) est un Segmented par défaut — ses chips
      dans une modale de choix (18px de haut en plus) sont pensées pour porter
      un mot seules sur leur ligne, pas pour voisiner un champ et des raccourcis.
@@ -1767,22 +1833,22 @@
   .fd-presets::-webkit-scrollbar{display:none}
   .fd-presets>*{flex-shrink:0}
   .fd-preset{display:inline-flex;align-items:center;border:1px solid var(--border);
-    border-radius:999px;overflow:hidden;transition:border-color .3s var(--ease)}
+    border-radius:var(--radius-pill);overflow:hidden;transition:border-color .3s var(--ease)}
   .fd-preset:hover{border-color:var(--border-strong)}
-  .fd-preset>button{font-family:"Geist Mono",monospace;font-size:11px;color:var(--muted-foreground);
+  .fd-preset>button{font-family:var(--font-mono);font-size:11px;color:var(--muted-foreground);
     background:none;border:none;padding:6px 4px 6px 11px;cursor:pointer}
   .fd-preset>button:hover{color:var(--foreground)}
   .fd-preset-x{font-size:8px;color:var(--muted-foreground-2);background:none;border:none;padding:6px 9px 6px 3px;cursor:pointer}
   .fd-preset-x:hover{color:var(--destructive)}
   .fd-preset-add{font-size:13px;line-height:1;color:var(--muted-foreground-2);border:1px dashed var(--border-strong);
-    border-radius:999px;width:27px;height:27px;background:none;cursor:pointer;flex-shrink:0;
+    border-radius:var(--radius-pill);width:27px;height:27px;background:none;cursor:pointer;flex-shrink:0;
     transition:color .3s var(--ease),border-color .3s var(--ease)}
   .fd-preset-add:hover{color:var(--primary);border-color:var(--primary);border-style:solid}
   /* Le poids d'une portion, saisi dans son option de piste. Étroit : c'est un
      nombre de grammes, pas un champ de formulaire. */
   .fd-qty .seg-opt input{width:44px;text-align:right;font-size:12px;
-    font-family:"Geist Mono",monospace;flex:none}
-  .fd-preset-all{font-size:11px;color:var(--muted-foreground);border:1px solid var(--border);border-radius:999px;
+    font-family:var(--font-mono);flex:none}
+  .fd-preset-all{font-size:11px;color:var(--muted-foreground);border:1px solid var(--border);border-radius:var(--radius-pill);
     padding:6px 11px;background:transparent;white-space:nowrap;transition:all .35s var(--ease)}
   .fd-preset-all:hover{border-color:var(--border-strong);color:var(--foreground)}
   /* Les mêmes cases que sur une carte d'item, en plus grand : c'est le même
@@ -1807,9 +1873,17 @@
   .fd-log-title .drag-handle{align-self:center}
   .today-card.fd-card{cursor:pointer;gap:10px}
   .today-card.fd-card:hover{border-color:var(--border-strong)}
-  .fd-card-v{font-family:"Geist Mono",monospace;font-size:24px;color:var(--foreground);line-height:1;display:flex;align-items:baseline;gap:4px}
+  .fd-card-v{font-family:var(--font-mono);font-size:24px;color:var(--foreground);line-height:1;display:flex;align-items:baseline;gap:4px}
   .fd-card-v .u{font-size:10px;color:var(--muted-foreground-2)}
   .fd-card-goal{font-size:10px;color:var(--muted-foreground-2);letter-spacing:0.06em}
+
+  /* Le halo d'une carte, en un seul endroit pour toute la famille — posé ici,
+     après leurs définitions, pour gagner à spécificité égale. Éteint
+     (`none`) dans les thèmes qui n'en veulent pas, donc invisible pour eux.
+     `.modal`, `.fd-selbar` et `.chart-tooltip` gardent leur ombre portée : ils
+     flottent au-dessus de la page, ce n'est pas la même question. */
+  .card,.today-card,.chart-card,.gv-card,.cal,.master-strip,.fd-total,.fd-item-row{
+    box-shadow:var(--shadow-card)}
 
   hr.thin{border:none;border-top:1px solid var(--border);margin:22px 0}
 
@@ -1820,7 +1894,7 @@
      pas un contrôle : même encre discrète que les intitulés du rail. */
   .range-custom-sep{color:var(--muted-foreground-2);font-size:11px;align-self:center}
 
-  .cursor-dot,.cursor-ring{position:fixed;top:0;left:0;pointer-events:none;z-index:9999;border-radius:50%;mix-blend-mode:difference;will-change:transform}
+  .cursor-dot,.cursor-ring{position:fixed;top:0;left:0;pointer-events:none;z-index:9999;border-radius:var(--radius-round);mix-blend-mode:difference;will-change:transform}
   .cursor-dot{width:6px;height:6px;background:#fff;margin:-3px 0 0 -3px}
   .cursor-ring{width:32px;height:32px;border:1px solid rgba(255,255,255,.55);margin:-16px 0 0 -16px;transition:width .35s var(--ease),height .35s var(--ease),margin .35s var(--ease),border-color .35s var(--ease)}
   .has-cursor,.has-cursor *{cursor:none!important}
@@ -1916,7 +1990,7 @@
   .sink-bar-lab{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted-foreground-2)}
   .sink-nav{display:flex;flex-wrap:wrap;gap:8px;padding:20px 0 30px}
   .sink-sec{margin-bottom:36px;scroll-margin-top:16px}
-  .sink-h{font-family:"Instrument Serif",serif;font-style:italic;font-weight:400;font-size:26px;margin:0 0 6px}
+  .sink-h{font-family:var(--font-serif);font-style:var(--font-serif-style);font-weight:400;font-size:26px;margin:0 0 6px}
   .sink-note{font-size:12px;color:var(--muted-foreground-2);line-height:1.65;margin:0 0 14px;max-width:64ch}
   .sink-spec{display:grid;grid-template-columns:160px minmax(0,1fr);gap:12px 22px;align-items:center;
     padding:16px 0;border-top:1px solid var(--border)}
@@ -1960,7 +2034,7 @@
   function show(msg){
     if (done) return;
     var el = document.getElementById('boot-msg');
-    if (el) el.innerHTML = msg + '<br><button onclick="location.reload()" style="margin-top:14px;background:var(--primary);color:var(--primary-foreground);padding:9px 18px;border-radius:999px;font-size:11px;font-weight:500;letter-spacing:.1em;text-transform:uppercase">Réessayer</button>';
+    if (el) el.innerHTML = msg + '<br><button onclick="location.reload()" style="margin-top:14px;background:var(--primary);color:var(--primary-foreground);padding:9px 18px;border-radius:var(--radius-pill);font-size:11px;font-weight:500;letter-spacing:.1em;text-transform:uppercase">Réessayer</button>';
   }
   window.addEventListener('error', function(e){
     show('Un script n’a pas pu se charger ou a échoué (' + (e.message || (e.target && e.target.src) || 'erreur inconnue') + '). Vérifie ta connexion ou désactive un éventuel bloqueur de scripts, puis réessaie.');
