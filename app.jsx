@@ -119,8 +119,9 @@ const AGGREGATES = [
    Pour en ajouter un : un bloc de tokens dans le <style>, une entrée ici, et
    son identifiant dans STYLE_IDS de Tracklog.html. */
 const STYLES = [
-  { id:'dark',  label:'Sombre', hint:'Aristide — canvas presque noir, encre crème', themeColor:'#100f0d' },
-  { id:'light', label:'Clair',  hint:'Aristide — canvas crème, mêmes os éditoriaux', themeColor:'#f6f2e9' },
+  { id:'dark',   label:'Sombre', hint:'Aristide — canvas presque noir, encre crème', themeColor:'#100f0d' },
+  { id:'light',  label:'Clair',  hint:'Aristide — canvas crème, mêmes os éditoriaux', themeColor:'#f6f2e9' },
+  { id:'matrix', label:'Matrix', hint:'Canvas noir, encre vert phosphore', themeColor:'#000000' },
 ];
 const DEFAULT_STYLE = 'dark';
 const isStyle = (id) => STYLES.some(s => s.id === id);

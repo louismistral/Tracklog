@@ -10,7 +10,7 @@
   // before any script loads, so it cannot read it. Adding a style means adding
   // its id here too — and a stored value outside the list falls back to dark
   // rather than leaving the page with no tokens at all.
-  var STYLE_IDS = ['dark', 'light'];
+  var STYLE_IDS = ['dark', 'light', 'matrix'];
   try{
     var t = localStorage.getItem('tracklog.theme');
     if (STYLE_IDS.indexOf(t) !== -1) document.documentElement.dataset.theme = t;
@@ -62,27 +62,23 @@
        (voir `.info-panel` plus bas), et deux valeurs auraient divergé. */
     --label-w: 82px;
 
-    /* La marque, identique dans les deux thèmes — pas un jeton de thème,
-       donc posé une seule fois ici plutôt que redit dans les deux blocs. */
-    --primary: #e2542f;
-    --primary-hover: #d14836;
-    /* Blanc constant sur un remplissage primary/destructive : les deux restent
-       assez saturés dans les deux thèmes pour qu'un texte blanc y garde un bon
-       contraste — un futur thème très clair redéfinirait ce jeton lui-même
-       plutôt que d'attendre qu'il se dérive tout seul. */
-    --primary-foreground: #fff;
+    /* Blanc constant sur un remplissage destructive : assez saturé dans tous
+       les thèmes pour qu'un texte blanc y garde un bon contraste — contraire-
+       ment à primary (couleur de marque), qui peut être claire dans un thème
+       et se redéfinit donc lui-même. */
     --destructive-foreground: #fff;
 
     /* Alias au format shadcn/tweakcn, dérivés des jetons de thème ci-dessous
        plutôt que redéclarés par thème : déposer un thème shadcn qui redéfinit
-       --background/--foreground/--card/--border/--muted/--destructive suffit
-       à faire suivre tout le reste. */
+       --background/--foreground/--card/--border/--muted/--primary/--destructive
+       suffit à faire suivre tout le reste. */
     --card-foreground: var(--foreground);
     --popover: var(--card);
     --popover-foreground: var(--foreground);
     /* Le sens shadcn de --accent (une surface de survol discrète), à ne pas
-       confondre avec --primary (l'orange de marque, personnalisable) : Tracklog
-       n'a pas de surface de survol séparée de --muted, donc il s'y aliase. */
+       confondre avec --primary (la couleur de marque, personnalisable) :
+       Tracklog n'a pas de surface de survol séparée de --muted, donc il s'y
+       aliase — sauf thème qui préfère la sienne (voir "matrix" plus bas). */
     --accent: var(--muted);
     --accent-foreground: var(--foreground);
     /* Le remplissage "encre" d'un état sélectionné/actif (pastille active,
@@ -115,6 +111,9 @@
     --muted-foreground-2: #6d675b;
     --border: rgba(239,233,221,.10);
     --border-strong: rgba(239,233,221,.22);
+    --primary: #e2542f;
+    --primary-hover: #d14836;
+    --primary-foreground: #fff;
     --primary-soft: rgba(226,84,47,.14);
     --destructive: #e2542f;
     --vignette: rgba(0,0,0,.55);
@@ -130,9 +129,34 @@
     --muted-foreground-2: #9a9280;
     --border: rgba(33,29,23,.09);
     --border-strong: rgba(33,29,23,.18);
+    --primary: #e2542f;
+    --primary-hover: #d14836;
+    --primary-foreground: #fff;
     --primary-soft: rgba(226,84,47,.11);
     --destructive: #c8402a;
     --vignette: rgba(33,29,23,.05);
+  }
+  /* Matrix — thème tweakcn (https://tweakcn.com/themes/cmll14cgf000204ky5ms2fdgj) :
+     canvas noir, encre vert phosphore. Couleurs seulement — Tracklog n'a pas
+     encore de jeton pour la police/le rayon/les ombres par thème (VT323, coins
+     carrés et lueur verte du thème d'origine ne sont donc pas repris ici). */
+  :root[data-theme="matrix"]{
+    --background: #000000;
+    --card: #050505;
+    --muted: #001a00;
+    --foreground: #00ff41;
+    --muted-foreground: #008f11;
+    --muted-foreground-2: #005a0b;
+    --border: #003b00;
+    --border-strong: #005500;
+    --primary: #00ff41;
+    --primary-hover: color-mix(in oklab, #00ff41 84%, #000);
+    --primary-foreground: #000;
+    --primary-soft: rgba(0,255,65,.14);
+    --accent: #00ff41;
+    --accent-foreground: #000;
+    --destructive: #ff0000;
+    --vignette: rgba(0,0,0,.6);
   }
   *{box-sizing:border-box}
   html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation;overflow-x:hidden;scroll-behavior:smooth}
@@ -284,6 +308,9 @@
   .style-swatch[data-style="light"] i:nth-child(1){background:#f6f2e9}
   .style-swatch[data-style="light"] i:nth-child(2){background:#211d17}
   .style-swatch[data-style="light"] i:nth-child(3){background:#e2542f}
+  .style-swatch[data-style="matrix"] i:nth-child(1){background:#000000}
+  .style-swatch[data-style="matrix"] i:nth-child(2){background:#00ff41}
+  .style-swatch[data-style="matrix"] i:nth-child(3){background:#00ff41}
   .style-name{font-size:13px;color:var(--foreground)}
   .style-hint{font-size:11px;color:var(--muted-foreground-2);line-height:1.45}
 
@@ -1993,7 +2020,7 @@
      sont écrits ici : app.jsx pose l'app et les trackers, app.food.jsx la page
      Food, app.sink.jsx l'atelier (#sink, qui rend les composants des deux), et
      le dernier script monte React une fois les trois en place. -->
-<script type="text/babel" src="app.jsx?v=67"></script>
+<script type="text/babel" src="app.jsx?v=68"></script>
 <script type="text/babel" src="app.food.jsx?v=38"></script>
 <script type="text/babel" src="app.sink.jsx?v=2"></script>
 <script type="text/babel">mountTracklog();</script>
