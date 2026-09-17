@@ -136,11 +136,11 @@ const SINK_SECTIONS = [
 ];
 
 const SINK_TOKENS = [
-  ['--bg','fond de page'], ['--bg-2','carte'], ['--bg-3','relief'],
-  ['--ink','encre'], ['--ink-2','encre secondaire'], ['--ink-3','encre tertiaire'],
-  ['--line','filet'], ['--line-2','filet marqué'],
-  ['--accent','accent'], ['--accent-2','accent foncé'], ['--accent-soft','accent pâle'],
-  ['--warn','alerte'],
+  ['--background','fond de page'], ['--card','carte'], ['--muted','relief'],
+  ['--foreground','encre'], ['--muted-foreground','encre secondaire'], ['--muted-foreground-2','encre tertiaire'],
+  ['--border','filet'], ['--border-strong','filet marqué'],
+  ['--primary','accent'], ['--primary-hover','accent foncé'], ['--primary-soft','accent pâle'],
+  ['--secondary','remplissage encre'], ['--destructive','alerte'],
 ];
 
 function SinkView(){

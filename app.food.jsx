@@ -209,7 +209,7 @@ function NumField({ label, unit, value, onChange, onKeyDown, placeholder = '—'
    d'accent. Sans elle il aurait fallu faire descendre les préférences jusqu'à
    six composants, dont trois qui n'en connaissent aucune. */
 const FOOD_MACROS = [
-  { key:'kcal',    label:'Calories',  short:'kcal', unit:'kcal', color:'var(--macro-kcal)',    defaultColor:'var(--ink-2)' },
+  { key:'kcal',    label:'Calories',  short:'kcal', unit:'kcal', color:'var(--macro-kcal)',    defaultColor:'var(--muted-foreground)' },
   { key:'protein', label:'Protéines', short:'prot', unit:'g',    color:'var(--macro-protein)', defaultColor:'oklch(0.60 0.13 25)'  },
   { key:'carbs',   label:'Glucides',  short:'gluc', unit:'g',    color:'var(--macro-carbs)',   defaultColor:'oklch(0.62 0.11 250)' },
   { key:'fat',     label:'Lipides',   short:'lip',  unit:'g',    color:'var(--macro-fat)',     defaultColor:'oklch(0.75 0.12 90)'  },
@@ -4772,7 +4772,7 @@ function MacroSplitCard({ days }){
           ))}
         </svg>
       ) : (
-        <div style={{padding:'30px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucun repas noté sur la période</div>
+        <div style={{padding:'30px 0',textAlign:'center',color:'var(--muted-foreground-2)',fontSize:13}}>aucun repas noté sur la période</div>
       )}
       <div className="master-legend">
         {KEYS.map(k => (

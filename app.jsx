@@ -74,7 +74,7 @@ const { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useC
    c'est exactement celle de l'orange de Tracklog (#e2542f = oklch(0.63 0.184 35)),
    donc la couleur d'origine de l'app est dans la grille, pas à côté.
 
-   L'encre n'est pas « du noir » mais `var(--ink)` : elle est presque noire sur
+   L'encre n'est pas « du noir » mais `var(--foreground)` : elle est presque noire sur
    le fond clair et presque blanche sur le fond sombre. Une couleur de tracker
    doit rester visible quel que soit le style, et c'est la seule façon d'avoir
    « la couleur du texte » plutôt qu'une valeur qui disparaît dans un thème. */
@@ -84,7 +84,7 @@ const COLOR_LIGHT = 0.63;
 // chroma au maximum affichable, ce qui est exactement « saturation à fond ».
 const COLOR_CHROMA = 0.20;
 const COLOR_GREY = 'oklch(0.62 0 0)';
-const COLOR_INK = 'var(--ink)';
+const COLOR_INK = 'var(--foreground)';
 const COLORS = [
   ...COLOR_HUES.map(h => `oklch(${COLOR_LIGHT} ${COLOR_CHROMA} ${h})`),
   COLOR_GREY, COLOR_INK,
@@ -3321,7 +3321,7 @@ function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
         </div>
 
         {trackers.length === 0 && (
-          <div style={{fontSize:12,color:'var(--ink-3)',marginTop:10}}>
+          <div style={{fontSize:12,color:'var(--muted-foreground-2)',marginTop:10}}>
             Aucun tracker de durée pour l’instant — le chrono sera simplement nommé.
           </div>
         )}
@@ -4083,7 +4083,7 @@ function ChartCard({ tracker, entries, rangeDays, endTs = Date.now(), perRow = 1
             </>
           )}
           {goalPath && (
-            <path d={goalPath} fill="none" stroke="var(--ink-2)" strokeWidth="1"
+            <path d={goalPath} fill="none" stroke="var(--muted-foreground)" strokeWidth="1"
               strokeDasharray="4 4" opacity="0.7" />
           )}
           {/* X ticks */}
@@ -4094,7 +4094,7 @@ function ChartCard({ tracker, entries, rangeDays, endTs = Date.now(), perRow = 1
           {active != null && (
             <g>
               <line x1={xAt(active)} x2={xAt(active)} y1={PAD_T} y2={PAD_T+innerH} stroke={tracker.color} strokeWidth="1" strokeDasharray="2 3" opacity="0.6" />
-              {activePoint?.value != null && <circle cx={xAt(active)} cy={yAt(activePoint.value)} r="3.5" fill={tracker.color} stroke="var(--bg)" strokeWidth="1.5" />}
+              {activePoint?.value != null && <circle cx={xAt(active)} cy={yAt(activePoint.value)} r="3.5" fill={tracker.color} stroke="var(--background)" strokeWidth="1.5" />}
             </g>
           )}
         </svg>
@@ -4111,7 +4111,7 @@ function ChartCard({ tracker, entries, rangeDays, endTs = Date.now(), perRow = 1
         )}
         </div>
       ) : (
-        <div style={{padding:'30px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucune donnée sur la période</div>
+        <div style={{padding:'30px 0',textAlign:'center',color:'var(--muted-foreground-2)',fontSize:13}}>aucune donnée sur la période</div>
       )}
     </div>
   );
@@ -4332,7 +4332,7 @@ function TrendChart({ trackers, entries, rangeDays, endTs = Date.now() }){
       <div className="chart-head">
         <div className="name">
           <span className="serif" style={{fontSize:18}}>Tendance générale</span>
-          <span style={{color:'var(--ink-3)',fontSize:12,marginLeft:8}}>moyenne normalisée — {trackers.length} séries</span>
+          <span style={{color:'var(--muted-foreground-2)',fontSize:12,marginLeft:8}}>moyenne normalisée — {trackers.length} séries</span>
         </div>
         <div className="stats">
           <div>actuel <span className="v">{latest!=null ? Math.round(latest*100) : '—'}</span></div>
@@ -4359,7 +4359,7 @@ function TrendChart({ trackers, entries, rangeDays, endTs = Date.now() }){
           {/* Raw avg — faint */}
           {segments.map((seg, si) => seg.length >= 2 && (
             <path key={`r${si}`} d={seg.map((p,i)=>`${i===0?'M':'L'}${p[0]},${p[1]}`).join(' ')}
-              fill="none" stroke="var(--ink-3)" strokeWidth="1" opacity="0.35" />
+              fill="none" stroke="var(--muted-foreground-2)" strokeWidth="1" opacity="0.35" />
           ))}
           {/* Smoothed — bold */}
           {smSegs.map((seg, si) => {
@@ -4368,8 +4368,8 @@ function TrendChart({ trackers, entries, rangeDays, endTs = Date.now() }){
             const area = d + ` L${seg[seg.length-1][0]},${PAD_T+innerH} L${seg[0][0]},${PAD_T+innerH} Z`;
             return (
               <g key={`s${si}`}>
-                <path d={area} fill="var(--ink)" opacity="0.06" />
-                <path d={d} fill="none" stroke="var(--ink)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                <path d={area} fill="var(--foreground)" opacity="0.06" />
+                <path d={d} fill="none" stroke="var(--foreground)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
               </g>
             );
           })}
@@ -4379,7 +4379,7 @@ function TrendChart({ trackers, entries, rangeDays, endTs = Date.now() }){
           ))}
         </svg>
       ) : (
-        <div style={{padding:'40px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucune donnée sur la période</div>
+        <div style={{padding:'40px 0',textAlign:'center',color:'var(--muted-foreground-2)',fontSize:13}}>aucune donnée sur la période</div>
       )}
       <div className="trend-foot">
         <span className="serif">Lecture :</span> chaque tracker est ramené à une échelle 0–100 selon ses propres extrêmes, puis moyenné jour par jour. La ligne fine est la moyenne brute ; la ligne épaisse est lissée sur 7 jours.
@@ -4564,7 +4564,7 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, endTs = Da
         </div>
       </div>
       {members.length === 0 ? (
-        <div style={{padding:'30px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucun tracker membre — modifiez ce master pour en choisir</div>
+        <div style={{padding:'30px 0',textAlign:'center',color:'var(--muted-foreground-2)',fontSize:13}}>aucun tracker membre — modifiez ce master pour en choisir</div>
       ) : hasData ? (
         <svg ref={svgRef} className="chart-svg" style={{height: H + 'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice">
           {yTicks.map((v,i)=>(
@@ -4604,7 +4604,7 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, endTs = Da
           ))}
         </svg>
       ) : (
-        <div style={{padding:'30px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucune donnée sur la période</div>
+        <div style={{padding:'30px 0',textAlign:'center',color:'var(--muted-foreground-2)',fontSize:13}}>aucune donnée sur la période</div>
       )}
       {!compact && members.length > 0 && (
         <div className="master-legend">
@@ -4696,7 +4696,7 @@ function CalendarCard({ tracker, entries, rangeDays, endTs = Date.now(), onEdit 
           const col = Math.floor(i/7);
           const row = i % 7;
           const intensity = max > 0 ? d.v / max : 0;
-          let fill = 'var(--bg-2)';
+          let fill = 'var(--card)';
           if (d.count > 0){
             // 4 buckets
             const bucket = Math.min(3, Math.floor(intensity * 4));
@@ -4729,7 +4729,7 @@ function CalendarCard({ tracker, entries, rangeDays, endTs = Date.now(), onEdit 
       </svg>
       <div className="heat-legend">
         moins
-        <span className="lg" style={{background:'var(--bg-2)'}}></span>
+        <span className="lg" style={{background:'var(--card)'}}></span>
         <span className="lg" style={{background:'oklch(0.92 0.04 150)'}}></span>
         <span className="lg" style={{background:'oklch(0.80 0.07 150)'}}></span>
         <span className="lg" style={{background:'oklch(0.65 0.10 150)'}}></span>
@@ -5170,7 +5170,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           </div>
         </div>}
 
-        <div className="field" style={{borderBottom: display ? 'none' : isMasterKind ? '1px solid var(--line)' : undefined}}>
+        <div className="field" style={{borderBottom: display ? 'none' : isMasterKind ? '1px solid var(--border)' : undefined}}>
           <label>Nom</label>
           <input ref={nameRef} value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') submit();}}
             placeholder={isMasterKind ? 'ex: Forme, Bien-être, Discipline…' : 'ex: Caféine, Humeur, Sport…'} />
@@ -5193,7 +5193,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           </div>
         ) : (
           <>
-            <div className="field" style={{borderBottom: (type==='number'||type==='scale'||type==='choice') ? '1px solid var(--line)' : 'none', flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
+            <div className="field" style={{borderBottom: (type==='number'||type==='scale'||type==='choice') ? '1px solid var(--border)' : 'none', flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
               <label style={{width:'auto'}}>Type de donnée</label>
               <div className="typegrid">
                 {TYPES.map(ty => (
@@ -5631,7 +5631,7 @@ function SignIn(){
       </div>
       <div className="card">
         <h3 style={{margin:0,fontSize:15,fontWeight:500}}>{mode==='signup' ? 'Créer un compte' : 'Connexion'}</h3>
-        <p style={{fontSize:13,color:'var(--ink-3)',marginTop:6,marginBottom:6}}>
+        <p style={{fontSize:13,color:'var(--muted-foreground-2)',marginTop:6,marginBottom:6}}>
           {mode==='signup' ? 'Choisissez un e-mail et un mot de passe.' : 'Entrez votre e-mail et votre mot de passe.'}
         </p>
         <div className="field">
@@ -5648,24 +5648,24 @@ function SignIn(){
             onKeyDown={e=>{ if(e.key==='Enter') submit(); }}
             placeholder="au moins 6 caractères" />
         </div>
-        {err && <div style={{color:'var(--warn)', fontSize:12, marginTop:10}}>{err}</div>}
-        {info && <div style={{color:'var(--accent)', fontSize:12, marginTop:10}}>{info}</div>}
+        {err && <div style={{color:'var(--destructive)', fontSize:12, marginTop:10}}>{err}</div>}
+        {info && <div style={{color:'var(--primary)', fontSize:12, marginTop:10}}>{info}</div>}
         <div className="save">
           <span className="hint">
-            {mode==='signin' && <button style={{fontSize:12,color:'var(--ink-3)'}} onClick={forgot}>Mot de passe oublié ?</button>}
+            {mode==='signin' && <button style={{fontSize:12,color:'var(--muted-foreground-2)'}} onClick={forgot}>Mot de passe oublié ?</button>}
           </span>
           <button className="primary" disabled={!canSubmit || busy} onClick={submit}>
             {busy ? '…' : (mode==='signup' ? 'Créer' : 'Se connecter')}
           </button>
         </div>
         <hr className="thin" />
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:12,color:'var(--ink-3)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:12,color:'var(--muted-foreground-2)'}}>
           {mode==='signup' ? (
-            <button style={{fontSize:12,color:'var(--ink-2)'}} onClick={()=>{setMode('signin');setErr('');setInfo('');}}>← J'ai déjà un compte</button>
+            <button style={{fontSize:12,color:'var(--muted-foreground)'}} onClick={()=>{setMode('signin');setErr('');setInfo('');}}>← J'ai déjà un compte</button>
           ) : (
-            <button style={{fontSize:12,color:'var(--ink-2)'}} onClick={()=>{setMode('signup');setErr('');setInfo('');}}>Créer un compte</button>
+            <button style={{fontSize:12,color:'var(--muted-foreground)'}} onClick={()=>{setMode('signup');setErr('');setInfo('');}}>Créer un compte</button>
           )}
-          <button style={{fontSize:12,color:'var(--ink-3)'}} onClick={magicLink}>Recevoir un lien par e-mail</button>
+          <button style={{fontSize:12,color:'var(--muted-foreground-2)'}} onClick={magicLink}>Recevoir un lien par e-mail</button>
         </div>
       </div>
     </div>
@@ -5696,7 +5696,7 @@ function PasswordModal({ recovery, onClose }){
         <div className="modal-sub">Vous pourrez ensuite vous connecter avec votre e-mail et ce mot de passe.</div>
         {done ? (
           <>
-            <p style={{fontSize:13,color:'var(--accent)',margin:'10px 0 0'}}>Mot de passe enregistré ✓</p>
+            <p style={{fontSize:13,color:'var(--primary)',margin:'10px 0 0'}}>Mot de passe enregistré ✓</p>
             <div className="modal-actions">
               <button className="primary" onClick={onClose}>Fermer</button>
             </div>
@@ -5712,8 +5712,8 @@ function PasswordModal({ recovery, onClose }){
               <input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)}
                 onKeyDown={e=>{ if(e.key==='Enter') submit(); }} placeholder="retapez le mot de passe" />
             </div>
-            {err && <div style={{color:'var(--warn)', fontSize:12, marginTop:10}}>{err}</div>}
-            {password && confirm && password !== confirm && <div style={{color:'var(--warn)', fontSize:12, marginTop:10}}>Les mots de passe ne correspondent pas.</div>}
+            {err && <div style={{color:'var(--destructive)', fontSize:12, marginTop:10}}>{err}</div>}
+            {password && confirm && password !== confirm && <div style={{color:'var(--destructive)', fontSize:12, marginTop:10}}>Les mots de passe ne correspondent pas.</div>}
             <div className="modal-actions">
               {!recovery && <button className="ghost" onClick={onClose}>Annuler</button>}
               <button className="primary" disabled={!canSave} onClick={submit}>Enregistrer</button>
