@@ -4,7 +4,7 @@
    Chargé en premier : c'est lui qui pose l'espace de noms que les
    autres fichiers trouvent déjà là (les hooks React, `supabase`,
    `dayKey`, `uid`, `startOfDay`…). Ce qui vit ici : le modèle de
-   données, les registres (types, agrégats, styles, onglets, formes
+   données, les registres (types, agrégats, thèmes, onglets, formes
    de courbe, granularités, services extérieurs, tris et
    groupements), le client Supabase et l'appel aux fonctions Edge,
    les mappers de lignes, les helpers de calcul et de format, et
@@ -93,7 +93,7 @@ const { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useC
 
    L'encre n'est pas « du noir » mais `var(--foreground)` : elle est presque noire sur
    le fond clair et presque blanche sur le fond sombre. Une couleur de tracker
-   doit rester visible quel que soit le style, et c'est la seule façon d'avoir
+   doit rester visible quel que soit le thème, et c'est la seule façon d'avoir
    « la couleur du texte » plutôt qu'une valeur qui disparaît dans un thème. */
 const COLOR_HUES = [35, 90, 145, 195, 250, 300, 350];
 const COLOR_LIGHT = 0.63;
@@ -128,22 +128,22 @@ const AGGREGATES = [
   { id:'max', label:'Maximum' },
 ];
 
-/* ---- Styles ---------------------------------------------------------------
-   Un style = un jeu de variables CSS sous :root[data-theme="<id>"] dans
+/* ---- Thèmes ---------------------------------------------------------------
+   Un thème = un jeu de variables CSS sous [data-theme="<id>"] dans
    styles.css, plus une ligne ici. Rien d'autre à toucher : l'interface des
    paramètres se construit à partir de cette liste, et le petit script en tête
    de page valide la valeur stockée contre les mêmes identifiants.
    Pour en ajouter un : un bloc de tokens dans styles.css, une entrée ici, et
-   son identifiant dans STYLE_IDS de Tracklog.html. */
-const STYLES = [
+   son identifiant dans THEME_IDS de Tracklog.html. */
+const THEMES = [
   { id:'dark',       label:'Sombre', hint:'Aristide — canvas presque noir, encre crème', themeColor:'#100f0d' },
   { id:'light',      label:'Clair',  hint:'Aristide — canvas crème, mêmes os éditoriaux', themeColor:'#f6f2e9' },
   { id:'matrix',     label:'Matrix', hint:'Terminal — canvas noir, vert phosphore, coins carrés', themeColor:'#000000' },
   { id:'paper',      label:'Papier', hint:'Livre de poche — parchemin, encre brune, serifs', themeColor:'#f5f1e6' },
   { id:'paper-dark', label:'Papier sombre', hint:'Le même livre, lu de nuit', themeColor:'#2d2621' },
 ];
-const DEFAULT_STYLE = 'dark';
-const isStyle = (id) => STYLES.some(s => s.id === id);
+const DEFAULT_THEME = 'dark';
+const isTheme = (id) => THEMES.some(s => s.id === id);
 
 /* ---- Onglets --------------------------------------------------------------
    Les paramètres ne se désactivent pas : c'est la seule porte pour rallumer le
@@ -416,13 +416,13 @@ function addMonths(ts, n){ const d = new Date(ts); return new Date(d.getFullYear
    ------------------------------------------------------------
    Un seul blob jsonb par compte, et c'est lui qui fait autorité :
    Tracklog se vit sur un téléphone ET sur un PC, donc un réglage
-   posé d'un côté doit se retrouver de l'autre. Style, bulles
+   posé d'un côté doit se retrouver de l'autre. Thème, bulles
    d'aide, numéro de semaine, interrupteur caméra, ordre et
    visibilité des onglets — tout ça suit le compte.
 
    localStorage reste, mais comme miroir, pas comme source : il
    sert à afficher le bon réglage AVANT que la base ait répondu
-   (le style est même lu par un script en tête de page, avant
+   (le thème est même lu par un script en tête de page, avant
    que l'app existe) et à ne pas perdre la main si user_settings
    est injoignable. Voir useSyncedPref juste en dessous.
 
@@ -436,11 +436,13 @@ function addMonths(ts, n){ const d = new Date(ts); return new Date(d.getFullYear
 // Le contexte porte { prefs, savePrefs } jusqu'aux composants trop loin dans
 // l'arbre pour qu'on leur passe le réglage à la main — au premier chef le
 // scanner de la page Food, qui vit à trois modales de App.
+/* @atelier technique — Les préférences de compte portées jusqu’aux composants trop loin dans l’arbre. */
 const AccountPrefsContext = React.createContext(null);
 // Hors de tout Provider (un composant monté seul dans un test), un réglage
 // reste utilisable : il ne fait que ne pas se synchroniser. L'objet est stable
 // pour ne pas invalider les mémos qui en dépendent à chaque rendu.
 const LOCAL_ONLY_PREFS = { prefs: {}, savePrefs: () => {} };
+/* @atelier technique — Les préférences de compte, chargées et enregistrées. */
 function useAccountPrefs(userId){
   const [prefs, setPrefs] = useState(null);   // null = pas encore chargé
   // Un réglage touché avant que la base ait répondu ne doit pas partir seul :
@@ -513,6 +515,7 @@ function useAccountPrefs(userId){
    qu'un défaut arbitraire — sinon chaque ouverture montrerait brièvement le
    mauvais réglage, ce qui se lit comme un bug plutôt que comme un chargement.
    Quand la réponse arrive, c'est elle qui gagne, et le miroir se met à jour. */
+/* @atelier technique — Un réglage à deux vitesses : le miroir local d’abord, le compte ensuite. */
 function useSyncedPref(accountPrefs, key, storageKey, fallback, isValid = () => true){
   const read = () => {
     try {

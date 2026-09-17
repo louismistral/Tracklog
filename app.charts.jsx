@@ -31,6 +31,7 @@ const MAX_PER_ROW = 3;
    à sa taille, un rond reste rond. `ResizeObserver` plutôt qu'un écouteur de
    redimensionnement : la carte change aussi de largeur quand le curseur de
    densité bouge, sans que la fenêtre bouge. */
+/* @atelier technique — La largeur réelle d’un graphe, mesurée plutôt que devinée. */
 function useDrawWidth(ref, fallback = 800){
   const [w, setW] = useState(fallback);
   useLayoutEffect(() => {
@@ -133,6 +134,7 @@ const curvePath = (pts, style) => style === 'smooth' ? smoothPath(pts) : linePat
    Le pied des bâtons est le zéro quand l'échelle le contient, le bas du cadre
    sinon : sur une échelle qui ne descend pas à zéro, une longueur de bâton ne
    se compare pas — seule sa hauteur situe la valeur. */
+/* @atelier technique — Les bâtons d’un graphe, dessinés dans le SVG de ChartCard — pas de spécimen isolé. */
 function ChartBars({ points, xAt, yAt, baseY, color, spacing }){
   const w = Math.max(1.5, Math.min(spacing * 0.62, 16));
   return points.map((p, i) => {
@@ -220,6 +222,7 @@ function bridgesBetween(segments){
 /* ============================================================
    Chart card — line chart with axes
    ============================================================ */
+/* @atelier organisme — La carte de graphe : axes, courbe, statistiques, densité — le composant le plus réglé de l’app. */
 function ChartCard({ tracker, entries, rangeDays, endTs = Date.now(), perRow = 1, containerRef, dragging, onDragStart, onEdit, onOpenDay, goalAt = null }){
   const detail = chartDetail(perRow);
   const compact = perRow >= 2;
@@ -583,6 +586,7 @@ function ChartCard({ tracker, entries, rangeDays, endTs = Date.now(), perRow = 1
    percentage along the chart's width so it tracks the SVG's own
    responsive scaling without measuring pixels on every render.
    ============================================================ */
+/* @atelier molecule — Le relevé d’un jour pointé sur un graphe, placé en pourcentage de la largeur. */
 function ChartTooltip({ xPct, date, value, onEdit, onClose }){
   const side = xPct > 60 ? 'right' : xPct < 40 ? 'left' : 'center';
   return (
@@ -717,6 +721,7 @@ function forwardFill(series){
 /* ============================================================
    TrendChart — single line: average of normalized series
    ============================================================ */
+/* @atelier organisme — Une seule courbe : la moyenne des séries normalisées de tous les trackers choisis. */
 function TrendChart({ trackers, entries, rangeDays, endTs = Date.now() }){
   const series = useMemo(() => trackers.map(t => {
     const raw = buildDailySeries(t, entries.filter(e=>e.trackerId===t.id), rangeDays, endTs);
@@ -886,6 +891,7 @@ function computeMasterSeries(master, members, entries, rangeDays, endTs = Date.n
    Historique day editor (value as of the opened day, via `dayTs`).
    Reorderable among themselves.
    ============================================================ */
+/* @atelier organisme — La bande des masters du jour, réordonnable entre eux. */
 function MasterStrips({ masters, trackerById, entries, dayTs, onReorder, onEdit }){
   const byId = useMemo(() => Object.fromEntries(masters.map(m => [m.id, m])), [masters]);
   const ids = useMemo(() => masters.map(m => m.id), [masters]);
@@ -903,6 +909,7 @@ function MasterStrips({ masters, trackerById, entries, dayTs, onReorder, onEdit 
     </div>
   );
 }
+/* @atelier organisme — La jauge 0–100 d’un master pour un jour donné. */
 function MasterStrip({ master, trackerById, entries, dayTs, containerRef, dragging, onDragStart, onEdit }){
   const members = masterMembers(master, trackerById);
   // The reading is always *that day's*, never the last one found further back:
@@ -947,6 +954,7 @@ function MasterStrip({ master, trackerById, entries, dayTs, containerRef, draggi
    Master tracker card — a saved index: average of the normalized
    performance of its chosen member trackers (0–100 per day).
    ============================================================ */
+/* @atelier organisme — Le master en carte de graphe : son indice dans le temps, et ses membres en dessous. */
 function MasterTrackerCard({ master, trackerById, entries, rangeDays, endTs = Date.now(), perRow = 1, containerRef, dragging, onDragStart, onEdit }){
   const detail = chartDetail(perRow);
   const compact = perRow >= 2;
@@ -1083,6 +1091,7 @@ function MasterTrackerCard({ master, trackerById, entries, rangeDays, endTs = Da
 /* ============================================================
    Calendar heatmap card
    ============================================================ */
+/* @atelier organisme — Le calendrier heatmap d’un tracker : une case par jour, teintée par la valeur. */
 function CalendarCard({ tracker, entries, rangeDays, endTs = Date.now(), onEdit }){
   // Always render last ~365 days of cells (or rangeDays), aligned to weeks
   const days = Math.min(Math.max(rangeDays, 30), 365);
@@ -1203,6 +1212,7 @@ function CalendarCard({ tracker, entries, rangeDays, endTs = Date.now(), onEdit 
 /* ============================================================
    Grid summary (KPI cards)
    ============================================================ */
+/* @atelier organisme — La grille de KPI : une tuile par tracker, valeur du jour et sparkline. */
 function GridSummary({ trackers, entries, rangeDays, endTs = Date.now(), onEdit }){
   const now = endTs;
   const start = now - rangeDays*86400000;

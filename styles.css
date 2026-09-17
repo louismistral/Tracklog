@@ -13,7 +13,7 @@
        (voir `.info-panel` plus bas), et deux valeurs auraient divergé. */
     --label-w: 82px;
 
-    /* ---- Ce qu'un Style peut déplacer -----------------------------------
+    /* ---- Ce qu'un thème peut déplacer -----------------------------------
        Ce bloc porte les valeurs d'« Aristide » : un thème ne redéclare que ce
        qui diffère chez lui. Sombre et Clair ne changent que la couleur et ne
        touchent donc à rien d'ici ; Matrix change aussi la police, les coins et
@@ -90,9 +90,16 @@
        de la page, puisqu'il se pose sur un flux vidéo. */
     --scrim: rgba(0,0,0,.55);
   }
+  /* Les thèmes s'accrochent à `[data-theme]` et non à `:root[data-theme]` : un
+     jeu de jetons n'a aucune raison d'être réservé à la racine du document.
+     Posé sur n'importe quel élément, il repeint cet élément et sa descendance —
+     c'est ce qui permet à l'atelier de montrer la même carte sous cinq thèmes
+     côte à côte, sur une seule page. Dans l'app, seul <html> porte l'attribut,
+     donc rien ne change. Les jetons du `:root{}` ci-dessus restent hérités :
+     un thème ne redéclare que ce qui diffère chez lui. */
   /* Dark — "Aristide": warm near-black canvas, off-white ink. The default,
      and what every existing user already has, so it's the un-attributed root. */
-  :root, :root[data-theme="dark"]{
+  :root, [data-theme="dark"]{
     --background: #100f0d;
     --card: #191712;
     --muted: #221f18;
@@ -110,7 +117,7 @@
   }
   /* Light — same editorial bones, warm cream canvas instead of near-black,
      white elevated cards for depth, same burnt-orange accent throughout. */
-  :root[data-theme="light"]{
+  [data-theme="light"]{
     --background: #f6f2e9;
     --card: #ffffff;
     --muted: #ece5d6;
@@ -134,7 +141,7 @@
      Tracklog s'en sert pour ses grands titres en italique, et une italique
      Georgia au milieu d'un terminal casse précisément l'illusion que le thème
      cherche. Le serif d'affichage suit donc le terminal, sans italique. */
-  :root[data-theme="matrix"]{
+  [data-theme="matrix"]{
     --background: #000000;
     --card: #050505;
     --muted: #001a00;
@@ -175,10 +182,10 @@
   }
   /* Papier — thème tweakcn, un livre de poche : canvas parchemin, encre brune,
      serifs partout. Il arrive en DEUX variantes (claire et sombre) là où Matrix
-     n'en avait qu'une ; un Style de Tracklog est plat, donc il en fait deux, et
+     n'en avait qu'une ; un thème de Tracklog est plat, donc il en fait deux, et
      ce qu'elles partagent — la police, les coins, l'ombre — est posé une seule
      fois ici plutôt que recopié dans chacune. */
-  :root[data-theme="paper"], :root[data-theme="paper-dark"]{
+  [data-theme="paper"], [data-theme="paper-dark"]{
     --font-sans: "Libre Baskerville", Georgia, serif;
     --font-serif: "Lora", Georgia, serif;
     --font-mono: "IBM Plex Mono", ui-monospace, monospace;
@@ -194,7 +201,7 @@
        la chasse de Geist Mono. Seule sa largeur change — 11 % de plus que Geist
        sur du texte courant, ce que la mise en page absorbe. */
   }
-  :root[data-theme="paper"]{
+  [data-theme="paper"]{
     --background: #f5f1e6;
     --card: #fffcf5;
     --muted: #ece5d8;
@@ -212,7 +219,7 @@
     --destructive: #b54a35;
     --vignette: rgba(74,63,53,.06);
   }
-  :root[data-theme="paper-dark"]{
+  [data-theme="paper-dark"]{
     --background: #2d2621;
     --card: #3a322c;
     --muted: #312b26;
@@ -368,33 +375,33 @@
   .settings-hint .k{color:var(--muted-foreground)}
   .settings-inline-hint{font-size:11px;color:var(--muted-foreground-2);line-height:1.5}
 
-  /* Sélecteur de style — chaque choix montre les couleurs qu'il applique,
+  /* Sélecteur de thème — chaque choix montre les couleurs qu'il applique,
      puisque c'est très exactement ce qu'on choisit. */
-  .style-picker{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;width:100%}
-  .style-choice{display:flex;flex-direction:column;align-items:flex-start;gap:6px;cursor:pointer;
+  .theme-picker{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;width:100%}
+  .theme-choice{display:flex;flex-direction:column;align-items:flex-start;gap:6px;cursor:pointer;
     padding:12px 13px;border:1px solid var(--border);border-radius:var(--radius);background:none;text-align:left;
     transition:border-color .4s var(--ease),background .4s var(--ease)}
-  .style-choice:hover{border-color:var(--border-strong)}
-  .style-choice.on{border-color:var(--primary);background:var(--primary-soft)}
-  .style-swatch{display:flex;gap:3px}
-  .style-swatch i{width:16px;height:16px;border-radius:2px;border:1px solid rgba(128,128,128,.25)}
-  .style-swatch[data-style="dark"] i:nth-child(1){background:#100f0d}
-  .style-swatch[data-style="dark"] i:nth-child(2){background:#efe9dd}
-  .style-swatch[data-style="dark"] i:nth-child(3){background:#e2542f}
-  .style-swatch[data-style="light"] i:nth-child(1){background:#f6f2e9}
-  .style-swatch[data-style="light"] i:nth-child(2){background:#211d17}
-  .style-swatch[data-style="light"] i:nth-child(3){background:#e2542f}
-  .style-swatch[data-style="matrix"] i:nth-child(1){background:#000000}
-  .style-swatch[data-style="matrix"] i:nth-child(2){background:#00ff41}
-  .style-swatch[data-style="matrix"] i:nth-child(3){background:#00ff41}
-  .style-swatch[data-style="paper"] i:nth-child(1){background:#f5f1e6}
-  .style-swatch[data-style="paper"] i:nth-child(2){background:#4a3f35}
-  .style-swatch[data-style="paper"] i:nth-child(3){background:#a67c52}
-  .style-swatch[data-style="paper-dark"] i:nth-child(1){background:#2d2621}
-  .style-swatch[data-style="paper-dark"] i:nth-child(2){background:#ece5d8}
-  .style-swatch[data-style="paper-dark"] i:nth-child(3){background:#c0a080}
-  .style-name{font-size:13px;color:var(--foreground)}
-  .style-hint{font-size:11px;color:var(--muted-foreground-2);line-height:1.45}
+  .theme-choice:hover{border-color:var(--border-strong)}
+  .theme-choice.on{border-color:var(--primary);background:var(--primary-soft)}
+  .theme-swatch{display:flex;gap:3px}
+  .theme-swatch i{width:16px;height:16px;border-radius:2px;border:1px solid rgba(128,128,128,.25)}
+  .theme-swatch[data-theme-id="dark"] i:nth-child(1){background:#100f0d}
+  .theme-swatch[data-theme-id="dark"] i:nth-child(2){background:#efe9dd}
+  .theme-swatch[data-theme-id="dark"] i:nth-child(3){background:#e2542f}
+  .theme-swatch[data-theme-id="light"] i:nth-child(1){background:#f6f2e9}
+  .theme-swatch[data-theme-id="light"] i:nth-child(2){background:#211d17}
+  .theme-swatch[data-theme-id="light"] i:nth-child(3){background:#e2542f}
+  .theme-swatch[data-theme-id="matrix"] i:nth-child(1){background:#000000}
+  .theme-swatch[data-theme-id="matrix"] i:nth-child(2){background:#00ff41}
+  .theme-swatch[data-theme-id="matrix"] i:nth-child(3){background:#00ff41}
+  .theme-swatch[data-theme-id="paper"] i:nth-child(1){background:#f5f1e6}
+  .theme-swatch[data-theme-id="paper"] i:nth-child(2){background:#4a3f35}
+  .theme-swatch[data-theme-id="paper"] i:nth-child(3){background:#a67c52}
+  .theme-swatch[data-theme-id="paper-dark"] i:nth-child(1){background:#2d2621}
+  .theme-swatch[data-theme-id="paper-dark"] i:nth-child(2){background:#ece5d8}
+  .theme-swatch[data-theme-id="paper-dark"] i:nth-child(3){background:#c0a080}
+  .theme-name{font-size:13px;color:var(--foreground)}
+  .theme-hint{font-size:11px;color:var(--muted-foreground-2);line-height:1.45}
 
   /* Retours */
   .feedback-foot{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:4px}
@@ -1994,40 +2001,138 @@
   }
 
   /* ============================================================
-     Atelier (#sink) — voir app.sink.jsx
+     Atelier (#atelier) — voir app.atelier.jsx
      ------------------------------------------------------------
-     Le strict nécessaire pour POSER les spécimens : un nom à gauche,
-     la chose à droite, un filet entre deux. Rien ici ne doit habiller
-     un composant — une page qui embellit ce qu'elle montre ment sur
-     ce qu'on verra dans l'app.
+     Le chrome de la vitrine, et rien d'autre. Deux règles :
+
+     · Rien ici n'habille un composant. Une page qui embellit ce
+       qu'elle montre ment sur ce qu'on verra dans l'app.
+     · L'étagère ne ressemble pas à la marchandise — fiches à filet
+       sec, titres en capitales, un `select` que l'app n'a nulle
+       part. On doit voir d'un coup ce qui est de Tracklog et ce
+       qui est de l'atelier.
+
+     Un seul de ces sélecteurs vaut pour l'app : `.atelier`, posé à
+     côté de `.app` sur la page entière.
      ============================================================ */
-  .sink-bar{display:flex;flex-wrap:wrap;align-items:center;gap:14px 28px;padding:0 0 20px;border-bottom:1px solid var(--border)}
-  .sink-bar-accent{display:flex;align-items:center;gap:12px}
-  .sink-bar-lab{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted-foreground-2)}
-  .sink-nav{display:flex;flex-wrap:wrap;gap:8px;padding:20px 0 30px}
-  .sink-sec{margin-bottom:36px;scroll-margin-top:16px}
-  .sink-h{font-family:var(--font-serif);font-style:var(--font-serif-style);font-weight:400;font-size:26px;margin:0 0 6px}
-  .sink-note{font-size:12px;color:var(--muted-foreground-2);line-height:1.65;margin:0 0 14px;max-width:64ch}
-  .sink-spec{display:grid;grid-template-columns:160px minmax(0,1fr);gap:12px 22px;align-items:center;
-    padding:16px 0;border-top:1px solid var(--border)}
-  .sink-spec:first-child{border-top:none}
-  .sink-spec.wide{grid-template-columns:minmax(0,1fr);align-items:stretch}
-  .sink-spec-lab{display:flex;flex-direction:column;gap:3px;font-size:10px;text-transform:uppercase;
-    letter-spacing:0.12em;color:var(--muted-foreground-2)}
-  .sink-spec-lab code{font-size:11px;color:var(--muted-foreground);text-transform:none;letter-spacing:0}
-  .sink-spec-body{display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-width:0}
-  .sink-spec.wide>.sink-spec-body{display:block}
+  .atelier{max-width:1500px}
+
+  /* La barre du haut : thème, accent, bulles, recherche. Elle colle en haut —
+     comparer deux thèmes en ayant à remonter à chaque fois, c'est comparer de
+     mémoire, donc ne pas comparer. */
+  .at-bar{position:sticky;top:0;z-index:40;display:flex;flex-wrap:wrap;align-items:center;
+    gap:14px 26px;padding:14px 0;margin-bottom:8px;background:var(--background);
+    border-bottom:1px solid var(--border)}
+  .at-bar-grp{display:flex;align-items:center;gap:12px;min-width:0}
+  .at-bar-grp.grow{flex:1 1 220px}
+  .at-bar-lab{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;
+    color:var(--muted-foreground-2);white-space:nowrap}
+
+  /* Le compteur de tête : cinq nombres qui disent l'état de la vitrine. Celui
+     des oublis vire au rouge dès qu'il n'est plus zéro — c'est le seul de la
+     page qui appelle une action. */
+  .at-summary{display:flex;flex-wrap:wrap;gap:10px;padding:18px 0 4px}
+  .at-count{display:flex;align-items:baseline;gap:8px;padding:8px 14px;border:1px solid var(--border);
+    border-radius:var(--radius);background:var(--card)}
+  .at-count.bad{border-color:var(--destructive)}
+  .at-count-n{font-size:18px;color:var(--foreground)}
+  .at-count.bad .at-count-n{color:var(--destructive)}
+  .at-count-l{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted-foreground-2)}
+
+  .at-nav{display:flex;flex-wrap:wrap;gap:8px;padding:18px 0 28px}
+  .at-nav-n{margin-left:7px;font-size:10px;color:var(--muted-foreground-2)}
+
+  .at-fam-sec{margin-bottom:44px;scroll-margin-top:78px}
+  .at-h{font-family:var(--font-serif);font-style:var(--font-serif-style);font-weight:400;
+    font-size:26px;margin:0 0 6px;display:flex;align-items:baseline;gap:10px}
+  .at-h-n{font-size:12px;color:var(--muted-foreground-2)}
+  .at-note{font-size:12px;color:var(--muted-foreground-2);line-height:1.65;margin:0 0 18px;max-width:70ch}
+
+  /* Une famille = une grille. Les atomes tiennent à plusieurs par ligne, tout
+     le reste prend la largeur : un graphe rétréci de moitié n'est plus le
+     graphe qu'on livre. */
+  .at-grid{display:grid;gap:14px}
+  .at-grid.many{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+  .at-grid.one{grid-template-columns:minmax(0,1fr)}
+
+  .at-card{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);
+    padding:16px 16px 18px;min-width:0;scroll-margin-top:86px}
+  .at-card-h{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .at-card-id{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
+  .at-name{font-size:13px;color:var(--foreground)}
+  .at-fam{font-size:9px;text-transform:uppercase;letter-spacing:0.14em;color:var(--muted-foreground-2);
+    border:1px solid var(--border);border-radius:var(--radius-pill);padding:2px 8px}
+  .at-desc{font-size:12px;color:var(--muted-foreground);line-height:1.6;margin:8px 0 0;max-width:78ch}
+  .at-src{font-size:10px;color:var(--muted-foreground-2);margin:4px 0 0}
+  .at-nospec{font-size:11px;color:var(--muted-foreground-2);margin:10px 0 0;font-style:italic}
+  .at-card.bare{padding:13px 14px 14px}
+
+  /* Le seul `select` du projet, et c'est voulu : l'app n'en a aucun, donc le
+     voir ici dit « ceci est une commande de l'atelier, pas un contrôle de
+     Tracklog ». Le déguiser en `Segmented` aurait brouillé exactement ça. */
+  .at-sel{font-family:var(--font-sans);font-size:10px;text-transform:uppercase;letter-spacing:0.1em;
+    color:var(--muted-foreground);background:transparent;border:1px solid var(--border);
+    border-radius:var(--radius);padding:4px 8px;cursor:pointer}
+  .at-sel:hover{border-color:var(--border-strong);color:var(--foreground)}
+
+  /* Le cadre d'aperçu. Il porte son propre `data-theme`, donc son propre fond :
+     sans `background:var(--background)`, un spécimen en thème clair se poserait
+     sur le fond sombre de la page et on jugerait un contraste qui n'existe pas. */
+  .at-frames{display:grid;gap:12px;margin-top:14px}
+  .at-frames.multi{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+  .at-frame{position:relative;background:var(--background);color:var(--foreground);
+    border:1px solid var(--border);border-radius:var(--radius);padding:16px;min-width:0;
+    font-family:var(--font-sans);font-size-adjust:var(--font-size-adjust);letter-spacing:var(--tracking-body)}
+  .at-frame-lab{position:absolute;top:0;right:0;font-size:9px;text-transform:uppercase;
+    letter-spacing:0.14em;color:var(--muted-foreground-2);background:var(--muted);
+    padding:3px 8px;border-bottom-left-radius:var(--radius)}
+  .at-frame-in{min-width:0}
+
+  /* Les variantes d'un composant, les unes sous les autres dans le même cadre :
+     même thème, même accent, même fond — la seule chose qui change entre deux
+     est ce qu'on veut comparer. */
+  .at-vars{display:flex;flex-direction:column;gap:18px;min-width:0}
+  .at-var{min-width:0}
+  .at-var-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px;
+    font-size:9px;text-transform:uppercase;letter-spacing:0.13em;color:var(--muted-foreground-2)}
+  .at-var-h code{font-size:10px;text-transform:none;letter-spacing:0;color:var(--muted-foreground)}
+  .at-var-b{display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-width:0}
+  .at-var.wide>.at-var-b{display:block}
   /* La largeur d'une colonne de formulaire — celle des paramètres. Un champ
      étalé sur toute la page ne se lit pas comme celui qu'on aura sous les yeux. */
-  .sink-spec.col>.sink-spec-body{max-width:520px}
-  .sink-stack{display:flex;flex-direction:column;gap:14px}
-  .sink-out{font-size:11px;color:var(--muted-foreground-2);margin-top:10px}
-  .sink-toks{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;width:100%}
-  .sink-tok{display:flex;align-items:center;gap:10px;min-width:0}
-  .sink-tok>span:first-child{width:28px;height:28px;flex-shrink:0;border-radius:var(--radius);border:1px solid var(--border-strong)}
-  .sink-tok-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
-  .sink-tok-txt code{font-size:11px}
-  .sink-tok-txt em{font-style:normal;font-size:10px;color:var(--muted-foreground-2);text-transform:uppercase;letter-spacing:0.1em}
+  .at-var.col>.at-var-b{max-width:520px}
+  .at-stack{display:flex;flex-direction:column;gap:14px}
+  .at-out{font-size:11px;color:var(--muted-foreground-2);margin-top:10px}
+
+  /* Les jetons : le rond, le nom, et la valeur RÉSOLUE dessous — c'est elle qui
+     arrive à l'écran, pas ce qui est écrit dans la feuille. */
+  .at-toks{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;width:100%}
+  .at-tok{display:flex;align-items:center;gap:10px;min-width:0}
+  .at-tok-sw{width:26px;height:26px;flex-shrink:0;border-radius:var(--radius);
+    border:1px solid var(--border-strong)}
+  /* `flat` et non `empty` : `.empty` est déjà l'écran « rien à afficher » de
+     l'app, et une classe partagée par deux choses sans rapport finit toujours
+     par en habiller une des deux de travers. */
+  .at-tok-sw.flat{border-style:dashed;background:transparent}
+  .at-tok-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .at-tok-txt code{font-size:11px;color:var(--foreground)}
+  .at-tok-txt em{font-style:normal;font-size:10px;color:var(--muted-foreground-2);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* Ce qui appelle une action : les oublis, et les sources illisibles. */
+  .at-alert{border-color:var(--destructive);margin-bottom:18px}
+  .at-alert-h{font-size:13px;color:var(--destructive);margin:0 0 6px}
+  .at-orphans{list-style:none;margin:12px 0 0;padding:0;display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:6px}
+  .at-orphans li{display:flex;align-items:baseline;gap:10px;min-width:0}
+  .at-orphans code{font-size:12px;color:var(--foreground)}
+
+  .at-classes{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+  .at-classes code{font-size:10px;color:var(--muted-foreground-2);border:1px solid var(--border);
+    border-radius:var(--radius-pill);padding:2px 8px}
+
   @media (max-width:640px){
-    .sink-spec{grid-template-columns:minmax(0,1fr);gap:10px}
+    .at-bar{position:static;gap:12px 18px}
+    .at-frames.multi{grid-template-columns:minmax(0,1fr)}
+    .at-grid.many{grid-template-columns:minmax(0,1fr)}
   }

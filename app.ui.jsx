@@ -4,7 +4,7 @@
    Les contrôles que toute l'app réutilise, décrits dans
    `.claude/notes/ui.md` : `Segmented` (le seul mécanisme de
    bascule), `BoolPill`, `IconBar`, `GearIcon`, `InfoBubble`,
-   `SwatchGrid` et `ColorEditor`, plus les briques que `#sink`
+   `SwatchGrid` et `ColorEditor`, plus les briques que l'atelier
    montre au même titre — `NumPill`, `ChevronDown`, `DragHandle`
    et la machinerie de glisser-déposer (`useDragReorder`).
 
@@ -22,6 +22,7 @@
 // from many unrelated, deeply nested components (modals, cards…) — threading a prop
 // through every one of them would touch nearly every component signature in the file,
 // and more call sites are coming later, per Louis.
+/* @atelier technique — L’interrupteur des bulles infos, lu par chaque InfoBubble. */
 const InfoVisibilityContext = React.createContext(true);
 
 /* Une explication vit derrière un « i », partout, sans exception : c'est ce que
@@ -34,6 +35,7 @@ const InfoVisibilityContext = React.createContext(true);
    explication — le crédit que la licence d'Open Food Facts impose, ou la bulle
    de l'interrupteur lui-même, seule porte pour rallumer les autres — ne doit
    pas disparaître avec l'interrupteur. */
+/* @atelier molecule — La seule forme d’explication : un « i » qui déplie un cadre dans la page, sous ce qu’il explique. */
 function InfoBubble({ children, title, always = false }){
   const infoEnabled = useContext(InfoVisibilityContext);
   const [open, setOpen] = useState(false);
@@ -63,6 +65,7 @@ function InfoBubble({ children, title, always = false }){
 // it — day cards, chart cards, calendar cards, grid tiles, master strips, food
 // goals — so the geste is recognisable before the label is read. Defined once:
 // the earlier per-call SVGs had drifted into a spoked circle that read as a sun.
+/* @atelier atome — Le seul engrenage de l’app : « ouvre les réglages de cette chose ». */
 function GearIcon({ size = 13 }){
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
@@ -97,6 +100,7 @@ function GearIcon({ size = 13 }){
 // a single line and lets it scroll horizontally instead — for a short,
 // exclusive choice (which meal, which mode) where a second line reads as
 // broken and a dropdown would hide options that should stay one tap away.
+/* @atelier atome — La seule bascule : un fond qui glisse jusqu’à l’option active. Trois tailles, deux réponses au débordement. */
 function Segmented({ size, wrap, scrollx, className = '', children, ...rest }){
   const ref = useRef(null);
   const [thumb, setThumb] = useState(null);
@@ -155,6 +159,7 @@ function Segmented({ size, wrap, scrollx, className = '', children, ...rest }){
 
 // Oui/Non is just a two-option Segmented — kept as its own component because
 // callers ask for it by value/onChange, not by rendering the two buttons themselves.
+/* @atelier atome — Oui / Non — un Segmented à deux options, demandé par valeur plutôt que par ses deux boutons. */
 function BoolPill({ value, onChange, onLabel = 'Oui', offLabel = 'Non', disabled = false }){
   return (
     <Segmented size="compact" className={disabled ? 'disabled' : ''}>
@@ -175,6 +180,7 @@ function BoolPill({ value, onChange, onLabel = 'Oui', offLabel = 'Non', disabled
 //             star that narrows either one to favourites).
 // Sizing and the round button come from `.icon-btn`, like every other lone
 // glyph in the app; only the bar shell is new.
+/* @atelier molecule — La seule barre à bouton — inset, le bouton remplit le même champ ; detached, il agit sur ce que la barre montre. */
 function IconBar({ detached = false, className = '', children, buttons,
                    icon, onIcon, iconLabel, iconTitle, iconOn = false, iconDisabled = false }){
   // Un bouton reste le cas courant, et `icon`/`onIcon`… le disent le plus
@@ -228,6 +234,7 @@ function mergeSubOrder(fullIds, newSubOrder){
 // dragged card would land. Using one fixed-position element keeps positioning in
 // viewport coordinates (matches pointer clientX/Y) regardless of scroll/layout.
 const dropIndicator = { el: null };
+/* @atelier technique — Le trait de dépôt, monté une seule fois et déplacé à la main pendant un glisser. */
 function DropIndicatorMount(){
   const ref = useRef(null);
   useEffect(() => {
@@ -245,6 +252,7 @@ function sameRow(a, b){ return a.top < b.bottom && b.top < a.bottom; }
 // and a highlight bar marks the target gap. The reorder is committed once, on
 // drop. This avoids re-rendering the list on every move — which is what used to
 // replay the page-load entrance animation and make the dragged card vanish.
+/* @atelier technique — Le glisser-déposer maison, en pointer events : un ordre, un index de dépôt. */
 function useDragReorder(ids, onReorder){
   const idsKey = ids.join('|');
   const [order, setOrder] = useState(ids);
@@ -477,6 +485,7 @@ function useDragReorder(ids, onReorder){
 
 // Small grip handle that starts a drag. Kept separate from the rest of a
 // card so it never steals clicks from buttons/inputs inside it.
+/* @atelier atome — La poignée qui arme un glisser, tenue à l’écart des boutons de la carte. */
 function DragHandle({ onPointerDown, dragging }){
   return (
     <span className={`drag-handle ${dragging?'dragging':''}`} onPointerDown={onPointerDown} aria-label="Réordonner" title="Maintenir puis glisser pour réordonner">
@@ -494,6 +503,7 @@ function DragHandle({ onPointerDown, dragging }){
    façon, et deux grilles jumelles auraient dérivé l'une de l'autre.
    `extra` ajoute une pastille au bout (« la couleur de Tracklog » dans les
    paramètres) sans que la grille ait à connaître ce qu'elle veut dire. */
+/* @atelier molecule — Le nuancier : les mêmes couleurs pour un tracker et pour l’accent de l’app. */
 function SwatchGrid({ value, onChange }){
   const [editing, setEditing] = useState(false);
   const custom = value && !COLORS.includes(value);
@@ -524,6 +534,7 @@ function SwatchGrid({ value, onChange }){
    comme le reste du nuancier — c'est ce qui fait qu'une teinte déplacée garde
    la même intensité perçue, ce que HSL ne promet pas. La pipette, elle, rend un
    hexadécimal : on le garde tel quel, une couleur reste une chaîne CSS. */
+/* @atelier molecule — Trois curseurs OKLCH et la pipette système, pour une couleur hors nuancier. */
 function ColorEditor({ value, onChange }){
   const parsed = useMemo(() => {
     const m = /oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)/i.exec(value || '');
@@ -568,6 +579,7 @@ function ColorEditor({ value, onChange }){
     </div>
   );
 }
+/* @atelier atome — Une pastille qui contient un nombre ; le parsing et les bornes restent à l’appelant. */
 function NumPill({ label, value, onChange, unit, placeholder, min, style }){
   return (
     <label className="pill num-pill" style={style}>
@@ -578,6 +590,7 @@ function NumPill({ label, value, onChange, unit, placeholder, min, style }){
   );
 }
 
+/* @atelier atome — Le chevron de repli, partagé par tout ce qui se déplie. */
 function ChevronDown(){
   return <svg width="9" height="6" viewBox="0 0 9 6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M1 1L4.5 5L8 1"/></svg>;
 }

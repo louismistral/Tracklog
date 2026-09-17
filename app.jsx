@@ -9,13 +9,14 @@
    `mountTracklog`.
 
    Chargé après les trois autres et avant app.food.jsx et
-   app.sink.jsx, qui montent leurs pages dans cet `App`.
+   app.atelier.jsx, qui montent leurs pages dans cet `App`.
    ============================================================ */
 
 /* ============================================================
    App
    ============================================================ */
 
+/* @atelier page — L’app elle-même : l’état partagé, la barre d’onglets, et l’écran affiché. */
 function App({ session }){
   const userId = session.user.id;
   const [trackers, setTrackers] = useState([]);
@@ -78,23 +79,23 @@ function App({ session }){
   // La barre de composition des cartes d'aliment : lue ici pour le réglage, et
   // relue par app.food.jsx via le contexte, là où les cartes se dessinent.
   const [compBar, setCompBar] = useSyncedPref(accountPrefs, 'compBar', 'tracklog.compBar', true);
-  // Le style est lu par un petit script en tête de page, avant même que l'app
+  // Le thème est lu par un petit script en tête de page, avant même que l'app
   // charge, pour que la page ne clignote jamais dans les mauvaises couleurs — ce
   // script ne peut pas savoir quel compte se connecte, d'où une clé non scopée par
   // utilisateur. Le compte reste la référence : quand il répond, il corrige
   // l'appareil. `document.documentElement.dataset.theme` est ce que lit le CSS.
-  const [theme, setTheme] = useSyncedPref(accountPrefs, 'theme', 'tracklog.theme', DEFAULT_STYLE, isStyle);
+  const [theme, setTheme] = useSyncedPref(accountPrefs, 'theme', 'tracklog.theme', DEFAULT_THEME, isTheme);
   useEffect(() => {
     try {
       document.documentElement.dataset.theme = theme;
       const meta = document.querySelector('meta[name="theme-color"]');
-      const style = STYLES.find(s => s.id === theme);
-      if (meta && style) meta.setAttribute('content', style.themeColor);
+      const th = THEMES.find(s => s.id === theme);
+      if (meta && th) meta.setAttribute('content', th.themeColor);
     } catch {}
   }, [theme]);
-  // La couleur d'accent, à côté du style : le style choisit le fond et l'encre,
+  // La couleur d'accent, à côté du thème : le thème choisit le fond et l'encre,
   // l'accent choisit ce qui ressort dessus. Chaîne vide = celle de Tracklog.
-  // Même mécanique que le style, jusqu'au script en tête de page (window.applyAccent)
+  // Même mécanique que le thème, jusqu'au script en tête de page (window.applyAccent)
   // qui la pose avant le premier rendu — sinon toute l'app clignoterait en orange
   // avant de passer à la couleur choisie.
   const [accent, setAccent] = useSyncedPref(accountPrefs, 'accent', 'tracklog.accent', '');
@@ -674,6 +675,7 @@ function App({ session }){
    répondent en une seconde. Les bulles des réglages d'affichage portent donc
    un avant/après en vrai — même encre, mêmes tokens que ce qu'elles montrent,
    sinon l'exemple ne ressemblerait pas à ce qu'on va obtenir. */
+/* @atelier molecule — Deux états côte à côte, « Sans » / « Avec » : un réglage qui se montre mieux qu’il ne se décrit. */
 function DemoPair({ off, on, offLabel = 'Sans', onLabel = 'Avec' }){
   return (
     <span className="demo-pair" aria-hidden="true">
@@ -689,6 +691,7 @@ function DemoPair({ off, on, offLabel = 'Sans', onLabel = 'Avec' }){
   );
 }
 
+/* @atelier page — Les paramètres : compte, thème, accent, onglets, archives, retour. */
 function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled, onSetInfoEnabled,
                        showWeek, onSetShowWeek, theme, onSetTheme, accent, onSetAccent,
                        compBar, onSetCompBar,
@@ -717,26 +720,26 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
 
       <div className="card settings-card">
         <p className="settings-section-title">
-          Style
-          <InfoBubble title="Style">
-            Le style suit le compte : choisi sur le téléphone, il s'applique aussi sur
+          Thème
+          <InfoBubble title="Thème">
+            Le thème suit le compte : choisi sur le téléphone, il s'applique aussi sur
             l'ordinateur. D'autres viendront s'ajouter à cette liste.
           </InfoBubble>
         </p>
         <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:10}}>
-          <div className="style-picker">
-            {STYLES.map(s => (
-              <button key={s.id} className={`style-choice ${theme===s.id?'on':''}`} onClick={()=>onSetTheme(s.id)}>
-                <span className="style-swatch" data-style={s.id} aria-hidden="true">
+          <div className="theme-picker">
+            {THEMES.map(s => (
+              <button key={s.id} className={`theme-choice ${theme===s.id?'on':''}`} onClick={()=>onSetTheme(s.id)}>
+                <span className="theme-swatch" data-theme-id={s.id} aria-hidden="true">
                   <i /><i /><i />
                 </span>
-                <span className="style-name">{s.label}</span>
-                <span className="style-hint">{s.hint}</span>
+                <span className="theme-name">{s.label}</span>
+                <span className="theme-hint">{s.hint}</span>
               </button>
             ))}
           </div>
         </div>
-        {/* Le style choisit le fond et l'encre ; l'accent choisit ce qui ressort
+        {/* Le thème choisit le fond et l'encre ; l'accent choisit ce qui ressort
             dessus. Le même nuancier que la couleur d'un tracker — ce sont les
             mêmes couleurs, il n'y a pas de raison d'en inventer une seconde
             grille — plus une pastille pour revenir à celle de Tracklog. */}
@@ -745,7 +748,7 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
             Couleur d'accent
             <InfoBubble title="Couleur d'accent">
               La couleur des boutons, des liens et de tout ce qui doit attirer l'œil.
-              La première pastille remet celle de Tracklog. Comme le style, elle suit le
+              La première pastille remet celle de Tracklog. Comme le thème, elle suit le
               compte : posée sur le téléphone, elle est là sur l'ordinateur.
             </InfoBubble>
           </label>
@@ -877,6 +880,7 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
    milieu d'une liste d'objets identiques se lit comme une panne, pas comme une
    règle. Les paramètres n'y figurent pas — ce n'est pas un onglet mais
    l'engrenage du bout de barre, et c'est de là qu'on rallume ce qu'on a éteint. */
+/* @atelier organisme — Les onglets de la barre du haut : lesquels s’affichent, dans quel ordre. */
 function TabsSettingsCard({ tabs, onSetTabVisible, tabOrder, onSetTabOrder, prefsReady }){
   const byId = useMemo(() => Object.fromEntries(NAV_TABS.map(t => [t.id, t])), []);
   const hints = useMemo(() => Object.fromEntries(TOGGLEABLE_TABS.map(t => [t.id, t.hint])), []);
@@ -923,11 +927,12 @@ function TabsSettingsCard({ tabs, onSetTabVisible, tabOrder, onSetTabOrder, pref
    Retours — bugs, idées, avis
    ------------------------------------------------------------
    Écrire pendant qu'on a le nez dedans plutôt que de se
-   promettre d'y penser plus tard. Le contexte technique (style,
+   promettre d'y penser plus tard. Le contexte technique (thème,
    taille d'écran, navigateur) part avec le message : c'est
    exactement ce qu'on ne pense jamais à noter et ce qui manque
    toujours pour reproduire un bug.
    ============================================================ */
+/* @atelier organisme — Le formulaire de retour, avec le contexte technique capté automatiquement. */
 function FeedbackCard({ userId }){
   const [kind, setKind] = useState('bug');
   const [message, setMessage] = useState('');
@@ -944,7 +949,7 @@ function FeedbackCard({ userId }){
       kind,
       message: message.trim(),
       context: {
-        style: (() => { try { return document.documentElement.dataset.theme || null; } catch { return null; } })(),
+        theme: (() => { try { return document.documentElement.dataset.theme || null; } catch { return null; } })(),
         ecran: (() => { try { return `${window.innerWidth}×${window.innerHeight}`; } catch { return null; } })(),
         navigateur: (() => { try { return navigator.userAgent; } catch { return null; } })(),
         envoye_le: new Date().toISOString(),
@@ -993,7 +998,7 @@ function FeedbackCard({ userId }){
           <span className="settings-inline-hint">
             {state === 'sent' ? 'Envoyé — merci.'
              : state === 'error' ? err
-             : 'Le style, la taille d’écran et le navigateur partent avec le message.'}
+             : 'Le thème, la taille d’écran et le navigateur partent avec le message.'}
           </span>
           <button className="primary sm" disabled={!canSend} onClick={send}>
             {state === 'sending' ? 'Envoi…' : state === 'sent' ? 'Envoyer un autre' : 'Envoyer'}
@@ -1007,6 +1012,7 @@ function FeedbackCard({ userId }){
 /* ============================================================
    Training — la place est prise, le contenu viendra
    ============================================================ */
+/* @atelier page — L’écran Training — à venir. */
 function TrainingView(){
   return (
     <div className="empty training-empty">
@@ -1025,6 +1031,7 @@ function TrainingView(){
    L'onglet existe avant son contenu, volontairement : c'est lui qui dira ce que
    les données ont à dire quand on les croise — pas un tracker à la fois, mais
    l'un contre l'autre. Réservé pour l'instant, et masquable tant qu'il l'est. */
+/* @atelier page — L’écran AI analyst — à venir. */
 function AnalystView(){
   return (
     <div className="empty training-empty">
@@ -1046,6 +1053,7 @@ function AnalystView(){
    que celui des pastilles du rail — relâcher un appui long ne doit pas, en plus,
    changer d'onglet. L'ordre suit le compte : la barre est la même sur le
    téléphone et sur le PC. */
+/* @atelier organisme — La barre d’onglets du haut, réordonnable en maintenant un onglet. */
 function TabBar({ tabs, order, activeTab, onSelect, onReorder }){
   const byId = useMemo(() => Object.fromEntries(tabs.map(t => [t.id, t])), [tabs]);
   // On ne réordonne que ce qui est affiché ; un onglet masqué garde sa place
@@ -1094,6 +1102,7 @@ function TabBar({ tabs, order, activeTab, onSelect, onReorder }){
    app.core.jsx : des listes de choix, pas un rendu.
    ============================================================ */
 
+/* @atelier organisme — Le rail : une pastille par tracker, plus Filtres, Tri et Grouper. */
 function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onToggleAll, onAdd, onEdit, onReorder,
                         filterOpen, onToggleFilterOpen, sortMode, onSortMode, sortOpen, onToggleSortOpen,
                         groupMode, onGroupMode, groupOpen, onToggleGroupOpen }){
@@ -1195,6 +1204,7 @@ function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onTog
    Day view — fill / edit every tracker for one given day.
    Used by the "Jour" tab (today) and the Historique calendar (any day).
    ============================================================ */
+/* @atelier page — Le Jour : remplir la journée, section par section. */
 function TodayView({ trackers, masters = [], trackerById = {}, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder, foodSummary = null, onEditTracker, showWeek,
                       groupMode = 'type', sectionOrder, onReorderSections }){
   const todayTs = startOfDay(Date.now());
@@ -1292,6 +1302,7 @@ function mergeSectionOrder(defaultIds, saved){
 // Un en-tête de section réordonnable : la même poignée que sur une carte de
 // tracker, un rond de couleur pour un groupe "Couleur" (le regroupement se
 // voit déjà, un mot de plus ne dirait rien), un intitulé pour tout le reste.
+/* @atelier organisme — Un bloc du Jour, réordonnable au même titre qu’une carte. */
 function ReorderSection({ label, swatch, containerRef, dragging, onDragStart, children }){
   return (
     <div ref={containerRef} className={`day-group ${dragging?'dragging':''}`}>
@@ -1310,6 +1321,7 @@ function ReorderSection({ label, swatch, containerRef, dragging, onDragStart, ch
 // c'est ce que ce bouton groupé déclenche d'un coup. Partagé par DayGrid
 // (Historique) et par les sections du Jour — une carte n'a qu'un bouton
 // "Noter", peu importe dans quelle section elle se trouve affichée.
+/* @atelier technique — Le « Tout ajouter » : chaque carte remonte sa sauvegarde, le bouton groupé les déclenche d’un coup. */
 function useSubmitAll(){
   const submitters = useRef({});
   const [pendingIds, setPendingIds] = useState([]);
@@ -1340,6 +1352,7 @@ function useSubmitAll(){
 // dans un groupe de couleur. Sans `onReorder` (un bucket dérivé d'une donnée —
 // couleur, fait/pas fait — plutôt que d'un ordre posé), `useDragReorder`
 // dégrade déjà proprement à une grille sans poignée.
+/* @atelier organisme — La grille de cartes d’une section, avec son glisser-déposer. */
 function TrackerCardGrid({ ids, byId, byTracker, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, onReorder, onEditTracker, registerSubmit }){
   const drag = useDragReorder(ids, onReorder);
   return (
@@ -1437,6 +1450,7 @@ function buildDaySections({ groupMode, trackers, masters, entries, dk, foodSumma
 // Grid of one editable card per tracker, for the given day. Utilisé par
 // l'Historique, qui ne connaît ni le groupement ni l'alimentation — il garde
 // le partage fixe Quotidiens / Plusieurs par jour d'origine.
+/* @atelier organisme — Les cartes du jour, rangées en sections selon le groupement choisi. */
 function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, onReorder, onEditTracker }){
   const dk = dayKey(dayTs);
   const byTracker = useMemo(() => {
@@ -1488,6 +1502,7 @@ function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, da
   );
 }
 
+/* @atelier organisme — La carte qui remplit une journée — une forme de saisie par genre de tracker. */
 function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, containerRef, dragging, onDragStart, registerSubmit, onEditTracker }){
   const t = tracker;
   const daily = !!t.daily;
@@ -1788,6 +1803,7 @@ function copyStylesTo(win){
 }
 const PIP_SUPPORTED = typeof window !== 'undefined' && 'documentPictureInPicture' in window;
 
+/* @atelier page — Les chronomètres, en solo ou en parallèle. */
 function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, onReset, onRemove, onSave, onUpdate, onResetAll, onReorder, exclusive, onSetExclusive }){
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -1913,6 +1929,7 @@ function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, o
   );
 }
 
+/* @atelier organisme — Un chronomètre : son temps, ses boutons, le tracker où il se verse. */
 function ChronoCard({ chrono: c, now, tracker, onStart, onPause, onReset, onSave, onEdit, containerRef, dragging, onDragStart }){
   const elapsed = chronoElapsed(c, now);
   const isRunning = !!c.startedAt;
@@ -1974,6 +1991,7 @@ function ChronoCard({ chrono: c, now, tracker, onStart, onPause, onReset, onSave
 
 // Serves both creation and settings, the way a tracker's dialog does — same fields,
 // plus deletion once the chrono exists.
+/* @atelier modale — Les réglages d’un chronomètre. */
 function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
   const editing = !!chrono;
   const [trackerId, setTrackerId] = useState(chrono?.trackerId || '');
@@ -2039,6 +2057,7 @@ function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
 /* ============================================================
    Log view — the entries, split into "Jour", "Historique" and "Chrono"
    ============================================================ */
+/* @atelier page — Le Log et ses trois sous-écrans : Jour, Historique, Chrono. */
 function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder,
                   chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono, onUpdateChrono, onResetAllChronos, onReorderChronos, chronoExclusive, onSetChronoExclusive,
                   foodSummary, historyJump, onAddTracker, onEditTracker, showWeek, groupMode, sectionOrder, onReorderSections }){
@@ -2103,6 +2122,7 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
 /* ============================================================
    History — a month calendar to open any day and edit its entries
    ============================================================ */
+/* @atelier page — L’historique : un jour passé, rouvert et modifiable. */
 function HistoryView({ trackers, masters = [], trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder, jumpTo, onEditTracker, showWeek }){
   const [monthTs, setMonthTs] = useState(() => startOfMonth(Date.now()));
   const [selectedDay, setSelectedDay] = useState(() => startOfDay(Date.now()));
@@ -2203,6 +2223,7 @@ function HistoryView({ trackers, masters = [], trackerById, entries, filterIds, 
 /* ============================================================
    Month calendar — click any day to open it below
    ============================================================ */
+/* @atelier organisme — Le calendrier d’un mois, une pastille par jour rempli. */
 function MonthCalendar({ monthTs, onPrev, onNext, entries, selectedKey, onSelectDay }){
   const first = new Date(monthTs);
   const year = first.getFullYear(), month = first.getMonth();
@@ -2263,6 +2284,7 @@ function MonthCalendar({ monthTs, onPrev, onNext, entries, selectedKey, onSelect
 /* ============================================================
    Vues view (charts / heatmap / grid)
    ============================================================ */
+/* @atelier page — Les vues : graphes, tendance, calendrier, grille. */
 function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit, onOpenDay }){
   // Quatre vues à plat, pas trois dont une qui en cache trois autres : les
   // cartes, la tendance, le calendrier et la grille sont quatre façons de
@@ -2459,6 +2481,7 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
 /* ============================================================
    Entry modal (edit an existing entry)
    ============================================================ */
+/* @atelier modale — Corriger ou effacer une entrée déjà notée. */
 function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
   const t = tracker;
   const [num, setNum]     = useState(t.type==='number' ? String(entry.value ?? '') : '');
@@ -2630,6 +2653,7 @@ function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
    nom, la courbe, la granularité, le cumul, la couleur) est exactement ce qui
    reste vrai pour eux. Une seconde page de réglages n'aurait dit qu'une
    variante de celle-ci — c'est le même objet. */
+/* @atelier modale — Les réglages d’un tracker — la plus grande modale de l’app, réduite à l’affichage avec scope="display". */
 function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, onArchive, onUnarchive, onSync, syncError = null, scope = 'full' }){
   const isEdit = !!tracker;
   const display = scope === 'display';
@@ -3226,6 +3250,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
 /* ============================================================
    Auth — email + password (magic link as fallback)
    ============================================================ */
+/* @atelier page — La connexion. */
 function SignIn(){
   const [mode, setMode] = useState('signin'); // signin | signup
   const [email, setEmail] = useState('');
@@ -3322,6 +3347,7 @@ function SignIn(){
 /* ============================================================
    Set / change password (used while logged in and after reset link)
    ============================================================ */
+/* @atelier modale — Changer de mot de passe, y compris après un lien de réinitialisation. */
 function PasswordModal({ recovery, onClose }){
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -3372,20 +3398,24 @@ function PasswordModal({ recovery, onClose }){
   );
 }
 
-/* L'atelier (app.sink.jsx) vit à une adresse plutôt que dans un onglet : ce
+/* L'atelier (app.atelier.jsx) vit à une adresse plutôt que dans un onglet : ce
    n'est pas une page de l'app mais une page pour celui qui la fabrique, et
    elle n'a besoin ni de compte ni de données. Le test est exact — le lien de
-   réinitialisation de mot de passe arrive lui aussi par le hash. */
-const isSinkHash = () => (window.location.hash || '') === '#sink';
+   réinitialisation de mot de passe arrive lui aussi par le hash.
+   `#sink` reste accepté : c'était son adresse, et un lien posé quelque part ne
+   doit pas tomber dans le vide parce qu'on a changé le mot. */
+const ATELIER_HASHES = ['#atelier', '#sink'];
+const isAtelierHash = () => ATELIER_HASHES.indexOf(window.location.hash || '') !== -1;
 
+/* @atelier technique — Le routeur : atelier, récupération de mot de passe, connexion, ou app. */
 function Root(){
   const [session, setSession] = useState(undefined); // undefined = loading, null = signed out
   const [recovery, setRecovery] = useState(false);   // arrived via password-reset link
-  // Taper #sink dans la barre d'adresse ne recharge pas la page : sans écouter
-  // le changement de hash, l'atelier ne s'ouvrirait qu'au rechargement suivant.
-  const [sink, setSink] = useState(isSinkHash);
+  // Taper #atelier dans la barre d'adresse ne recharge pas la page : sans
+  // écouter le changement de hash, l'atelier ne s'ouvrirait qu'au rechargement.
+  const [atelier, setAtelier] = useState(isAtelierHash);
   useEffect(() => {
-    const onHash = () => setSink(isSinkHash());
+    const onHash = () => setAtelier(isAtelierHash());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -3415,7 +3445,7 @@ function Root(){
 
   // Avant l'attente de session : l'atelier ne montre que des composants, il
   // n'a rien à attendre de la base.
-  if (sink) return <SinkView />;
+  if (atelier) return <AtelierView />;
   if (session === undefined) return <div className="empty"><span className="em-serif">Chargement…</span></div>;
   if ((recovery || urlRecovery) && session) return <PasswordModal recovery onClose={closeRecovery} />;
   if (!session) return <SignIn />;

@@ -3,22 +3,22 @@
 <head>
 <meta charset="utf-8" />
 <script>
-  // Set before the stylesheet is parsed, so the chosen style never flashes the
+  // Set before the stylesheet is parsed, so the chosen theme never flashes the
   // wrong colours on load. A device preference, not account data — read here
   // without waiting on Supabase auth to resolve.
-  // STYLE_IDS doubles the list held in app.jsx (STYLES) on purpose: this runs
-  // before any script loads, so it cannot read it. Adding a style means adding
+  // THEME_IDS doubles the list held in app.jsx (THEMES) on purpose: this runs
+  // before any script loads, so it cannot read it. Adding a theme means adding
   // its id here too — and a stored value outside the list falls back to dark
   // rather than leaving the page with no tokens at all.
-  var STYLE_IDS = ['dark', 'light', 'matrix', 'paper', 'paper-dark'];
+  var THEME_IDS = ['dark', 'light', 'matrix', 'paper', 'paper-dark'];
   try{
     var t = localStorage.getItem('tracklog.theme');
-    if (STYLE_IDS.indexOf(t) !== -1) document.documentElement.dataset.theme = t;
+    if (THEME_IDS.indexOf(t) !== -1) document.documentElement.dataset.theme = t;
   } catch(e){}
   // La couleur d'accent choisie, posée avant le premier pixel pour la même
-  // raison que le style. Les deux dérivées (survol, fond très pâle) se
+  // raison que le thème. Les deux dérivées (survol, fond très pâle) se
   // calculent en CSS : une seule couleur est stockée, jamais trois qui
-  // pourraient diverger. `applyAccent` est réutilisée par l'app (STYLES,
+  // pourraient diverger. `applyAccent` est réutilisée par l'app (THEMES,
   // app.jsx) quand on change de couleur en cours de route.
   window.applyAccent = function(c){
     var r = document.documentElement.style;
@@ -46,9 +46,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- Une famille de plus ne coûte que sa déclaration @font-face : Google ne sert
      le fichier de police qu'au premier usage réel, donc un compte resté sur
-     « Aristide » ne télécharge ni VT323 ni les serifs du style Papier. -->
+     « Aristide » ne télécharge ni VT323 ni les serifs du thème Papier. -->
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=VT323&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Lora:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=1">
+<link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
 <div id="root"><div class="boot-fallback" id="boot-fallback"><span class="em-serif">Chargement…</span><p id="boot-msg"></p></div></div>
@@ -127,15 +127,16 @@
      sont écrits ici, et cet ordre est celui des dépendances : app.core.jsx pose
      l'espace de noms (React, supabase, le modèle, les registres), app.ui.jsx les
      briques partagées, app.charts.jsx ce qui dessine les données, app.jsx l'app
-     et ses écrans, app.food.jsx la page Food, app.sink.jsx l'atelier (#sink, qui
-     rend les composants des autres), et le dernier script monte React une fois
-     les six en place. Réordonner, c'est casser. -->
-<script type="text/babel" src="app.core.jsx?v=1"></script>
-<script type="text/babel" src="app.ui.jsx?v=1"></script>
-<script type="text/babel" src="app.charts.jsx?v=1"></script>
-<script type="text/babel" src="app.jsx?v=70"></script>
-<script type="text/babel" src="app.food.jsx?v=38"></script>
-<script type="text/babel" src="app.sink.jsx?v=2"></script>
+     et ses écrans, app.food.jsx la page Food, app.atelier.jsx l'atelier
+     (#atelier, qui rend les composants des autres et relit leurs sources), et
+     le dernier script monte React une fois les six en place. Réordonner, c'est
+     casser. -->
+<script type="text/babel" src="app.core.jsx?v=2"></script>
+<script type="text/babel" src="app.ui.jsx?v=2"></script>
+<script type="text/babel" src="app.charts.jsx?v=2"></script>
+<script type="text/babel" src="app.jsx?v=71"></script>
+<script type="text/babel" src="app.food.jsx?v=39"></script>
+<script type="text/babel" src="app.atelier.jsx?v=1"></script>
 <script type="text/babel">mountTracklog();</script>
 </body>
 </html>
