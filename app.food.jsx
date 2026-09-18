@@ -15,10 +15,11 @@
                         ne se réécrit pas tout seul.
      nutrition_goals  = les objectifs du jour (kcal + macros).
 
-   Ce fichier est un second <script type="text/babel">, chargé
-   après app.jsx : tout ce que app.jsx déclare au premier niveau
-   (supabase, uid, dayKey, useState…) est visible ici, et le
-   montage de React est déclenché après les deux (mountTracklog).
+   Ce fichier est chargé après app.core.jsx, app.ui.jsx,
+   app.charts.jsx et app.jsx : tout ce qu'ils déclarent au premier
+   niveau (supabase, uid, dayKey, useState, Segmented, ChartCard…)
+   est visible ici, et le montage de React est déclenché une fois
+   tous les fichiers en place (mountTracklog).
 
    Le seul pont avec le reste de l'app : les 4 compteurs du jour
    (kcal, protéines, glucides, lipides) affichés dans Log → Jour
@@ -84,6 +85,7 @@ function itemSub(x, refByBarcode){
 }
 // La pastille d'origine — le même objet visuel partout où un item se montre :
 // résultat de recherche, carte de bibliothèque, carte de repas.
+/* @atelier atome — D’où vient un item — quatre origines, largeur fixe pour que les icônes suivantes s’alignent. */
 function OriginTag({ item, origin }){
   const o = origin || itemOrigin(item);
   return <span className={`item-tag o-${o.id}`} title={o.hint}>{o.tag}</span>;
@@ -94,6 +96,7 @@ function OriginTag({ item, origin }){
    là où on en avait besoin, ils auraient dérivé — c'est déjà arrivé à
    l'engrenage, qui s'était transformé en soleil ; ils sont donc définis une
    fois, comme GearIcon.                                                      */
+/* @atelier atome — Le viseur du scanner de code-barres. */
 function ScanIcon({ size = 15 }){
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
@@ -103,6 +106,7 @@ function ScanIcon({ size = 15 }){
     </svg>
   );
 }
+/* @atelier atome — L’étoile des favoris, pleine ou vide — la même pour un aliment et pour un repas. */
 function StarIcon({ size = 13, filled = false }){
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}
@@ -111,6 +115,7 @@ function StarIcon({ size = 13, filled = false }){
     </svg>
   );
 }
+/* @atelier atome — Le « plus » d’ajout. */
 function PlusIcon({ size = 15 }){
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
@@ -121,6 +126,7 @@ function PlusIcon({ size = 15 }){
 }
 // « Modifier cette chose » quand ce n'est pas un réglage mais un contenu : un
 // crayon, là où l'engrenage dirait « réglages ».
+/* @atelier atome — Le crayon : modifier ce qu’on regarde. */
 function PencilIcon({ size = 12 }){
   return (
     <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke="currentColor"
@@ -131,6 +137,7 @@ function PencilIcon({ size = 12 }){
 }
 // Oublier un item : le retirer de ce qui est à soi, comme si on ne l'avait
 // jamais utilisé. Une corbeille, parce que ce n'est pas « masquer ».
+/* @atelier atome — La corbeille : supprimer. */
 function TrashIcon({ size = 12 }){
   return (
     <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke="currentColor"
@@ -140,6 +147,7 @@ function TrashIcon({ size = 12 }){
   );
 }
 // Trier une liste. Trois barres décroissantes : l'ordre, pas le contenu.
+/* @atelier atome — Les barres du tri. */
 function SortIcon({ size = 12 }){
   return (
     <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke="currentColor"
@@ -149,6 +157,7 @@ function SortIcon({ size = 12 }){
   );
 }
 // Montrer ou cacher les vignettes d'une liste.
+/* @atelier atome — Le repère d’une photo — présente ou attendue. */
 function ImageIcon({ size = 12 }){
   return (
     <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke="currentColor"
@@ -159,6 +168,7 @@ function ImageIcon({ size = 12 }){
   );
 }
 // La flèche « ça sort de l'app » — fiche Ciqual, fiche Open Food Facts.
+/* @atelier atome — La flèche d’un lien qui sort de l’app. */
 function ExternalIcon({ size = 12 }){
   return (
     <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke="currentColor"
@@ -173,6 +183,7 @@ function ExternalIcon({ size = 12 }){
 // chacun leur propre variante (une grille 4 colonnes ici, un style en ligne
 // là) pour dire la même chose ; ils partagent maintenant celle-ci plutôt que
 // de continuer à dériver chacun de son côté.
+/* @atelier molecule — La seule rangée numérique : un intitulé, un nombre, son unité, et une bulle facultative. */
 function NumField({ label, unit, value, onChange, onKeyDown, placeholder = '—', info = null }){
   return (
     <div className={`field ${info ? 'field-info' : ''}`}>
@@ -209,13 +220,14 @@ function NumField({ label, unit, value, onChange, onKeyDown, placeholder = '—'
    d'accent. Sans elle il aurait fallu faire descendre les préférences jusqu'à
    six composants, dont trois qui n'en connaissent aucune. */
 const FOOD_MACROS = [
-  { key:'kcal',    label:'Calories',  short:'kcal', unit:'kcal', color:'var(--macro-kcal)',    defaultColor:'var(--ink-2)' },
+  { key:'kcal',    label:'Calories',  short:'kcal', unit:'kcal', color:'var(--macro-kcal)',    defaultColor:'var(--muted-foreground)' },
   { key:'protein', label:'Protéines', short:'prot', unit:'g',    color:'var(--macro-protein)', defaultColor:'oklch(0.60 0.13 25)'  },
   { key:'carbs',   label:'Glucides',  short:'gluc', unit:'g',    color:'var(--macro-carbs)',   defaultColor:'oklch(0.62 0.11 250)' },
   { key:'fat',     label:'Lipides',   short:'lip',  unit:'g',    color:'var(--macro-fat)',     defaultColor:'oklch(0.75 0.12 90)'  },
 ];
 // Ce que la page Food range dans les préférences pour un graphe de macro finit
 // donc ici, en variable CSS, et tout ce qui affiche cette macro suit.
+/* @atelier technique — Les couleurs des macros, posées en variables CSS. */
 function useMacroColorVars(){
   const accountPrefs = useContext(AccountPrefsContext) || LOCAL_ONLY_PREFS;
   const charts = accountPrefs.prefs.foodCharts || {};
@@ -1007,6 +1019,7 @@ function cameraErrorMessage(e){
 // ce qu'on synchronise est l'intention « je veux la caméra », pas la permission.
 const CAMERA_KEY = 'tracklog.cameraOn';
 
+/* @atelier organisme — La caméra du scanner de code-barres, et le chrome sombre qui se pose dessus. */
 function FoodScanner({ onCode }){
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -1233,6 +1246,7 @@ function FoodScanner({ onCode }){
    Vit dans App (un seul chargement), pour que la page Food et
    les compteurs de la page Log lisent la même chose.
    ============================================================ */
+/* @atelier technique — Tout l’état de Food : aliments, repas, journal, objectifs. */
 function useFoodStore(userId){
   // Les couleurs des macros se posent ici parce que le magasin est le seul
   // morceau de Food toujours monté : le Log affiche des macros sans que la page
@@ -1622,6 +1636,7 @@ async function analyseRepas(description, { signal, image, mode } = {}){
 /* ============================================================
    Page Food
    ============================================================ */
+/* @atelier page — La page Food et ses sous-écrans. */
 function FoodPage({ store, sub, onSub }){
   const [addOpen, setAddOpen] = useState(null);      // { meal, day } | null
   // Un aliment ne se corrige pas après coup : ce qu'on garde est la fiche
@@ -1716,6 +1731,7 @@ function FoodPage({ store, sub, onSub }){
    Aucune valeur affichée dans cette page ne vient de nulle part : soit d'une
    fiche Open Food Facts, soit d'un aliment saisi à la main. Les liens sont là
    pour pouvoir aller vérifier la fiche d'origine plutôt que nous croire.     */
+/* @atelier organisme — Le crédit des sources de données nutritionnelles, imposé par leurs licences. */
 function FoodSources(){
   return (
     <div className="fd-sources">
@@ -1764,6 +1780,7 @@ function FoodSources(){
 // Les lignes d'un jour, dans l'ordre où la page les montre.
 const dayLogsOf = (store, day) => store.logsByDay[day] || [];
 
+/* @atelier page — La journée alimentaire : les quatre repas et leurs lignes. */
 function FoodDayView({ store, day, onDay, onAdd, onGoals, onNewMeal }){
   const [showMicros, setShowMicros] = useState(false);
   const [editLog, setEditLog] = useState(null);
@@ -1807,9 +1824,9 @@ function FoodDayView({ store, day, onDay, onAdd, onGoals, onNewMeal }){
     for (const l of selected){
       const g = l.groupId ? (remap[l.groupId] = remap[l.groupId] || uid('g_')) : null;
       // Les propriétés recopiées une à une, et surtout pas un `{ id, ts, ...rest }` :
-      // dans un fichier chargé après app.jsx, un reste d'objet écrase le
+      // dans un fichier chargé après app.ui.jsx, un reste d'objet écrase le
       // `_excluded` de Babel et fait recopier ses propres propriétés sur le
-      // <div> de `Segmented` (voir le piège du reste d'objet dans CLAUDE.md).
+      // <div> de `Segmented` (voir le piège du reste d'objet dans pieges.md).
       // `id` et `ts` sont simplement omis — `addLog` les pose lui-même, et un
       // `undefined` explicite les écraserait par du vide.
       store.addLog({
@@ -2077,6 +2094,7 @@ function foodForLog(store, log){
 
    Un hook et pas un composant : une ligne et l'en-tête d'un repas se
    supprimeront du même geste sans partager leur mise en page. */
+/* @atelier technique — Le glisser-supprimer d’une ligne. */
 function useSwipeAway(onDelete){
   const [dx, setDx] = useState(0);
   const [out, setOut] = useState(false);
@@ -2123,6 +2141,7 @@ function useSwipeAway(onDelete){
 }
 
 // Le rouge qui se découvre derrière ce qui glisse.
+/* @atelier atome — Le fond rouge découvert en glissant une ligne vers la gauche. */
 const SwipeDel = () => (
   <span className="fd-row-del" aria-hidden="true"><TrashIcon size={13} /> Supprimer</span>
 );
@@ -2131,6 +2150,7 @@ const SwipeDel = () => (
    c'est là-dedans qu'on la supprime. Deux mots d'action au bout de chaque ligne
    répétaient « modifier » et « suppr. » autant de fois qu'il y avait de lignes,
    pour un geste qu'on fait rarement. */
+/* @atelier organisme — Une portion mangée : son nom, ses macros, et le glisser-supprimer. */
 function FoodLogRow({ log, onEdit, onDelete, selecting = false, selected = false, onToggle }){
   const n = log.nutriments || {};
   const sw = useSwipeAway(onDelete);
@@ -2175,6 +2195,7 @@ function FoodLogRow({ log, onEdit, onDelete, selecting = false, selected = false
    lieu d'une. C'est un filet vertical à gauche qui dit l'appartenance — le même
    procédé que le cadre d'une bulle d'explication, et il tient à n'importe
    quelle profondeur si un jour un repas en contient un autre. */
+/* @atelier organisme — Les lignes d’un repas versé d’un coup, repliables et re-dosables comme un tout. */
 function FoodGroupBlock({ group, children, onQty, onDelete, selecting = false, selected = false, onToggle }){
   const [open, setOpen] = useState(true);
   const sw = useSwipeAway(onDelete);
@@ -2231,6 +2252,7 @@ function FoodGroupBlock({ group, children, onQty, onDelete, selecting = false, s
    saut ponctuel vers une date quelconque, pas une navigation, et sortir le
    calendrier de l'Historique ici serait deux fois plus de page pour la même
    réponse. */
+/* @atelier modale — Copier des lignes vers un autre jour ou un autre repas. */
 function CopyToModal({ day, n, onClose, onSubmit }){
   const [toDay, setToDay] = useState(day);
   const [toMeal, setToMeal] = useState(defaultMealForNow());
@@ -2281,6 +2303,7 @@ function groupBlocks(rows){
 
 // Détail réglementaire + micros, avec le % du repère journalier européen quand
 // on en a un. Rien n'est inventé : ce qui manque sur l'étiquette reste vide.
+/* @atelier organisme — Les micronutriments d’une journée, en regard des apports de référence. */
 function MicroPanel({ totals }){
   const details = FOOD_DETAILS.filter(d => totals[d.key] != null);
   const micros = FOOD_MICROS.filter(m => totals[m.key] != null);
@@ -2336,6 +2359,7 @@ function MicroPanel({ totals }){
    choses différentes selon la recette. Seul le POIDS se règle — ce n'est pas
    une propriété de l'aliment mais la quantité qu'on en met. Pour autre chose,
    l'onglet Créer fabrique l'aliment qu'on veut vraiment. */
+/* @atelier molecule — Un ingrédient d’un repas : son nom, son poids, ses valeurs pour 100 g. */
 function IngredientRow({ item, onPatch, onRemove, onDragStart, dragging }){
   const n = itemNutriments(item);
   return (
@@ -2368,6 +2392,7 @@ function IngredientRow({ item, onPatch, onRemove, onDragStart, dragging }){
 // Ajouter un ingrédient sans quitter l'éditeur : la bibliothèque et la table
 // Ciqual sont toutes deux locales, donc la recherche est instantanée et marche
 // hors ligne. Ce qui n'est dans ni l'une ni l'autre se saisit en ligne vide.
+/* @atelier molecule — Le choix d’un ingrédient à ajouter — dans la bibliothèque, ou à blanc. */
 function IngredientPicker({ store, onPick, onBlank }){
   const [q, setQ] = useState('');
   const query = q.trim();
@@ -2407,6 +2432,7 @@ function IngredientPicker({ store, onPick, onBlank }){
    un autre repas) : une ligne pleine largeur suffit à y aller. L'analyse IA,
    elle, est déjà DANS cette page — la renvoyer sur elle-même n'aurait pas de
    sens, donc elle garde la recherche en ligne. */
+/* @atelier organisme — La liste d’ingrédients d’un repas — réordonnable, partagée par l’analyse IA et l’éditeur. */
 function IngredientEditor({ items, onChange, store, onAdd, children }){
   const totals = itemsTotals(items);
   const patch = (id, p) => onChange(items.map(it => it.id === id ? { ...it, ...p } : it));
@@ -2461,6 +2487,7 @@ function IngredientEditor({ items, onChange, store, onAdd, children }){
    ============================================================ */
 const AI_PHOTO_MAX_BYTES = 5 * 1024 * 1024; // 5 Mo — large marge avant l'encodage base64
 
+/* @atelier organisme — Décrire un repas en texte ou en photo, et récupérer sa décomposition pesée. */
 function AiAnalyseTab({ store, day, initialMeal, pickMode, onPickItems, onDone, onEditAsMeal }){
   const [description, setDescription] = useState('');
   const [photo, setPhoto] = useState(null);   // { dataUrl, base64, mediaType }
@@ -2696,6 +2723,7 @@ function AiAnalyseTab({ store, day, initialMeal, pickMode, onPickItems, onDone, 
    Le facteur pèse chaque ingrédient plutôt que de poser une ligne « ×0,5 » :
    le journal garde une ligne par ingrédient, chacune juste, chacune
    corrigeable seule — la règle ne change pas parce qu'on a mangé une demie. */
+/* @atelier modale — Quelle part d’un repas enregistré on verse dans la journée. */
 function MealPortionModal({ meal, initialMeal, pickMode, onClose, onSubmit }){
   const portions = mealPortions(meal);
   const [eaten, setEaten] = useState('');
@@ -2758,6 +2786,7 @@ function MealPortionModal({ meal, initialMeal, pickMode, onClose, onSubmit }){
   );
 }
 
+/* @atelier organisme — La bibliothèque de repas enregistrés. */
 function MealsTab({ store, day, initialMeal, favOnly, query, sortMode = 'recent', pickMode, onPick, onDone, onNew, onEdit }){
   const [mealSlot, setMealSlot] = useState(initialMeal || defaultMealForNow());
   const [portioning, setPortioning] = useState(null);   // le repas dont on choisit la part
@@ -2886,6 +2915,7 @@ const autoGrowStep = (el) => {
   el.style.height = el.scrollHeight + 'px';
 };
 
+/* @atelier organisme — Les étapes d’une recette, chacune avec sa case et son minuteur facultatif. */
 function RecipeSteps({ steps, onChange }){
   const ids = useMemo(() => steps.map(s => s.id), [steps]);
   const byId = useMemo(() => Object.fromEntries(steps.map(s => [s.id, s])), [steps]);
@@ -2994,6 +3024,7 @@ function RecipeSteps({ steps, onChange }){
    un repas peut donc se composer d'un produit scanné, d'un aliment de la table
    Ciqual, d'une analyse IA ou même d'un autre repas entier, sans qu'aucun de
    ces chemins n'ait à être réécrit ici.                                       */
+/* @atelier modale — L’éditeur d’un repas enregistré : ingrédients, recette, portions. */
 function MealEditModal({ meal, store, onClose, onSave, onDelete }){
   const [name, setName] = useState(meal?.name || '');
   const [items, setItems] = useState(() => (meal?.items || []).map(it => ({ ...mkItem(), ...it })));
@@ -3124,6 +3155,7 @@ function MealEditModal({ meal, store, onClose, onSave, onDelete }){
    pièce. `.fd-add-head` (titre + fermeture) et `.fd-add-tabs` restent fixes
    en haut pendant que `.fd-add-body` défile en dessous — le choix
    d'onglet reste à portée, quoi qu'on ait déjà descendu.                     */
+/* @atelier modale — Les quatre façons d’ajouter à manger : rechercher, scanner, analyser, créer. */
 function AddFoodModal({ store, day, meal, onClose, onNeedsFood, onPickItems }){
   // Mode « choisir » : la page ne verse rien dans une journée, elle rend des
   // ingrédients à qui l'a ouverte (l'éditeur de repas). Les quatre onglets
@@ -3640,6 +3672,7 @@ function macroShare(n){
    comparable elle aussi. Aucun trait dessiné : c'est l'alignement qui fait le
    tableau. La légende « kcal/100 g » vaut pour toute la ligne — sans elle, rien
    ne dirait à quoi ces grammes se rapportent. */
+/* @atelier molecule — Les quatre chiffres d’un item sur une ligne — calories à gauche, macros en colonnes de largeur fixe. */
 function MacroStrip({ n = {}, per = '100 g', compBar = false, className = '' }){
   const share = compBar ? macroShare(n) : null;
   // La lettre nomme la macro tant que rien d'autre ne le fait. Dès que la barre
@@ -3691,6 +3724,7 @@ function MacroStrip({ n = {}, per = '100 g', compBar = false, className = '' }){
    Plus de plafond à quatre : la rangée défile latéralement. Le plafond existait
    pour qu'elle ne passe pas sur deux lignes ; par item, on en a naturellement
    peu, et celui qui en veut six ne doit pas se faire refuser le sixième. */
+/* @atelier molecule — Les quantités qu’on reprend le plus souvent pour cet aliment, à un tap. */
 function QtyPresets({ itemId, unit, value, onPick }){
   const accountPrefs = useContext(AccountPrefsContext) || LOCAL_ONLY_PREFS;
   const all = (accountPrefs.prefs && accountPrefs.prefs.itemPresets) || {};
@@ -3723,6 +3757,7 @@ function QtyPresets({ itemId, unit, value, onPick }){
 // La barre de composition est un réglage de compte : la carte marche avec et
 // sans, et c'est le même interrupteur pour toutes les listes.
 const COMPBAR_KEY = 'tracklog.compBar';
+/* @atelier technique — La barre de composition d’un item, calculée sur ses calories. */
 function useCompBar(){
   const accountPrefs = useContext(AccountPrefsContext) || LOCAL_ONLY_PREFS;
   const [on] = useSyncedPref(accountPrefs, 'compBar', COMPBAR_KEY, true);
@@ -3735,6 +3770,7 @@ function useCompBar(){
    — pour que les trois ronds qui la suivent tombent au même endroit sur toutes
    les cartes ; alignés d'une ligne à l'autre, ils deviennent une colonne qu'on
    vise sans regarder. */
+/* @atelier organisme — Une ligne de bibliothèque : l’item, son origine, ses macros, son étoile. */
 function FoodPickRow({ food, onPick, showImage = false, favorite, onToggleFavorite,
                        onForget, onEdit, refByBarcode }){
   const n = food.nutriments || {};
@@ -3815,6 +3851,7 @@ const QUICK_MODES = [
   { id:'repas',   label:'Repas' },
 ];
 
+/* @atelier organisme — L’onglet Créer : ajout rapide, aliment ou repas, en simple ou approfondi. */
 function QuickAddTab({ seed, initialMeal, pickMode, onNewMeal, onSubmit, onCancel }){
   // Un code déjà en main (scanné, inconnu de la base) ouvre directement le
   // mode Aliment : c'est le seul qui sache quoi en faire.
@@ -4085,6 +4122,7 @@ function QuickAddTab({ seed, initialMeal, pickMode, onNewMeal, onSubmit, onCance
    C'est la seule chose qu'on ait le droit de retoucher sur une fiche venue du
    dehors, et pour cause : ce n'est pas une propriété de l'aliment mais de la
    façon dont on le sert. */
+/* @atelier modale — Le poids ou la portion qu’on verse, avec ses presets. */
 function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pickMode,
                          onClose, onBack, onSubmit, onDelete, onServing }){
   const [serving, setServing] = useState(food.servingG && food.servingG > 1 ? String(food.servingG) : '');
@@ -4200,6 +4238,7 @@ function QuantityModal({ title, food, initialQty, initialUnit, initialMeal, pick
    même produit ne parlent bientôt plus de la même chose. Pour un aliment à
    soi, il y a l'onglet Créer ; pour se débarrasser d'une fiche, il y a
    « oublier ».                                                               */
+/* @atelier modale — La fiche d’un aliment de la bibliothèque. */
 function FoodEditModal({ food, onClose, onSave }){
   const [name, setName] = useState(food.name || '');
   const [brand, setBrand] = useState(food.brand || '');
@@ -4302,6 +4341,7 @@ function FoodEditModal({ food, onClose, onSave }){
 /* ---- Objectifs ------------------------------------------------------------ */
 const MACRO_GOAL_KEYS = ['protein', 'carbs', 'fat'];
 
+/* @atelier modale — Les objectifs quotidiens, leurs modes et leur jour de prise d’effet. */
 function GoalsModal({ goals, isSet, fromDay, onClose, onSave }){
   const [kcalStr, setKcalStr] = useState(goals.kcal != null ? String(goals.kcal) : '');
   const [weightStr, setWeightStr] = useState(goals.weightKg != null ? String(goals.weightKg) : '');
@@ -4477,6 +4517,7 @@ const FOOD_MICRO_SPECS = [...FOOD_DETAILS, ...FOOD_MICROS].map((d, i) => ({
    ne sont pas des trackers qu'on crée, ce sont ceux que Food a toujours eus —
    les faire apparaître dans le Log, le rail et les filtres serait mentir sur
    ce qu'ils sont. Ils suivent quand même le compte, comme tout réglage. */
+/* @atelier technique — Les nutriments vus comme des trackers, fabriqués à la volée. */
 function useFoodCharts(){
   const accountPrefs = useContext(AccountPrefsContext) || LOCAL_ONLY_PREFS;
   const saved = accountPrefs.prefs.foodCharts || {};
@@ -4499,6 +4540,7 @@ function useFoodCharts(){
 // Les totaux jour par jour sur la période — la matière première des trois
 // onglets. Un jour sans repas noté reste dans la liste : un trou dans le suivi
 // est une information, pas un jour à sauter.
+/* @atelier technique — Les journées alimentaires d’une période, agrégées. */
 function useFoodDays(store, rangeDays){
   return useMemo(() => {
     const out = [];
@@ -4525,6 +4567,7 @@ function foodEntries(days, key){
                  value: +d.totals[key].toFixed(2), ts: d.ts + 43200000 }));
 }
 
+/* @atelier page — Les vues de Food : macros, répartition, micros. */
 function FoodVuesView({ store }){
   const [mode, setMode] = useState('macros');       // macros | split | micros
   const [rangeMode, setRangeMode] = useState('30'); // '7'|'30'|'90'|'365'|'ytd'|'all'|'custom'
@@ -4665,6 +4708,7 @@ function FoodVuesView({ store }){
 /* Le filtre des micros : une pastille par nutriment, celles sans matière sur la
    période éteintes mais toujours là — savoir qu'un micro n'est renseigné nulle
    part est une information, la masquer laisserait croire qu'il n'existe pas. */
+/* @atelier molecule — Le choix des micronutriments à suivre, ceux sans donnée mis en retrait. */
 function MicroPicker({ specs, withData, selected, onSelect }){
   const on = new Set(selected);
   const toggle = (key) => {
@@ -4702,6 +4746,7 @@ function MicroPicker({ specs, withData, selected, onSelect }){
    pas combien on a mangé, elle dit en quoi. C'est le partage des couleurs qui
    change d'un jour à l'autre, et le comparer d'un coup d'œil est précisément ce
    que des barres de hauteurs différentes rendaient impossible. */
+/* @atelier organisme — La répartition des calories entre les trois macros, dans le temps. */
 function MacroSplitCard({ days }){
   const split = (d) => {
     const p = (d.totals.protein || 0) * 4, c = (d.totals.carbs || 0) * 4, f = (d.totals.fat || 0) * 9;
@@ -4772,7 +4817,7 @@ function MacroSplitCard({ days }){
           ))}
         </svg>
       ) : (
-        <div style={{padding:'30px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucun repas noté sur la période</div>
+        <div style={{padding:'30px 0',textAlign:'center',color:'var(--muted-foreground-2)',fontSize:13}}>aucun repas noté sur la période</div>
       )}
       <div className="master-legend">
         {KEYS.map(k => (
@@ -4797,6 +4842,7 @@ function MacroSplitCard({ days }){
 // déjà son propre intitulé (« Alimentation ») et son lien « ouvrir » sur la
 // même ligne — la poignée de `TodayView` s'y ajoute plutôt que de dupliquer
 // un second en-tête au-dessus.
+/* @atelier organisme — Le résumé nutritionnel du jour, tel qu’il apparaît dans le Jour. */
 function FoodDaySummary({ store, onOpen, containerRef, dragging, onDragStart }){
   const dk = dayKey(Date.now());
   const rows = store.logsByDay[dk] || [];

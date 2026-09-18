@@ -47,5 +47,5 @@ coller dans une session Builder.
 
 ## Ce qu'elle ne fait pas
 
-Aucun commit dans `app.jsx`, `app.food.jsx` ou `Tracklog.html`. L'Atelier
-décide de la forme ; c'est un Builder qui la pose.
+Aucun commit dans les `.jsx` de l'app, `styles.css` ou `Tracklog.html`.
+L'Atelier décide de la forme ; c'est un Builder qui la pose.

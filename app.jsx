@@ -1,1302 +1,22 @@
-const { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useContext } = React;
-
 /* ============================================================
-   Data model
+   app.jsx — l'app elle-même : ses écrans et son montage
    ------------------------------------------------------------
-   Tracker = { id, name, type, unit?, color, scaleMax?, choices?, multiple?,
-               daily?, aggregate?, members?, archived?, startDate?, endDate?,
-               jokerEnabled?, cumulative?, createdAt }
-     — Cœur : name + type (+ config liée au type : unit, scaleMax, choices,
-       ou members pour un master)
-     — Paramètres : daily (fréquence), aggregate (calcul), multiple (choix),
-       période d'activité (startDate/endDate), jokerEnabled (case joker), color
-     — Vues : cumulative (graphe cumulatif)
+   Ce qui reste une fois sorti le socle (app.core.jsx), les briques
+   partagées (app.ui.jsx) et le dessin des données
+   (app.charts.jsx) : le composant `App` et son état, les écrans
+   (Jour, Historique, Chrono, Vues, Paramètres…), les modales
+   d'entrée et de tracker, l'écran de connexion, et `Root` /
+   `mountTracklog`.
 
-     jokerEnabled: true = un tracker "plusieurs / jour" peut marquer un jour
-       entier comme joker, qui exclut toutes ses entrées des calculs (pas un
-       zéro). Désactivé par défaut ; sans effet sur un tracker "une / jour".
-
-     cumulative: true = le graphe (ChartCard) affiche la somme cumulée de
-       toutes les entrées depuis le début plutôt que la valeur du jour — une
-       courbe qui ne peut que monter. Nombre/durée uniquement, désactivé par
-       défaut.
-
-     curveStyle: 'line' (polyligne, défaut) | 'smooth' (courbe lissée) — la
-       forme du tracé, purement visuelle : les points restent les mêmes.
-     chartGrain: 'day' (défaut) | 'week' | 'month' — un point du graphe couvre
-       un jour, une semaine (lundi→dimanche) ou un mois. Les jours d'une même
-       période sont ramenés à leur MOYENNE, pour que l'échelle reste
-       comparable d'une granularité à l'autre (exception : un tracker
-       cumulatif prend la valeur de fin de période, son total courant).
-       Les deux réglages sont indépendants et s'appliquent aussi aux masters.
-
-     type: 'number' | 'scale' | 'boolean' | 'duration' | 'text' | 'choice' | 'master'
-     choices: string[] — options prédéfinies (type 'choice' uniquement)
-     multiple: true = plusieurs choix possibles par entrée ; false = un seul.
-     daily: true = une seule entrée par jour (ré-enregistrer remplace celle du jour)
-     aggregate: 'avg' | 'sum' | 'min' | 'max' — comment combiner plusieurs
-       entrées du même jour (nombre/durée uniquement ; pertinent quand daily
-       est false). 'avg' par défaut.
-     members: string[] — trackers agrégés par un master (type 'master').
-       Un master n'a pas d'entrées : sa valeur est la moyenne normalisée des
-       performances de ses membres.
-
-     Fenêtre d'activité — un tracker n'influence les graphes/moyennes que pour
-     les jours compris entre startDate et endDate (bornes 'YYYY-MM-DD') :
-       startDate: premier jour actif (défaut = jour de création, éditable)
-       endDate:   dernier jour actif (posé à l'archivage, éditable ; null = en cours)
-       archived:  masqué du "Jour", rangé dans les archives ; désarchivable.
-   Entry   = { id, trackerId, value, note, ts }
-     value pour 'choice' : string (choix unique) ou string[] (choix multiples)
+   Chargé après les trois autres et avant app.food.jsx et
+   app.atelier.jsx, qui montent leurs pages dans cet `App`.
    ============================================================ */
-
-/* ---- Couleurs de tracker --------------------------------------------------
-   Un nuancier construit, pas une liste écrite à la main : toutes les teintes,
-   quatre niveaux de luminosité, et une chroma constante — c'est elle qui fait
-   que deux trackers de couleurs différentes appartiennent quand même au même
-   dessin. Faire varier la saturation en même temps que la teinte donnerait des
-   couleurs qui « crient » plus fort que d'autres sans raison.
-
-   Les cinq teintes d'origine (30, 80, 150, 250, 320) sont dans la liste, à leur
-   valeur exacte : les trackers déjà créés retombent sur une pastille du
-   nuancier, ils n'ont pas l'air d'être hors palette. Et si une couleur stockée
-   n'y est vraiment pas (import, ancienne version), TrackerModal l'ajoute en fin
-   de grille plutôt que de faire semblant que rien n'est sélectionné. */
-/* Le nuancier tient sur UNE ligne de dix ronds : sept teintes, un gris, une
-   encre, et le « + » qui ouvre l'éditeur. C'est tout — et c'est délibéré.
-   Trente-deux pastilles demandaient de choisir entre des voisines qu'on ne
-   distinguait qu'en les comparant, pour une décision qui n'en vaut pas la
-   peine : une couleur de tracker sert à séparer deux courbes, pas à assortir
-   une identité. Qui veut une nuance précise ouvre l'éditeur, qui donne tout.
-
-   Les sept teintes sont espacées d'environ 50° et nommables d'un mot chacune
-   (orange, jaune, vert, cyan, bleu, violet, rose). La première est à 35° :
-   c'est exactement celle de l'orange de Tracklog (#e2542f = oklch(0.63 0.184 35)),
-   donc la couleur d'origine de l'app est dans la grille, pas à côté.
-
-   L'encre n'est pas « du noir » mais `var(--ink)` : elle est presque noire sur
-   le fond clair et presque blanche sur le fond sombre. Une couleur de tracker
-   doit rester visible quel que soit le style, et c'est la seule façon d'avoir
-   « la couleur du texte » plutôt qu'une valeur qui disparaît dans un thème. */
-const COLOR_HUES = [35, 90, 145, 195, 250, 300, 350];
-const COLOR_LIGHT = 0.63;
-// Au-delà du gamut sRGB pour la plupart des teintes : le navigateur ramène la
-// chroma au maximum affichable, ce qui est exactement « saturation à fond ».
-const COLOR_CHROMA = 0.20;
-const COLOR_GREY = 'oklch(0.62 0 0)';
-const COLOR_INK = 'var(--ink)';
-const COLORS = [
-  ...COLOR_HUES.map(h => `oklch(${COLOR_LIGHT} ${COLOR_CHROMA} ${h})`),
-  COLOR_GREY, COLOR_INK,
-];
-// La couleur proposée à la création : le vert du nuancier.
-const DEFAULT_COLOR = `oklch(${COLOR_LIGHT} ${COLOR_CHROMA} 145)`;
-// L'accent d'origine de l'app, et la pastille du nuancier qui lui correspond.
-const TRACKLOG_ACCENT = `oklch(${COLOR_LIGHT} ${COLOR_CHROMA} 35)`;
-
-const TYPES = [
-  { id:'number',   label:'Nombre',   desc:'kg, €, pas, ml…' },
-  { id:'scale',    label:'Échelle',  desc:'1 à 5' },
-  { id:'boolean',  label:'Oui / Non',desc:'fait, pas fait' },
-  { id:'duration', label:'Durée',    desc:'minutes' },
-  { id:'choice',   label:'Choix',    desc:'options prédéfinies' },
-  { id:'text',     label:'Texte',    desc:'note libre' },
-];
-
-// Combining modes for multiple same-day entries (number / duration only).
-const AGGREGATES = [
-  { id:'avg', label:'Moyenne' },
-  { id:'sum', label:'Somme' },
-  { id:'min', label:'Minimum' },
-  { id:'max', label:'Maximum' },
-];
-
-/* ---- Styles ---------------------------------------------------------------
-   Un style = un jeu de variables CSS sous :root[data-theme="<id>"] dans
-   Tracklog.html, plus une ligne ici. Rien d'autre à toucher : l'interface des
-   paramètres se construit à partir de cette liste, et le petit script en tête
-   de page valide la valeur stockée contre les mêmes identifiants.
-   Pour en ajouter un : un bloc de tokens dans le <style>, une entrée ici, et
-   son identifiant dans STYLE_IDS de Tracklog.html. */
-const STYLES = [
-  { id:'dark',  label:'Sombre', hint:'Aristide — canvas presque noir, encre crème', themeColor:'#100f0d' },
-  { id:'light', label:'Clair',  hint:'Aristide — canvas crème, mêmes os éditoriaux', themeColor:'#f6f2e9' },
-];
-const DEFAULT_STYLE = 'dark';
-const isStyle = (id) => STYLES.some(s => s.id === id);
-
-/* ---- Onglets --------------------------------------------------------------
-   Les paramètres ne se désactivent pas : c'est la seule porte pour rallumer le
-   reste, et ce n'est de toute façon pas un onglet mais l'engrenage du bout de
-   barre. Tous les autres se masquent, Log compris — deux lignes de la même
-   liste, dans la même carte, ne peuvent pas se comporter différemment sans que
-   ça passe pour un bug. Pas d'entrée « Trackers » : cette page a disparu,
-   remplacée par le bouton du Log et l'engrenage par tracker.
-
-   Cette liste ne dit QUE des onglets de la barre du haut. L'analyse IA de la
-   page Food y a figuré un temps : c'était une erreur de rangement — ce n'est
-   pas un onglet du haut mais une des quatre façons d'ajouter à manger, au même
-   titre que la recherche ou le scan. On ne masque pas l'une sans les autres,
-   donc elle est toujours là et n'a plus d'interrupteur. */
-const TOGGLEABLE_TABS = [
-  { id:'log',      label:'Log',      hint:'remplir la journée, l’historique, les chronos' },
-  { id:'food',     label:'Food',     hint:'suivi nutritionnel, scanner, aliments et repas' },
-  { id:'vues',     label:'Vues',     hint:'graphes, calendrier, grille de KPI' },
-  { id:'training', label:'Training', hint:'à venir' },
-  { id:'analyst',  label:'AI analyst', hint:'lecture des données par Claude — corrélations entre trackers ; à venir' },
-];
-const DEFAULT_TABS = { log:true, food:true, vues:true, training:true, analyst:true };
-
-/* Les onglets de la barre du haut, dans leur ordre par défaut. L'ordre affiché
-   vient du compte (prefs.tabOrder) : il se réarrange en maintenant un onglet,
-   comme les cartes et les pastilles du rail. Les paramètres, eux, ne sont pas
-   un onglet : c'est l'engrenage, à sa place fixe au bout de la barre. */
-const NAV_TABS = [
-  { id:'log',      label:'Log' },
-  { id:'food',     label:'Food' },
-  { id:'training', label:'Training' },
-  { id:'vues',     label:'Vues' },
-  { id:'analyst',  label:'AI analyst' },
-];
-
-// How a chart draws its line, and how wide one plotted point is. Two
-// independent per-tracker display settings — neither changes the stored data.
-const CURVE_STYLES = [
-  { id:'line',   label:'Polyligne' },
-  { id:'smooth', label:'Lissée' },
-  { id:'bars',   label:'Bâtons' },
-];
-const isCurveStyle = (id) => CURVE_STYLES.some(c => c.id === id);
-const GRAINS = [
-  { id:'day',   label:'Jour' },
-  { id:'week',  label:'Semaine' },
-  { id:'month', label:'Mois' },
-];
-
-/* ---- Sources extérieures ---------------------------------------------------
-   Un tracker peut être rempli par un service du dehors plutôt qu'à la main :
-   même objet, mêmes graphes, mêmes entrées — c'est la SAISIE qui change, pas
-   la nature de la chose suivie. D'où une section de plus dans ses réglages, et
-   surtout pas un « type » de tracker à part : un bénéfice se lit comme
-   n'importe quel nombre.
-
-   `metrics` liste ce qu'un service sait rendre. Un service = une fonction Edge
-   du même nom, qui expose /start /status /disconnect /sync ; en ajouter un
-   revient à écrire cette fonction et une ligne ici. Rien d'autre dans l'app ne
-   connaît le nom « Etsy ». */
-const EXTERNAL_SERVICES = [
-  { id:'etsy', label:'Etsy', metrics:[
-    // Trois mots courts : la piste compacte ne doit jamais passer sur deux
-    // lignes, et « Chiffre d'affaires » la faisait déborder de sa carte.
-    // Ce que chacun veut dire exactement est dans la bulle, pas dans le bouton.
-    { id:'net',     label:'Bénéfice',  unit:'€',
-      hint:'Ce qui reste des ventes du jour une fois les frais Etsy retirés — mais avant le coût d’impression, qu’Etsy ne connaît pas.' },
-    { id:'revenue', label:'Ventes',    unit:'€',
-      hint:'Ce que les acheteurs ont payé ce jour-là, frais compris.' },
-    { id:'orders',  label:'Commandes', unit:'',
-      hint:'Le nombre de commandes passées ce jour-là.' },
-  ] },
-];
-const serviceById = (id) => EXTERNAL_SERVICES.find(s => s.id === id) || null;
-const metricOf = (serviceId, metricId) =>
-  serviceById(serviceId)?.metrics.find(m => m.id === metricId) || null;
-
-/* ---- Densité des cartes de graphe -----------------------------------------
-   Combien de cartes par ligne dans la vue Cartes. Au-delà de quatre, une carte
-   est plus étroite que son propre axe : le graphe cesse de se lire.
-   Chaque cran retire du détail plutôt que de le tasser — c'est ce qui fait la
-   différence entre « plus petit » et « illisible ». */
-const MAX_PER_ROW = 3;
-
-/* ---- Un graphe se dessine à la taille qu'il occupe ------------------------
-   Les SVG des graphes étaient tracés dans un repère fixe de 800 unités de
-   large, puis écrasés à la largeur réelle de la carte (`preserveAspectRatio:
-   none`). Sur un téléphone de 350 px, tout l'horizontal passait donc à 44 % :
-   les graduations devenaient des taches illisibles et les points, des ovales
-   couchés — un cercle de rayon 3 rendu 1,3 px de large sur 3 de haut.
-
-   On mesure donc la largeur réellement occupée et on s'en sert comme repère :
-   une unité du dessin vaut alors un pixel, dans les deux sens. Le texte reste
-   à sa taille, un rond reste rond. `ResizeObserver` plutôt qu'un écouteur de
-   redimensionnement : la carte change aussi de largeur quand le curseur de
-   densité bouge, sans que la fenêtre bouge. */
-function useDrawWidth(ref, fallback = 800){
-  const [w, setW] = useState(fallback);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(entries => {
-      const px = Math.round(entries[0].contentRect.width);
-      // Un arrondi au pixel : sans lui, une largeur fractionnaire relancerait
-      // un rendu à chaque image pendant une animation de mise en page.
-      if (px > 0) setW(px);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [ref]);
-  return w;
-}
-
-function chartDetail(perRow){
-  // `axisLabels:false` au cran serré est une simplification voulue : à 250 px
-  // de large, six graduations se touchent. Le texte n'est plus déformé depuis
-  // que le repère du dessin suit la largeur réelle (`useDrawWidth`) — il est
-  // juste trop nombreux. On les retire, la carte devient une sparkline, et la
-  // valeur du jour reste lisible dans l'en-tête.
-  if (perRow >= 3) return { height: 84,  padL: 8,  padB: 8,  yTicks: 3, midTick: false, axisLabels: false, stats: 'value' };
-  if (perRow === 2) return { height: 110, padL: 32, padB: 20, yTicks: 5, midTick: true,  axisLabels: true,  stats: 'short' };
-  return                   { height: 160, padL: 40, padB: 24, yTicks: 6, midTick: true,  axisLabels: true,  stats: 'full'  };
-}
-
-/* ============================================================
-   Supabase — cloud persistence + auth
-   ============================================================ */
-const SUPABASE_URL = 'https://drrmqrhsfgermgblndzz.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRycm1xcmhzZmdlcm1nYmxuZHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxMTI1NzMsImV4cCI6MjA5OTY4ODU3M30.NOV3tKFH2vGI043cGZhB2yu9IlqFUVoXXP4JaXA-9vE';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-/* Parler à une fonction Edge au nom du compte. Le jeton de session part dans
-   l'en-tête : la fonction sait qui demande sans que la page ait à le dire, et
-   ce qu'elle garde pour nous (les jetons d'un service extérieur) ne redescend
-   jamais ici. Un échec revient en `Error` — l'appelant décide quoi en montrer. */
-async function callFunction(name, route, { method = 'POST', body } = {}){
-  const { data } = await supabase.auth.getSession();
-  const token = data?.session?.access_token;
-  if (!token) throw new Error('Session expirée — reconnecte-toi.');
-  let r;
-  try {
-    r = await fetch(`${SUPABASE_URL}/functions/v1/${name}/${route}`, {
-      method,
-      headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-  } catch {
-    // « Failed to fetch » ne dit rien à qui n'écrit pas de code : c'est le
-    // réseau, ou le service qui ne répond pas. On le dit dans ces mots-là.
-    throw new Error('Service injoignable — vérifiez votre connexion.');
-  }
-  let payload = null;
-  try { payload = await r.json(); } catch {}
-  if (!r.ok) throw new Error(payload?.error || `Le service a répondu ${r.status}.`);
-  return payload;
-}
-
-function trackerFromRow(r){
-  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMin:r.scale_min ?? undefined, scaleMax:r.scale_max || undefined, scaleStep:r.scale_step || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, jokerEnabled:!!r.joker_enabled, cumulative:!!r.cumulative, curveStyle:isCurveStyle(r.curve_style) ? r.curve_style : 'line', chartGrain:GRAINS.some(g => g.id === r.chart_grain) ? r.chart_grain : 'day', goodDirection:r.good_direction || undefined, targetValue:r.target_value ?? undefined, externalSource:r.external_source || undefined, externalMetric:r.external_metric || undefined, externalLastSync:r.external_last_sync ?? undefined, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
-}
-function trackerToRow(t, userId){
-  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_min:t.scaleMin ?? null, scale_max:t.scaleMax || null, scale_step:t.scaleStep || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, joker_enabled:!!t.jokerEnabled, cumulative:!!t.cumulative, curve_style:isCurveStyle(t.curveStyle) ? t.curveStyle : 'line', chart_grain:GRAINS.some(g => g.id === t.chartGrain) ? t.chartGrain : 'day', good_direction:t.goodDirection || null, target_value:t.targetValue ?? null, external_source:t.externalSource || null, external_metric:t.externalMetric || null, external_last_sync:t.externalLastSync ?? null, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
-}
-function entryFromRow(r){
-  return { id:r.id, trackerId:r.tracker_id, value:r.value, note:r.note || '', ts:r.ts };
-}
-function entryToRow(e, userId){
-  return { id:e.id, user_id:userId, tracker_id:e.trackerId, value:e.value, note:e.note || '', ts:e.ts };
-}
-function chronoFromRow(r){
-  return { id:r.id, label:r.label || '', trackerId:r.tracker_id || null,
-           accumulatedMs:Number(r.accumulated_ms) || 0, startedAt:r.started_at != null ? Number(r.started_at) : null,
-           order:r.order_index || 0 };
-}
-function chronoToRow(c, userId){
-  return { id:c.id, user_id:userId, label:c.label || null, tracker_id:c.trackerId || null,
-           accumulated_ms:c.accumulatedMs || 0, started_at:c.startedAt ?? null, order_index:c.order || 0,
-           updated_at:Date.now() };
-}
-
-/* ============================================================ */
-
-function fmtDuration(min){
-  if (min == null) return '';
-  const h = Math.floor(min/60), m = Math.round(min%60);
-  if (h === 0) return `${m}min`;
-  if (m === 0) return `${h}h`;
-  return `${h}h${String(m).padStart(2,'0')}`;
-}
-/* ---- Chart scales ---------------------------------------------------------
-   Axes land on values a human would have chosen. Durations get their own ladder
-   of steps because rounding minutes on powers of ten gives 10h36 → 5h24; the
-   readable breaks of a clock are 15/30 min and whole hours. */
-function niceStep(raw, type){
-  if (raw <= 0) return 1;
-  if (type === 'duration'){
-    const steps = [1,2,5,10,15,20,30,60,90,120,180,240,360,480,720,1440];
-    return steps.find(s => s >= raw) ?? Math.ceil(raw/1440)*1440;
-  }
-  const base = Math.pow(10, Math.floor(Math.log10(raw)));
-  const frac = raw / base;
-  const mult = frac <= 1 ? 1 : frac <= 2 ? 2 : frac <= 2.5 ? 2.5 : frac <= 5 ? 5 : 10;
-  return mult * base;
-}
-// Widen [min,max] outward to whole steps and hand back the ticks in between.
-// The bounds are never the raw extremes: they're the nearest clean multiple of
-// the step, outward — so the axis reads 12.6 → 13.4 by 0.2, not 12.6 → 13.4.
-// `step` comes back too: it's what decides how many decimals a label needs.
-function niceDomain(min, max, tickCount, type){
-  if (!isFinite(min) || !isFinite(max)){ min = 0; max = 1; }
-  if (min === max){ const d = Math.abs(min) * 0.1 || 1; min -= d; max += d; }
-  const step = niceStep((max - min) / Math.max(1, tickCount - 1), type);
-  const lo = Math.floor(min / step) * step;
-  const hi = Math.ceil(max / step) * step;
-  const ticks = [];
-  for (let v = lo; v <= hi + step * 1e-9; v += step) ticks.push(+v.toFixed(10));
-  return { min: lo, max: hi, ticks, step };
-}
-
-// How many decimals a tick label needs so two neighbouring ticks never print
-// the same text. Reading it off the step is what stops an axis stepping by 0.5
-// from showing "13" twice for 12.5 and 13.0.
-function decimalsForStep(step){
-  if (!isFinite(step) || step <= 0) return 0;
-  const s = String(+Number(step).toPrecision(12));
-  if (s.includes('e')) return 0;                 // very large steps: no decimals
-  const dot = s.indexOf('.');
-  return dot === -1 ? 0 : Math.min(4, s.length - dot - 1);
-}
-
-/* ---- Line shape -----------------------------------------------------------
-   Two ways to join the same points, chosen per tracker (`curveStyle`). The
-   points themselves never move — only the ink between them. */
-function linePath(pts){
-  return pts.map((p,i) => `${i===0?'M':'L'}${p[0]},${p[1]}`).join(' ');
-}
-// Catmull-Rom through every point, emitted as cubic béziers: the curve passes
-// exactly through each reading rather than merely near it, so a smoothed chart
-// still tells the truth about what was logged.
-function smoothPath(pts){
-  if (pts.length < 3) return linePath(pts);
-  let d = `M${pts[0][0]},${pts[0][1]}`;
-  for (let i = 0; i < pts.length - 1; i++){
-    const p0 = pts[i-1] || pts[i];
-    const p1 = pts[i];
-    const p2 = pts[i+1];
-    const p3 = pts[i+2] || p2;
-    d += ` C${p1[0] + (p2[0]-p0[0])/6},${p1[1] + (p2[1]-p0[1])/6}`
-       + ` ${p2[0] - (p3[0]-p1[0])/6},${p2[1] - (p3[1]-p1[1])/6}`
-       + ` ${p2[0]},${p2[1]}`;
-  }
-  return d;
-}
-const curvePath = (pts, style) => style === 'smooth' ? smoothPath(pts) : linePath(pts);
-
-/* ---- Bâtons ---------------------------------------------------------------
-   La troisième forme, à côté de la polyligne et de la courbe lissée : un bâton
-   par point plutôt qu'un trait qui les relie. Ce n'est pas qu'un habillage —
-   un trait entre deux jours affirme que la valeur est passée par tout ce qui
-   les sépare, ce qu'une mesure quotidienne ne dit jamais. Un bâton ne parle que
-   du jour qu'il occupe, et un jour sans donnée reste un vide, pas un pont.
-   Le pied des bâtons est le zéro quand l'échelle le contient, le bas du cadre
-   sinon : sur une échelle qui ne descend pas à zéro, une longueur de bâton ne
-   se compare pas — seule sa hauteur situe la valeur. */
-function ChartBars({ points, xAt, yAt, baseY, color, spacing }){
-  const w = Math.max(1.5, Math.min(spacing * 0.62, 16));
-  return points.map((p, i) => {
-    if (p.value == null) return null;
-    const y = yAt(p.value);
-    // Une valeur posée sur le pied même (le bas de l'échelle) ne dessinerait
-    // rien : elle garde un trait d'un pixel, mais au-dessus de la ligne, pas
-    // en dessous — sinon la rangée des minimums déborde du cadre d'un pixel et
-    // les bâtons n'ont plus tous le même pied.
-    const above = y <= baseY;
-    const h = Math.max(1, Math.abs(y - baseY));
-    return (
-      <rect key={i} x={xAt(i) - w/2} y={above ? Math.min(y, baseY - 1) : baseY} width={w} height={h}
-            fill={color} opacity={p.hasEntry === false ? 0.45 : 0.75} />
-    );
-  });
-}
-// Le pied des bâtons, dans le repère du graphe.
-const barBaseY = (yMin, yMax, yAt, bottom) => (yMin <= 0 && yMax >= 0) ? yAt(0) : bottom;
-
-/* ---- Plot grain -----------------------------------------------------------
-   Roll a daily series up into weeks (Monday-first) or months. Each bucket is
-   the MEAN of the days that carried a value — the unit stays "a typical day",
-   so switching grain doesn't move the Y axis by a factor of seven. Days with
-   nothing logged contribute nothing (they don't drag the mean toward zero);
-   a bucket where nothing at all was logged stays a hole, drawn dashed.
-   A cumulative series is the exception: its value is a running total, so the
-   bucket takes the last reading it holds — the total as of period end. */
-function startOfWeek(ts){
-  const d = new Date(ts); d.setHours(0,0,0,0);
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));   // back to Monday
-  return d.getTime();
-}
-function bucketStart(ts, grain){
-  if (grain === 'week')  return startOfWeek(ts);
-  if (grain === 'month') return startOfMonth(ts);
-  return startOfDay(ts);
-}
-function rollupPoints(points, grain, { cumulative = false } = {}){
-  if (grain !== 'week' && grain !== 'month') return points;
-  const buckets = new Map();
-  for (const p of points){
-    const key = bucketStart(p.ts, grain);
-    if (!buckets.has(key)) buckets.set(key, { ts: key, vals: [], last: null, hasEntry: false });
-    const b = buckets.get(key);
-    if (p.value != null){ b.vals.push(p.value); b.last = p.value; }
-    if (p.hasEntry) b.hasEntry = true;
-  }
-  return [...buckets.values()]
-    .sort((a,b) => a.ts - b.ts)
-    .map(b => ({
-      ts: b.ts,
-      value: !b.vals.length ? null
-           : cumulative ? b.last
-           : b.vals.reduce((x,y)=>x+y,0) / b.vals.length,
-      hasEntry: b.hasEntry,
-    }));
-}
-// "sem. du 12 mai" / "mai 2025" — a point that spans a period must not read
-// like a single date, or the axis quietly lies about what it shows.
-function grainLabel(ts, grain){
-  const d = new Date(ts);
-  if (grain === 'month') return d.toLocaleDateString('fr-FR', { month:'long', year:'numeric' });
-  if (grain === 'week')  return `sem. du ${d.toLocaleDateString('fr-FR', { day:'numeric', month:'long' })}`;
-  return dayLabel(ts);
-}
-function grainTick(ts, grain){
-  if (!ts) return '';
-  // Spelled-out year: "juin 26" reads as the 26th of June in French.
-  if (grain === 'month') return new Date(ts).toLocaleDateString('fr-FR', { month:'short', year:'numeric' });
-  return shortDate(ts);
-}
-
-// Straight dashed hops across the days with no data, so a broken series still
-// reads as one line instead of looking like unrelated fragments.
-function bridgesBetween(segments){
-  const out = [];
-  for (let i = 1; i < segments.length; i++){
-    const from = segments[i-1][segments[i-1].length - 1];
-    const to = segments[i][0];
-    if (from && to) out.push({ from, to });
-  }
-  return out;
-}
-
-// Minutes never stay above 59: 90 becomes 1h30, so the two fields always read
-// the way the value will be stored and shown everywhere else.
-function normalizeHM(h, m){
-  const total = (parseInt(h || '0', 10) || 0) * 60 + (parseInt(m || '0', 10) || 0);
-  return { h: String(Math.floor(total / 60)), m: String(total % 60).padStart(2, '0') };
-}
-
-// Running clock display, H:MM:SS (or M:SS under an hour).
-function fmtChrono(ms){
-  const total = Math.max(0, Math.floor(ms/1000));
-  const h = Math.floor(total/3600), m = Math.floor((total%3600)/60), s = total%60;
-  const mm = String(m).padStart(2,'0'), ss = String(s).padStart(2,'0');
-  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
-}
-// A chrono reads in the same unit its entry will be stored in — minutes — so what
-// you watch is what gets logged. Seconds are opt-in, per chrono, for short sessions.
-function fmtChronoDisplay(ms, showSeconds){
-  if (showSeconds) return fmtChrono(ms);
-  return fmtDuration(Math.floor(Math.max(0, ms) / 60000));
-}
-// A chrono banks time in `accumulatedMs` and, while running, counts from `startedAt`.
-// Deriving elapsed from timestamps (rather than ticking a counter) keeps it exact
-// across reloads, backgrounded tabs and a phone that went to sleep.
-function chronoElapsed(c, now){
-  return (c.accumulatedMs || 0) + (c.startedAt ? Math.max(0, now - c.startedAt) : 0);
-}
-
-function fmtValue(tracker, v){
-  if (v === JOKER) return 'Joker';
-  if (v == null || v === '') return '—';
-  switch (tracker.type){
-    case 'number':   return `${v}`;
-    case 'scale':    return `${v}/${tracker.scaleMax||5}`;
-    case 'boolean':  return v ? 'Oui' : 'Non';
-    case 'duration': return fmtDuration(v);
-    case 'choice':   return Array.isArray(v) ? (v.length ? v.join(', ') : '—') : String(v);
-    case 'text':     return String(v);
-  }
-}
-function fmtUnit(tracker){
-  if (tracker.type === 'number' && tracker.unit) return tracker.unit;
-  return '';
-}
-
-// Combine several numeric entries (same day, or same period) into one value,
-// according to the tracker's aggregation mode. Defaults to average.
-function aggregateNums(tracker, nums){
-  if (!nums.length) return null;
-  switch (tracker.aggregate){
-    case 'sum': return nums.reduce((a,b)=>a+b,0);
-    case 'min': return Math.min(...nums);
-    case 'max': return Math.max(...nums);
-    default:    return nums.reduce((a,b)=>a+b,0) / nums.length; // avg
-  }
-}
-function aggregateLabel(tracker){
-  return AGGREGATES.find(a => a.id === tracker.aggregate)?.label || 'Moyenne';
-}
-// Normalize a stored choice value into input state (array if multiple, else string|null).
-function readChoice(tracker, v){
-  if (tracker.multiple) return Array.isArray(v) ? v : (v != null ? [v] : []);
-  return Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
-}
-
-function dayKey(ts){
-  const d = new Date(ts);
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-// L'inverse : minuit local du jour nommé. Deux endroits en avaient besoin (le
-// calendrier de la période d'activité, la synchro d'un service extérieur) —
-// une seule écriture, sinon les deux dériveraient sur le fuseau.
-const dayKeyToTs = (dk) => new Date(dk + 'T00:00:00').getTime();
-
-// A "joker" day (pull day, rest day…) is stored as a regular Entry whose value
-// is this sentinel. Its whole day is then excluded from every aggregate —
-// not counted as zero, simply as if nothing had been logged that day.
-const JOKER = '__joker__';
-function isJokerEntry(e){ return !!e && e.value === JOKER; }
-function jokerDayKeys(trackerEntries){
-  const s = new Set();
-  for (const e of trackerEntries) if (isJokerEntry(e)) s.add(dayKey(e.ts));
-  return s;
-}
-function dayLabel(ts){
-  const d = new Date(ts);
-  const today = new Date(); today.setHours(0,0,0,0);
-  const yest = new Date(today); yest.setDate(yest.getDate()-1);
-  const dd = new Date(d); dd.setHours(0,0,0,0);
-  if (dd.getTime() === today.getTime()) return "Aujourd'hui";
-  if (dd.getTime() === yest.getTime()) return 'Hier';
-  return d.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' });
-}
-function timeLabel(ts){
-  const d = new Date(ts);
-  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-}
-// ISO 8601 week number — Monday-first, week 1 is the one holding the year's first Thursday.
-function isoWeek(ts){
-  const d = new Date(Date.UTC(new Date(ts).getFullYear(), new Date(ts).getMonth(), new Date(ts).getDate()));
-  const day = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
-}
-function uid(p){ return p + Math.random().toString(36).slice(2,9); }
-function startOfDay(ts){ const d = new Date(ts); d.setHours(0,0,0,0); return d.getTime(); }
-
-/* ---- Active window --------------------------------------------------------
-   A tracker only counts (charts / averages) on days within [startDate, endDate].
-   Dates are 'YYYY-MM-DD' strings so they compare lexicographically. */
-function trackerStartKey(t){ return t.startDate || (t.createdAt ? dayKey(t.createdAt) : null); }
-function trackerActiveOnKey(t, dk){
-  if (t.windowEnabled === false) return true; // window disabled → always counts
-  const s = trackerStartKey(t);
-  if (s && dk < s) return false;
-  if (t.endDate && dk > t.endDate) return false;
-  return true;
-}
-const isMaster = (t) => t.type === 'master';
-
-/* Small "i" button that reveals an explanation only when clicked. */
-// Global on/off for the "i" explainer bubbles. A context because InfoBubble is used
-// from many unrelated, deeply nested components (modals, cards…) — threading a prop
-// through every one of them would touch nearly every component signature in the file,
-// and more call sites are coming later, per Louis.
-const InfoVisibilityContext = React.createContext(true);
-
-/* Une explication vit derrière un « i », partout, sans exception : c'est ce que
-   dit le réglage « Bulles infos » des paramètres, et une page qui écrirait
-   quand même ses descriptions en clair lui donnerait tort. Elles étaient
-   inline dans les paramètres à une époque (un composant `Help`) ; l'interrupteur
-   parlait alors de deux choses à la fois.
-
-   `always` est l'exception délibérée : une bulle qui ne porte pas une
-   explication — le crédit que la licence d'Open Food Facts impose, ou la bulle
-   de l'interrupteur lui-même, seule porte pour rallumer les autres — ne doit
-   pas disparaître avec l'interrupteur. */
-function InfoBubble({ children, title, always = false }){
-  const infoEnabled = useContext(InfoVisibilityContext);
-  const [open, setOpen] = useState(false);
-  if (!infoEnabled && !always) return null;
-  return (
-    <>
-      <button type="button" className={`icon-btn sm info-btn ${open?'on':''}`}
-              onClick={()=>setOpen(o=>!o)} aria-expanded={open}
-              aria-label={open ? "Masquer l'explication" : "Plus d'infos"}>i</button>
-      {/* Le cadre est toujours dans le DOM, replié à zéro : c'est ce qui permet
-          de l'animer dans les deux sens (grid-template-rows 0fr → 1fr, la seule
-          façon d'animer vers une hauteur automatique). Il occupe une ligne
-          entière de son conteneur — d'où `flex:1 0 100%` — et pousse donc ce
-          qui suit au lieu de le recouvrir. */}
-      <span className={`info-panel ${open?'open':''}`} aria-hidden={!open}>
-        <span className="info-panel-in">
-          <span className="info-panel-box">
-            {title && <span className="info-panel-t">{title}</span>}
-            <span className="info-panel-b">{children}</span>
-          </span>
-        </span>
-      </span>
-    </>
-  );
-}
-// The one gear in the app. Every "open the settings of this thing" button wears
-// it — day cards, chart cards, calendar cards, grid tiles, master strips, food
-// goals — so the geste is recognisable before the label is read. Defined once:
-// the earlier per-call SVGs had drifted into a spoked circle that read as a sun.
-function GearIcon({ size = 13 }){
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-         strokeWidth="1.25" strokeLinejoin="round" aria-hidden="true" focusable="false">
-      <path d="M6.83,3.14L7.15,1.66L8.85,1.66L9.17,3.14A5,5 0 0 1 10.61,3.74L11.88,2.91L13.09,4.12L12.26,5.39A5,5 0 0 1 12.86,6.83L14.34,7.15L14.34,8.85L12.86,9.17A5,5 0 0 1 12.26,10.61L13.09,11.88L11.88,13.09L10.61,12.26A5,5 0 0 1 9.17,12.86L8.85,14.34L7.15,14.34L6.83,12.86A5,5 0 0 1 5.39,12.26L4.12,13.09L2.91,11.88L3.74,10.61A5,5 0 0 1 3.14,9.17L1.66,8.85L1.66,7.15L3.14,6.83A5,5 0 0 1 3.74,5.39L2.91,4.12L4.12,2.91L5.39,3.74A5,5 0 0 1 6.83,3.14Z"/>
-      <circle cx="8" cy="8" r="2.2"/>
-    </svg>
-  );
-}
-
-// The one toggle mechanism in the app: a track of buttons with a background
-// that *slides* to whichever carries `.on`, measured for real in the DOM
-// rather than each button independently swapping its own background. Every
-// segmented control in Tracklog — Jour/Historique/Chrono, a tracker's type,
-// Oui/Non — renders through this, so "the sliding one" is the only kind.
-//
-// Deliberately dumb: callers keep writing their own <button className={x===id?'on':''}>
-// list exactly as before. Segmented only wraps them, watches its own DOM after
-// each render for whichever child carries `.on`, and positions `.seg-thumb`
-// under it. That's what makes migrating every existing toggle a one-line change
-// instead of a rewrite: nothing about the buttons themselves has to change.
-//
-// Three sizes carry real, deliberate differences — not leftover drift:
-//   (default) sentence-case option chips, each with its own outline — a modal's
-//     "Une / jour" / "Plusieurs / jour". Long phrasing stays readable in this size.
-//   compact   uppercase nav pills sharing one track — Jour/Historique/Chrono,
-//     Graphes/Calendrier/Grille. Short, tracked-out labels only.
-//   small     the same compact track, one notch down — rail sort, library tabs,
-//     the chart density row (icon-bearing buttons welcome).
-// `wrap` lets a track break onto a second line instead of overflowing.
-// `scrollx` is the other answer to "too many options for one row": it keeps
-// a single line and lets it scroll horizontally instead — for a short,
-// exclusive choice (which meal, which mode) where a second line reads as
-// broken and a dropdown would hide options that should stay one tap away.
-function Segmented({ size, wrap, scrollx, className = '', children, ...rest }){
-  const ref = useRef(null);
-  const [thumb, setThumb] = useState(null);
-
-  // Écrire le même rectangle qu'on tient déjà redéclenche un rendu qui
-  // redéclenche cet effet — sans la garde d'égalité, une boucle infinie
-  // (React coupe court avec « Maximum update depth exceeded »).
-  const measure = () => {
-    const track = ref.current;
-    // `.on`, pas `button.on` : une option peut être autre chose qu'un bouton dès
-    // qu'elle porte une saisie (la valeur cible s'écrit DANS son option, qui
-    // s'élargit alors — un <input> dans un <button> ne se laisse pas taper).
-    const active = track && track.querySelector(':scope > .on');
-    if (!track || !active){
-      setThumb(prev => prev === null ? prev : null);
-      return;
-    }
-    // offsetLeft/Top are already relative to the nearest positioned ancestor's
-    // padding box — exactly the containing block a `position:absolute` child
-    // uses. Diffing two getBoundingClientRect() calls instead looked close but
-    // was off by the track's own border width (the thumb landed 1px down-right
-    // of the button it was supposed to sit under).
-    const next = { left: active.offsetLeft, top: active.offsetTop, width: active.offsetWidth, height: active.offsetHeight };
-    setThumb(prev => (prev && prev.left === next.left && prev.top === next.top
-      && prev.width === next.width && prev.height === next.height) ? prev : next);
-    // `scrollx` : l'option choisie doit être visible sans geste — si elle
-    // tombe hors de la fenêtre visible (ex. « Dîner » sélectionné par défaut,
-    // rangé en bout de piste), on la ramène dans le cadre plutôt que de
-    // forcer l'utilisateur à deviner qu'il faut glisser pour la voir.
-    if (scrollx){
-      const tb = track.getBoundingClientRect(), ab = active.getBoundingClientRect();
-      if (ab.left < tb.left) track.scrollLeft -= (tb.left - ab.left) + 8;
-      else if (ab.right > tb.right) track.scrollLeft += (ab.right - tb.right) + 8;
-    }
-  };
-
-  useLayoutEffect(measure);
-
-  useEffect(() => {
-    const track = ref.current;
-    if (!track || !window.ResizeObserver) return;
-    const ro = new ResizeObserver(measure);
-    ro.observe(track);
-    return () => ro.disconnect();
-  }, []);
-
-  return (
-    <div ref={ref} className={`seg-track ${size ? size : ''} ${wrap ? 'wrap' : ''} ${scrollx ? 'scrollx' : ''} ${className}`} role="group" {...rest}>
-      {thumb && <span className="seg-thumb" style={{
-        transform: `translate(${thumb.left}px, ${thumb.top}px)`, width: thumb.width, height: thumb.height,
-      }} aria-hidden="true" />}
-      {children}
-    </div>
-  );
-}
-
-// Oui/Non is just a two-option Segmented — kept as its own component because
-// callers ask for it by value/onChange, not by rendering the two buttons themselves.
-function BoolPill({ value, onChange, onLabel = 'Oui', offLabel = 'Non', disabled = false }){
-  return (
-    <Segmented size="compact" className={disabled ? 'disabled' : ''}>
-      <button type="button" className={value ? 'on' : ''} aria-pressed={value} disabled={disabled} onClick={()=>onChange(true)}>{onLabel}</button>
-      <button type="button" className={!value ? 'on' : ''} aria-pressed={!value} disabled={disabled} onClick={()=>onChange(false)}>{offLabel}</button>
-    </Segmented>
-  );
-}
-// Barre à icône — the other shared control shape, next to Segmented: one
-// full-width bar carrying the main input, and exactly one round icon button
-// for the second way of filling it. Two forms, and the difference is meaning,
-// not decoration:
-//   inset     the button sits INSIDE the bar, sharing its outline — the button
-//             is another way to fill the same field (a search bar and its
-//             scanner: both end up putting a product in that field).
-//   detached  the button sits BESIDE the bar — the bar shows something, the
-//             button acts on what it shows (a Aliments/Repas toggle and the
-//             star that narrows either one to favourites).
-// Sizing and the round button come from `.icon-btn`, like every other lone
-// glyph in the app; only the bar shell is new.
-function IconBar({ detached = false, className = '', children, buttons,
-                   icon, onIcon, iconLabel, iconTitle, iconOn = false, iconDisabled = false }){
-  // Un bouton reste le cas courant, et `icon`/`onIcon`… le disent le plus
-  // simplement. Mais une barre `detached` peut légitimement en porter deux —
-  // ils agissent tous sur ce qu'elle montre (l'étoile réduit aux favoris, le
-  // second montre ou cache les vignettes) — d'où la liste, dont le cas à un
-  // bouton n'est que le raccourci.
-  const list = buttons || (icon
-    ? [{ icon, onClick:onIcon, label:iconLabel, title:iconTitle, on:iconOn, disabled:iconDisabled }]
-    : []);
-  return (
-    <div className={`icon-bar ${detached ? 'detached' : 'inset'} ${className}`}>
-      <div className="icon-bar-field">{children}</div>
-      {list.map((b, i) => (
-        <button key={i} type="button" className={`icon-btn icon-bar-btn ${b.on ? 'on' : ''}`}
-                onClick={b.onClick} disabled={b.disabled} aria-pressed={!!b.on}
-                aria-label={b.label} title={b.title || b.label}>
-          {b.icon}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function startOfMonth(ts){ const d = new Date(ts); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); }
-function addMonths(ts, n){ const d = new Date(ts); return new Date(d.getFullYear(), d.getMonth()+n, 1).getTime(); }
-
-/* ============================================================
-   Drag-to-reorder — like rearranging apps on a phone home screen.
-   ------------------------------------------------------------
-   Trackers carry a single global `order`. Any list here only ever shows a
-   subset (daily-only, archived-only, the filter rail…), so a reorder inside
-   a subset is spliced back into the full order in place — untouched
-   trackers elsewhere never move. See mergeSubOrder / useDragReorder below,
-   reused by every reorderable list (rail pills, day cards, tracker cards,
-   master strips, chart cards).
-   ============================================================ */
-function mergeSubOrder(fullIds, newSubOrder){
-  const subSet = new Set(newSubOrder);
-  const rest = [];
-  let insertAt = -1;
-  fullIds.forEach((id) => {
-    if (subSet.has(id)){ if (insertAt === -1) insertAt = rest.length; }
-    else rest.push(id);
-  });
-  if (insertAt === -1) insertAt = rest.length;
-  const merged = rest.slice();
-  merged.splice(insertAt, 0, ...newSubOrder);
-  return merged;
-}
-
-// A single highlight bar shared by every reorderable list. It is mounted once
-// (<DropIndicatorMount/> in App) and parked, imperatively, in the gap where the
-// dragged card would land. Using one fixed-position element keeps positioning in
-// viewport coordinates (matches pointer clientX/Y) regardless of scroll/layout.
-const dropIndicator = { el: null };
-function DropIndicatorMount(){
-  const ref = useRef(null);
-  useEffect(() => {
-    dropIndicator.el = ref.current;
-    return () => { dropIndicator.el = null; };
-  }, []);
-  return <div ref={ref} className="drop-indicator" aria-hidden="true" />;
-}
-function hideDropIndicator(){ if (dropIndicator.el) dropIndicator.el.style.display = 'none'; }
-// Two rects sit on the same visual row when they overlap vertically.
-function sameRow(a, b){ return a.top < b.bottom && b.top < a.bottom; }
-
-// Pointer-based (mouse + touch) reorder. While dragging, NOTHING in the list
-// moves: the picked card simply follows the finger/cursor (imperative transform)
-// and a highlight bar marks the target gap. The reorder is committed once, on
-// drop. This avoids re-rendering the list on every move — which is what used to
-// replay the page-load entrance animation and make the dragged card vanish.
-function useDragReorder(ids, onReorder){
-  const idsKey = ids.join('|');
-  const [order, setOrder] = useState(ids);
-  const [dragId, setDragId] = useState(null);
-  const nodesRef = useRef({});
-  const orderRef = useRef(order);
-  const dragIdRef = useRef(null);
-  const movedRef = useRef(false);
-  const startRef = useRef({ x: 0, y: 0 });
-  const insRef = useRef(0);
-  // Un appui long qui arme le glisser ne doit pas, au relâchement, valider aussi
-  // le clic de l'élément (une pastille du rail bascule le filtre au clic).
-  const armedRef = useRef(false);
-  const onReorderRef = useRef(onReorder);
-  onReorderRef.current = onReorder;
-
-  useEffect(() => {
-    setOrder(prev => {
-      // Ce qu'on avait rangé à la main garde son ordre ; ce qui apparaît reprend
-      // la place que la liste d'entrée lui donne. On parcourt donc `ids` et on y
-      // reverse les anciens dans leur ordre à eux, les nouveaux tels quels —
-      // plutôt que d'empiler les nouveaux à la fin. Sans ça, un onglet masqué
-      // puis rallumé revenait en bout de barre au lieu de retrouver son créneau.
-      const idsSet = new Set(ids);
-      const prevSet = new Set(prev);
-      const kept = prev.filter(id => idsSet.has(id));
-      let k = 0;
-      const next = ids.map(id => prevSet.has(id) ? kept[k++] : id);
-      orderRef.current = next;
-      return next;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idsKey]);
-
-  const setNodeRef = (id) => (el) => {
-    if (el) nodesRef.current[id] = el; else delete nodesRef.current[id];
-  };
-
-  // Une fois le glisser armé, le doigt pilote la carte : ce blocage annule le
-  // défilement que `touch-action:pan-y` autoriserait encore. Non passif, et posé
-  // alors que le doigt est encore immobile — le seul moment où preventDefault
-  // empêche encore un défilement de démarrer.
-  const blockScroll = useRef((e) => { if (e.cancelable) e.preventDefault(); }).current;
-
-  const handleMove = useRef((e) => {
-    const id = dragIdRef.current;
-    if (id == null) return;
-    movedRef.current = true;
-    // Le doigt (ou la souris) a bougé : c'est un glisser, et le clic qui suivra
-    // le relâchement n'en est pas un. Voir `armedRef` plus haut.
-    armedRef.current = true;
-    if (e.cancelable) e.preventDefault();
-    const px = e.clientX, py = e.clientY;
-
-    // The dragged card tracks the pointer; everything else stays put.
-    const dragNode = nodesRef.current[id];
-    if (dragNode){
-      dragNode.style.transform =
-        `translate(${px - startRef.current.x}px, ${py - startRef.current.y}px) scale(1.03)`;
-    }
-
-    // Where would it drop? Insertion index in reading order (row by row, L→R).
-    const others = orderRef.current
-      .filter(x => x !== id)
-      .map(x => { const n = nodesRef.current[x]; return { r: n && n.getBoundingClientRect() }; })
-      .filter(o => o.r);
-    if (!others.length){ insRef.current = 0; hideDropIndicator(); return; }
-
-    let ins = others.length;
-    for (let i = 0; i < others.length; i++){
-      const r = others[i].r;
-      const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
-      const rowTol = r.height * 0.5;
-      if ((py < cy - rowTol) || (Math.abs(py - cy) <= rowTol && px < cx)){ ins = i; break; }
-    }
-    insRef.current = ins;
-
-    // Park the highlight bar in that gap (viewport coords).
-    const el = dropIndicator.el;
-    if (!el) return;
-    const T = 3, G = 7; // bar thickness, offset at the list ends
-    let bar;
-    if (ins > 0 && ins < others.length){
-      const a = others[ins - 1].r, b = others[ins].r;
-      if (sameRow(a, b)){
-        const top = Math.min(a.top, b.top), bot = Math.max(a.bottom, b.bottom);
-        bar = { left: (a.right + b.left) / 2 - T / 2, top, width: T, height: bot - top };
-      } else {
-        const left = Math.min(a.left, b.left), right = Math.max(a.right, b.right);
-        bar = { left, top: (a.bottom + b.top) / 2 - T / 2, width: right - left, height: T };
-      }
-    } else if (ins === 0){
-      const b = others[0].r;
-      const multi = others.some((o, i) => i !== 0 && sameRow(o.r, b) && o.r.left > b.left);
-      bar = multi ? { left: b.left - G - T / 2, top: b.top, width: T, height: b.height }
-                  : { left: b.left, top: b.top - G - T / 2, width: b.width, height: T };
-    } else {
-      const a = others[others.length - 1].r;
-      const multi = others.some((o, i) => i !== others.length - 1 && sameRow(o.r, a) && o.r.left < a.left);
-      bar = multi ? { left: a.right + G - T / 2, top: a.top, width: T, height: a.height }
-                  : { left: a.left, top: a.bottom + G - T / 2, width: a.width, height: T };
-    }
-    el.style.display = 'block';
-    el.style.left = bar.left + 'px';
-    el.style.top = bar.top + 'px';
-    el.style.width = bar.width + 'px';
-    el.style.height = bar.height + 'px';
-  }).current;
-
-  const handleUp = useRef(() => {
-    window.removeEventListener('pointermove', handleMove);
-    window.removeEventListener('pointerup', handleUp);
-    window.removeEventListener('pointercancel', handleUp);
-    window.removeEventListener('touchmove', blockScroll);
-    // `armedRef` neutralise le clic qui suit le relâchement ; on le rend au tour
-    // d'après plutôt que d'attendre le prochain pointerdown, sinon un clic qui
-    // n'en est pas précédé (clavier, appel programmatique) resterait avalé.
-    setTimeout(() => { armedRef.current = false; }, 0);
-    document.body.classList.remove('dragging-reorder');
-    hideDropIndicator();
-
-    const id = dragIdRef.current;
-    const dragNode = id != null ? nodesRef.current[id] : null;
-    if (dragNode) dragNode.style.transform = '';
-
-    if (id != null && movedRef.current){
-      const others = orderRef.current.filter(x => x !== id);
-      const ins = Math.max(0, Math.min(insRef.current, others.length));
-      const next = others.slice();
-      next.splice(ins, 0, id);
-      const changed = next.some((x, i) => x !== orderRef.current[i]);
-      if (changed){
-        // The commit reflows the list; suppress the entrance animation so the
-        // reordered cards don't replay the page-load "riseIn".
-        document.body.classList.add('reordering');
-        setTimeout(() => document.body.classList.remove('reordering'), 400);
-        orderRef.current = next;
-        setOrder(next);
-        onReorderRef.current(next);
-      }
-    }
-    dragIdRef.current = null;
-    movedRef.current = false;
-    setDragId(null);
-  }).current;
-
-  // Au doigt, un glisser ne s'arme qu'après un appui maintenu — sinon le simple
-  // fait de faire défiler la page en posant le doigt sur une carte la déplaçait.
-  // Pendant l'attente on ne bloque rien : si le doigt part avant la fin, c'est
-  // un défilement (ou un tap), et le glisser n'a jamais lieu. À la souris il n'y
-  // a pas de défilement à confondre avec un glisser : il reste immédiat.
-  const HOLD_MS = 350;
-  const HOLD_SLOP = 9;   // px de tolérance : un doigt ne tient jamais parfaitement immobile
-  const holdRef = useRef(null);
-
-  const cancelHold = useRef(() => {
-    if (holdRef.current?.timer) clearTimeout(holdRef.current.timer);
-    if (holdRef.current?.cleanup) holdRef.current.cleanup();
-    holdRef.current = null;
-  }).current;
-
-  // `armed` = ce geste a déjà consommé le clic à venir. C'est vrai d'un appui
-  // long au doigt dès qu'il a tenu (le relâcher ne doit rien déclencher d'autre),
-  // mais pas d'un simple clic de souris : à la souris, le glisser s'arme dès le
-  // pointerdown, et considérer tout de suite le clic comme avalé rendait muettes
-  // les pastilles du rail — cliquer pour filtrer ne faisait plus rien. Le clic ne
-  // devient un glisser qu'à partir du moment où ça bouge (voir handleMove).
-  const beginDrag = (id, x, y, armed = false) => {
-    dragIdRef.current = id;
-    movedRef.current = false;
-    startRef.current = { x, y };
-    insRef.current = Math.max(0, orderRef.current.indexOf(id));
-    setDragId(id);
-    armedRef.current = armed;
-    document.body.classList.add('dragging-reorder');
-    window.addEventListener('pointermove', handleMove, { passive: false });
-    window.addEventListener('pointerup', handleUp);
-    window.addEventListener('pointercancel', handleUp);
-    window.addEventListener('touchmove', blockScroll, { passive: false });
-  };
-
-  const startDrag = (id) => (e) => {
-    if (e.button != null && e.button !== 0) return;
-    armedRef.current = false;
-    if (e.pointerType !== 'touch'){
-      // preventDefault empêche la sélection de texte pendant le glisser.
-      if (e.cancelable) e.preventDefault();
-      beginDrag(id, e.clientX, e.clientY);
-      return;
-    }
-
-    // Ni preventDefault ni écouteur bloquant ici : le navigateur doit rester
-    // libre de faire défiler tant que l'appui n'a pas tenu.
-    cancelHold();
-    const x0 = e.clientX, y0 = e.clientY;
-    const onMove = (ev) => {
-      if (Math.abs(ev.clientX - x0) > HOLD_SLOP || Math.abs(ev.clientY - y0) > HOLD_SLOP) cancelHold();
-    };
-    const cleanup = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', cancelHold);
-      window.removeEventListener('pointercancel', cancelHold);
-    };
-    window.addEventListener('pointermove', onMove, { passive: true });
-    window.addEventListener('pointerup', cancelHold);
-    window.addEventListener('pointercancel', cancelHold);
-    holdRef.current = {
-      cleanup,
-      timer: setTimeout(() => {
-        cleanup();
-        holdRef.current = null;
-        // Une petite vibration dit « c'est attrapé » — sans elle, rien ne
-        // distingue un appui trop court d'un appui assez long.
-        try { navigator.vibrate?.(12); } catch {}
-        beginDrag(id, x0, y0, true);
-      }, HOLD_MS),
-    };
-  };
-
-  // Un démontage en pleine attente laisserait le minuteur armer un glisser sur
-  // une carte qui n'est plus là.
-  useEffect(() => cancelHold, [cancelHold]);
-
-  // Without a reorder handler (the list is under an automatic sort) dragging would
-  // fight the sort, so hand back inert controls: `startDrag` yielding null also
-  // removes the grip, since cards only draw one when given a handler.
-  if (!onReorder) return { order: ids, dragId: null, setNodeRef: () => undefined, startDrag: () => null, wasArmed: () => false };
-  return { order, dragId, setNodeRef, startDrag, wasArmed: () => armedRef.current };
-}
-
-// Small grip handle that starts a drag. Kept separate from the rest of a
-// card so it never steals clicks from buttons/inputs inside it.
-function DragHandle({ onPointerDown, dragging }){
-  return (
-    <span className={`drag-handle ${dragging?'dragging':''}`} onPointerDown={onPointerDown} aria-label="Réordonner" title="Maintenir puis glisser pour réordonner">
-      <svg width="9" height="15" viewBox="0 0 9 15"><circle cx="2.2" cy="2.2" r="1"/><circle cx="6.8" cy="2.2" r="1"/><circle cx="2.2" cy="7.5" r="1"/><circle cx="6.8" cy="7.5" r="1"/><circle cx="2.2" cy="12.8" r="1"/><circle cx="6.8" cy="12.8" r="1"/></svg>
-    </span>
-  );
-}
-// Une pastille de saisie numérique — la même `.pill` que le rail et les
-// nuanciers de couleur, pour que la valeur cible et l'échelle ne soient plus
-// les seules boîtes à bordure carrée de la page. Le comportement (parsing,
-// bornes) reste entièrement à l'appelant : ceci n'habille qu'un input.
-/* Le nuancier de l'app : les neutres en tête, puis les quatre paliers de
-   luminosité des douze teintes. Un seul composant pour la couleur d'un tracker
-   et pour l'accent de l'app — ce sont les mêmes couleurs, choisies de la même
-   façon, et deux grilles jumelles auraient dérivé l'une de l'autre.
-   `extra` ajoute une pastille au bout (« la couleur de Tracklog » dans les
-   paramètres) sans que la grille ait à connaître ce qu'elle veut dire. */
-function SwatchGrid({ value, onChange }){
-  const [editing, setEditing] = useState(false);
-  const custom = value && !COLORS.includes(value);
-  return (
-    <div className="swatch-grid">
-      <div className="swatch-row">
-        {COLORS.map(c => (
-          <button key={c} type="button" className={`swatch ${value===c?'on':''}`} style={{background:c}}
-                  onClick={()=>{ onChange(c); setEditing(false); }} aria-label={`Couleur ${c}`} />
-        ))}
-        {/* Le « + » est un rond comme les autres : dix ronds font une ligne, un
-            bouton d'une autre forme au bout en ferait neuf et un intrus. */}
-        <button type="button" className={`swatch swatch-custom ${editing||custom?'open':''}`}
-                onClick={()=>setEditing(v=>!v)} aria-expanded={editing}
-                style={custom ? { background:value } : undefined}
-                title={custom ? 'Couleur personnalisée' : 'Composer une couleur'}
-                aria-label={custom ? 'Couleur personnalisée' : 'Composer une couleur'}>
-          {!custom && '+'}
-        </button>
-      </div>
-      {editing && <ColorEditor value={value} onChange={onChange} />}
-    </div>
-  );
-}
-
-/* L'éditeur : trois curseurs pour composer n'importe quelle couleur, plus la
-   pipette du système pour en coller une exacte. Les curseurs parlent OKLCH
-   comme le reste du nuancier — c'est ce qui fait qu'une teinte déplacée garde
-   la même intensité perçue, ce que HSL ne promet pas. La pipette, elle, rend un
-   hexadécimal : on le garde tel quel, une couleur reste une chaîne CSS. */
-function ColorEditor({ value, onChange }){
-  const parsed = useMemo(() => {
-    const m = /oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)/i.exec(value || '');
-    return m ? { l:parseFloat(m[1]), c:parseFloat(m[2]), h:parseFloat(m[3]) }
-             : { l:COLOR_LIGHT, c:COLOR_CHROMA, h:35 };
-  }, [value]);
-  const [hsl, setHsl] = useState(parsed);
-  // Une pastille cliquée pendant que l'éditeur est ouvert doit y être reprise,
-  // sinon le premier mouvement de curseur repartirait de l'ancienne couleur.
-  const seen = useRef(value);
-  if (seen.current !== value){ seen.current = value; if (parsed.h !== hsl.h || parsed.l !== hsl.l || parsed.c !== hsl.c) setHsl(parsed); }
-
-  const emit = (next) => { setHsl(next); onChange(`oklch(${next.l.toFixed(2)} ${next.c.toFixed(3)} ${Math.round(next.h)})`); };
-  const track = (kind) => {
-    if (kind === 'h') return 'linear-gradient(to right,' + [0,60,120,180,240,300,360].map(h=>`oklch(${COLOR_LIGHT} ${COLOR_CHROMA} ${h})`).join(',') + ')';
-    if (kind === 'c') return `linear-gradient(to right, oklch(${hsl.l} 0 ${hsl.h}), oklch(${hsl.l} 0.37 ${hsl.h}))`;
-    return `linear-gradient(to right, oklch(0 0 0), oklch(${hsl.l.toFixed(2)} ${hsl.c} ${hsl.h}), oklch(1 0 0))`;
-  };
-  const row = (kind, label, min, max, step, val) => (
-    <label className="ce-row">
-      <span className="ce-lab">{label}</span>
-      <input type="range" min={min} max={max} step={step} value={val}
-             style={{'--track': track(kind)}}
-             onChange={e=>emit({ ...hsl, [kind === 'h' ? 'h' : kind === 'c' ? 'c' : 'l']: parseFloat(e.target.value) })} />
-      <span className="ce-val mono">{kind === 'h' ? `${Math.round(val)}°` : Math.round(val * 100) + '%'}</span>
-    </label>
-  );
-
-  return (
-    <div className="color-editor">
-      <div className="ce-preview" style={{background:value}} aria-hidden="true"></div>
-      <div className="ce-rows">
-        {row('h', 'Teinte',     0, 360, 1,    hsl.h)}
-        {row('c', 'Saturation', 0, 0.37, 0.005, hsl.c)}
-        {row('l', 'Luminosité', 0, 1,   0.01, hsl.l)}
-        <label className="ce-row ce-hex">
-          <span className="ce-lab">Pipette</span>
-          <span className="ce-val">une couleur exacte</span>
-          <input type="color" onChange={e=>onChange(e.target.value)} aria-label="Choisir une couleur exacte" />
-        </label>
-      </div>
-    </div>
-  );
-}
-function NumPill({ label, value, onChange, unit, placeholder, min, style }){
-  return (
-    <label className="pill num-pill" style={style}>
-      <span className="np-lab">{label}</span>
-      <input type="number" step="any" min={min} value={value} placeholder={placeholder} onChange={onChange} />
-      {unit && <span className="np-unit">{unit}</span>}
-    </label>
-  );
-}
-
-
-/* ============================================================
-   Préférences de compte — user_settings
-   ------------------------------------------------------------
-   Un seul blob jsonb par compte, et c'est lui qui fait autorité :
-   Tracklog se vit sur un téléphone ET sur un PC, donc un réglage
-   posé d'un côté doit se retrouver de l'autre. Style, bulles
-   d'aide, numéro de semaine, interrupteur caméra, ordre et
-   visibilité des onglets — tout ça suit le compte.
-
-   localStorage reste, mais comme miroir, pas comme source : il
-   sert à afficher le bon réglage AVANT que la base ait répondu
-   (le style est même lu par un script en tête de page, avant
-   que l'app existe) et à ne pas perdre la main si user_settings
-   est injoignable. Voir useSyncedPref juste en dessous.
-
-   Ce qui reste vraiment local : les chronos, qui sont un état de
-   travail en cours sur cet appareil-là, pas un réglage.
-
-   Écriture optimiste : l'état local part devant, la base suit.
-   Un réglage d'affichage qui attend le réseau donne une app
-   qui colle, et l'échec n'y coûte qu'un rechargement.
-   ============================================================ */
-// Le contexte porte { prefs, savePrefs } jusqu'aux composants trop loin dans
-// l'arbre pour qu'on leur passe le réglage à la main — au premier chef le
-// scanner de la page Food, qui vit à trois modales de App.
-const AccountPrefsContext = React.createContext(null);
-// Hors de tout Provider (un composant monté seul dans un test), un réglage
-// reste utilisable : il ne fait que ne pas se synchroniser. L'objet est stable
-// pour ne pas invalider les mémos qui en dépendent à chaque rendu.
-const LOCAL_ONLY_PREFS = { prefs: {}, savePrefs: () => {} };
-function useAccountPrefs(userId){
-  const [prefs, setPrefs] = useState(null);   // null = pas encore chargé
-  // Un réglage touché avant que la base ait répondu ne doit pas partir seul :
-  // le blob est écrit en entier, l'envoyer avec un objet vide effacerait tout le
-  // reste (les onglets, en premier). On retient donc ce qui a été changé et on
-  // le rejoue par-dessus ce qui arrive.
-  const pendingRef = useRef(null);
-
-  const write = useCallback((next) => {
-    supabase.from('user_settings')
-      .upsert({ user_id: userId, prefs: next, updated_at: Date.now() })
-      .then(({ error }) => { if (error) console.warn('user_settings', error.message); });
-  }, [userId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const { data, error } = await supabase.from('user_settings').select('*').maybeSingle();
-      if (cancelled) return;
-      // Table absente (migration pas encore passée) : on tourne sur les valeurs
-      // par défaut plutôt que de bloquer toute l'app sur un réglage d'affichage.
-      const loaded = (!error && data && data.prefs) ? data.prefs : {};
-      const pending = pendingRef.current;
-      pendingRef.current = null;
-      const next = pending ? { ...loaded, ...pending } : loaded;
-      setPrefs(next);
-      if (pending) write(next);
-    })();
-    return () => { cancelled = true; };
-  }, [userId, write]);
-
-  const savePrefs = useCallback(async (patch) => {
-    setPrefs(prev => {
-      if (prev === null){
-        // Pas encore chargé : on garde le changement de côté, l'effet ci-dessus
-        // le posera sur les valeurs du compte dès qu'elles arriveront.
-        pendingRef.current = { ...(pendingRef.current || {}), ...patch };
-        return prev;
-      }
-      const next = { ...prev, ...patch };
-      write(next);
-      return next;
-    });
-  }, [write]);
-
-  // L'onglet « Bouffe » s'appelle « Food » depuis, mais sa préférence est déjà
-  // enregistrée sous l'ancienne clé sur les comptes existants : on la relit sous
-  // ce nom avant d'appliquer la nouvelle, pour qu'un onglet masqué le reste.
-  const stored = (prefs && prefs.tabs) || {};
-  const legacy = stored.bouffe !== undefined && stored.food === undefined
-    ? { food: stored.bouffe } : null;
-  const tabs = { ...DEFAULT_TABS, ...stored, ...legacy };
-  const setTab = (id, on) => savePrefs({ tabs: { ...tabs, [id]: on } });
-
-  // L'ordre des onglets : les ids connus, dans l'ordre enregistré, suivis de
-  // ceux qui n'y sont pas encore (un onglet ajouté par une mise à jour se range
-  // à sa place par défaut plutôt que de disparaître).
-  const storedOrder = Array.isArray(prefs && prefs.tabOrder) ? prefs.tabOrder : [];
-  const known = NAV_TABS.map(t => t.id);
-  const tabOrder = [...storedOrder.filter(id => known.includes(id)),
-                    ...known.filter(id => !storedOrder.includes(id))];
-  const setTabOrder = (order) => savePrefs({ tabOrder: order });
-
-  return { ready: prefs !== null, prefs: prefs || {}, savePrefs, tabs, setTab, tabOrder, setTabOrder };
-}
-
-/* ---- Un réglage qui suit le compte, avec miroir local ----------------------
-   Le compte fait autorité, mais il arrive après le premier rendu : tant qu'il
-   n'a pas répondu, on affiche la dernière valeur connue sur cet appareil plutôt
-   qu'un défaut arbitraire — sinon chaque ouverture montrerait brièvement le
-   mauvais réglage, ce qui se lit comme un bug plutôt que comme un chargement.
-   Quand la réponse arrive, c'est elle qui gagne, et le miroir se met à jour. */
-function useSyncedPref(accountPrefs, key, storageKey, fallback, isValid = () => true){
-  const read = () => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw === null) return fallback;
-      const v = typeof fallback === 'boolean' ? raw === '1' : raw;
-      return isValid(v) ? v : fallback;
-    } catch { return fallback; }
-  };
-  const [local, setLocal] = useState(read);
-  const remote = accountPrefs.prefs ? accountPrefs.prefs[key] : undefined;
-  const valid = remote !== undefined && typeof remote === typeof fallback && isValid(remote);
-  const value = valid ? remote : local;
-
-  useEffect(() => {
-    try { localStorage.setItem(storageKey, typeof value === 'boolean' ? (value ? '1' : '0') : String(value)); } catch {}
-  }, [value, storageKey]);
-
-  const set = useCallback((v) => {
-    setLocal(v);
-    accountPrefs.savePrefs({ [key]: v });
-  }, [accountPrefs, key]);
-
-  return [value, set];
-}
-
-const FEEDBACK_KINDS = [
-  { id:'bug',     label:'Bug' },
-  { id:'feature', label:'Idée' },
-  { id:'avis',    label:'Avis' },
-  { id:'autre',   label:'Autre' },
-];
 
 /* ============================================================
    App
    ============================================================ */
 
+/* @atelier page — L’app elle-même : l’état partagé, la barre d’onglets, et l’écran affiché. */
 function App({ session }){
   const userId = session.user.id;
   const [trackers, setTrackers] = useState([]);
@@ -1359,23 +79,23 @@ function App({ session }){
   // La barre de composition des cartes d'aliment : lue ici pour le réglage, et
   // relue par app.food.jsx via le contexte, là où les cartes se dessinent.
   const [compBar, setCompBar] = useSyncedPref(accountPrefs, 'compBar', 'tracklog.compBar', true);
-  // Le style est lu par un petit script en tête de page, avant même que l'app
+  // Le thème est lu par un petit script en tête de page, avant même que l'app
   // charge, pour que la page ne clignote jamais dans les mauvaises couleurs — ce
   // script ne peut pas savoir quel compte se connecte, d'où une clé non scopée par
   // utilisateur. Le compte reste la référence : quand il répond, il corrige
   // l'appareil. `document.documentElement.dataset.theme` est ce que lit le CSS.
-  const [theme, setTheme] = useSyncedPref(accountPrefs, 'theme', 'tracklog.theme', DEFAULT_STYLE, isStyle);
+  const [theme, setTheme] = useSyncedPref(accountPrefs, 'theme', 'tracklog.theme', DEFAULT_THEME, isTheme);
   useEffect(() => {
     try {
       document.documentElement.dataset.theme = theme;
       const meta = document.querySelector('meta[name="theme-color"]');
-      const style = STYLES.find(s => s.id === theme);
-      if (meta && style) meta.setAttribute('content', style.themeColor);
+      const th = THEMES.find(s => s.id === theme);
+      if (meta && th) meta.setAttribute('content', th.themeColor);
     } catch {}
   }, [theme]);
-  // La couleur d'accent, à côté du style : le style choisit le fond et l'encre,
+  // La couleur d'accent, à côté du thème : le thème choisit le fond et l'encre,
   // l'accent choisit ce qui ressort dessus. Chaîne vide = celle de Tracklog.
-  // Même mécanique que le style, jusqu'au script en tête de page (window.applyAccent)
+  // Même mécanique que le thème, jusqu'au script en tête de page (window.applyAccent)
   // qui la pose avant le premier rendu — sinon toute l'app clignoterait en orange
   // avant de passer à la couleur choisie.
   const [accent, setAccent] = useSyncedPref(accountPrefs, 'accent', 'tracklog.accent', '');
@@ -1955,6 +675,7 @@ function App({ session }){
    répondent en une seconde. Les bulles des réglages d'affichage portent donc
    un avant/après en vrai — même encre, mêmes tokens que ce qu'elles montrent,
    sinon l'exemple ne ressemblerait pas à ce qu'on va obtenir. */
+/* @atelier molecule — Deux états côte à côte, « Sans » / « Avec » : un réglage qui se montre mieux qu’il ne se décrit. */
 function DemoPair({ off, on, offLabel = 'Sans', onLabel = 'Avec' }){
   return (
     <span className="demo-pair" aria-hidden="true">
@@ -1970,6 +691,7 @@ function DemoPair({ off, on, offLabel = 'Sans', onLabel = 'Avec' }){
   );
 }
 
+/* @atelier page — Les paramètres : compte, thème, accent, onglets, archives, retour. */
 function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled, onSetInfoEnabled,
                        showWeek, onSetShowWeek, theme, onSetTheme, accent, onSetAccent,
                        compBar, onSetCompBar,
@@ -1998,26 +720,26 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
 
       <div className="card settings-card">
         <p className="settings-section-title">
-          Style
-          <InfoBubble title="Style">
-            Le style suit le compte : choisi sur le téléphone, il s'applique aussi sur
+          Thème
+          <InfoBubble title="Thème">
+            Le thème suit le compte : choisi sur le téléphone, il s'applique aussi sur
             l'ordinateur. D'autres viendront s'ajouter à cette liste.
           </InfoBubble>
         </p>
         <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:10}}>
-          <div className="style-picker">
-            {STYLES.map(s => (
-              <button key={s.id} className={`style-choice ${theme===s.id?'on':''}`} onClick={()=>onSetTheme(s.id)}>
-                <span className="style-swatch" data-style={s.id} aria-hidden="true">
+          <div className="theme-picker">
+            {THEMES.map(s => (
+              <button key={s.id} className={`theme-choice ${theme===s.id?'on':''}`} onClick={()=>onSetTheme(s.id)}>
+                <span className="theme-swatch" data-theme-id={s.id} aria-hidden="true">
                   <i /><i /><i />
                 </span>
-                <span className="style-name">{s.label}</span>
-                <span className="style-hint">{s.hint}</span>
+                <span className="theme-name">{s.label}</span>
+                <span className="theme-hint">{s.hint}</span>
               </button>
             ))}
           </div>
         </div>
-        {/* Le style choisit le fond et l'encre ; l'accent choisit ce qui ressort
+        {/* Le thème choisit le fond et l'encre ; l'accent choisit ce qui ressort
             dessus. Le même nuancier que la couleur d'un tracker — ce sont les
             mêmes couleurs, il n'y a pas de raison d'en inventer une seconde
             grille — plus une pastille pour revenir à celle de Tracklog. */}
@@ -2026,7 +748,7 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
             Couleur d'accent
             <InfoBubble title="Couleur d'accent">
               La couleur des boutons, des liens et de tout ce qui doit attirer l'œil.
-              La première pastille remet celle de Tracklog. Comme le style, elle suit le
+              La première pastille remet celle de Tracklog. Comme le thème, elle suit le
               compte : posée sur le téléphone, elle est là sur l'ordinateur.
             </InfoBubble>
           </label>
@@ -2158,6 +880,7 @@ function SettingsView({ userId, email, onChangePassword, onSignOut, infoEnabled,
    milieu d'une liste d'objets identiques se lit comme une panne, pas comme une
    règle. Les paramètres n'y figurent pas — ce n'est pas un onglet mais
    l'engrenage du bout de barre, et c'est de là qu'on rallume ce qu'on a éteint. */
+/* @atelier organisme — Les onglets de la barre du haut : lesquels s’affichent, dans quel ordre. */
 function TabsSettingsCard({ tabs, onSetTabVisible, tabOrder, onSetTabOrder, prefsReady }){
   const byId = useMemo(() => Object.fromEntries(NAV_TABS.map(t => [t.id, t])), []);
   const hints = useMemo(() => Object.fromEntries(TOGGLEABLE_TABS.map(t => [t.id, t.hint])), []);
@@ -2204,11 +927,12 @@ function TabsSettingsCard({ tabs, onSetTabVisible, tabOrder, onSetTabOrder, pref
    Retours — bugs, idées, avis
    ------------------------------------------------------------
    Écrire pendant qu'on a le nez dedans plutôt que de se
-   promettre d'y penser plus tard. Le contexte technique (style,
+   promettre d'y penser plus tard. Le contexte technique (thème,
    taille d'écran, navigateur) part avec le message : c'est
    exactement ce qu'on ne pense jamais à noter et ce qui manque
    toujours pour reproduire un bug.
    ============================================================ */
+/* @atelier organisme — Le formulaire de retour, avec le contexte technique capté automatiquement. */
 function FeedbackCard({ userId }){
   const [kind, setKind] = useState('bug');
   const [message, setMessage] = useState('');
@@ -2225,7 +949,7 @@ function FeedbackCard({ userId }){
       kind,
       message: message.trim(),
       context: {
-        style: (() => { try { return document.documentElement.dataset.theme || null; } catch { return null; } })(),
+        theme: (() => { try { return document.documentElement.dataset.theme || null; } catch { return null; } })(),
         ecran: (() => { try { return `${window.innerWidth}×${window.innerHeight}`; } catch { return null; } })(),
         navigateur: (() => { try { return navigator.userAgent; } catch { return null; } })(),
         envoye_le: new Date().toISOString(),
@@ -2274,7 +998,7 @@ function FeedbackCard({ userId }){
           <span className="settings-inline-hint">
             {state === 'sent' ? 'Envoyé — merci.'
              : state === 'error' ? err
-             : 'Le style, la taille d’écran et le navigateur partent avec le message.'}
+             : 'Le thème, la taille d’écran et le navigateur partent avec le message.'}
           </span>
           <button className="primary sm" disabled={!canSend} onClick={send}>
             {state === 'sending' ? 'Envoi…' : state === 'sent' ? 'Envoyer un autre' : 'Envoyer'}
@@ -2288,6 +1012,7 @@ function FeedbackCard({ userId }){
 /* ============================================================
    Training — la place est prise, le contenu viendra
    ============================================================ */
+/* @atelier page — L’écran Training — à venir. */
 function TrainingView(){
   return (
     <div className="empty training-empty">
@@ -2306,6 +1031,7 @@ function TrainingView(){
    L'onglet existe avant son contenu, volontairement : c'est lui qui dira ce que
    les données ont à dire quand on les croise — pas un tracker à la fois, mais
    l'un contre l'autre. Réservé pour l'instant, et masquable tant qu'il l'est. */
+/* @atelier page — L’écran AI analyst — à venir. */
 function AnalystView(){
   return (
     <div className="empty training-empty">
@@ -2327,6 +1053,7 @@ function AnalystView(){
    que celui des pastilles du rail — relâcher un appui long ne doit pas, en plus,
    changer d'onglet. L'ordre suit le compte : la barre est la même sur le
    téléphone et sur le PC. */
+/* @atelier organisme — La barre d’onglets du haut, réordonnable en maintenant un onglet. */
 function TabBar({ tabs, order, activeTab, onSelect, onReorder }){
   const byId = useMemo(() => Object.fromEntries(tabs.map(t => [t.id, t])), [tabs]);
   // On ne réordonne que ce qui est affiché ; un onglet masqué garde sa place
@@ -2370,32 +1097,12 @@ function TabBar({ tabs, order, activeTab, onSelect, onReorder }){
 
 /* ============================================================
    Tracker rail (selectable pills)
+   ------------------------------------------------------------
+   Ses trois registres — SORTS, GROUPS, SECTION_LABELS — sont dans
+   app.core.jsx : des listes de choix, pas un rendu.
    ============================================================ */
-const SORTS = [
-  { id:'manuel', label:'Manuel',  hint:'votre ordre — glissez les cartes pour le changer' },
-  { id:'alpha',  label:'A → Z',   hint:'par nom' },
-  { id:'recent', label:'Récents', hint:'renseignés le plus récemment en premier' },
-  { id:'type',   label:'Type',    hint:'regroupés par type de tracker' },
-];
-// Grouper décide comment le Jour range ses trackers en sections ; trier décide
-// l'ordre DANS chaque section. Les deux étaient un seul réglage confondu
-// (« Filtres & tri ») avant d'avoir de quoi grouper — trois questions
-// différentes méritent trois boutons, pas un seul qui grossit.
-const GROUPS = [
-  { id:'type',  label:'Type',    hint:'quotidiens, plusieurs par jour, alimentation, masters' },
-  { id:'color', label:'Couleur', hint:'un groupe par couleur de tracker' },
-  { id:'done',  label:'Fait',    hint:'noté aujourd’hui, ou pas encore' },
-];
-// Les quatre sections possibles du Jour en groupement « Type ». Le master et
-// l'alimentation sont des sections comme les autres — réordonnables au même
-// titre, pas des blocs fixes en tête et en pied de page.
-const SECTION_LABELS = { masters:'Masters', daily:'Quotidiens', multi:'Plusieurs par jour', food:'Alimentation',
-                          done:'Fait aujourd\'hui', notdone:'Pas fait' };
 
-function ChevronDown(){
-  return <svg width="9" height="6" viewBox="0 0 9 6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M1 1L4.5 5L8 1"/></svg>;
-}
-
+/* @atelier organisme — Le rail : une pastille par tracker, plus Filtres, Tri et Grouper. */
 function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onToggleAll, onAdd, onEdit, onReorder,
                         filterOpen, onToggleFilterOpen, sortMode, onSortMode, sortOpen, onToggleSortOpen,
                         groupMode, onGroupMode, groupOpen, onToggleGroupOpen }){
@@ -2497,6 +1204,7 @@ function TrackerRail({ trackers, selectedIds = [], filterActive, onToggle, onTog
    Day view — fill / edit every tracker for one given day.
    Used by the "Jour" tab (today) and the Historique calendar (any day).
    ============================================================ */
+/* @atelier page — Le Jour : remplir la journée, section par section. */
 function TodayView({ trackers, masters = [], trackerById = {}, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder, foodSummary = null, onEditTracker, showWeek,
                       groupMode = 'type', sectionOrder, onReorderSections }){
   const todayTs = startOfDay(Date.now());
@@ -2594,6 +1302,7 @@ function mergeSectionOrder(defaultIds, saved){
 // Un en-tête de section réordonnable : la même poignée que sur une carte de
 // tracker, un rond de couleur pour un groupe "Couleur" (le regroupement se
 // voit déjà, un mot de plus ne dirait rien), un intitulé pour tout le reste.
+/* @atelier organisme — Un bloc du Jour, réordonnable au même titre qu’une carte. */
 function ReorderSection({ label, swatch, containerRef, dragging, onDragStart, children }){
   return (
     <div ref={containerRef} className={`day-group ${dragging?'dragging':''}`}>
@@ -2612,6 +1321,7 @@ function ReorderSection({ label, swatch, containerRef, dragging, onDragStart, ch
 // c'est ce que ce bouton groupé déclenche d'un coup. Partagé par DayGrid
 // (Historique) et par les sections du Jour — une carte n'a qu'un bouton
 // "Noter", peu importe dans quelle section elle se trouve affichée.
+/* @atelier technique — Le « Tout ajouter » : chaque carte remonte sa sauvegarde, le bouton groupé les déclenche d’un coup. */
 function useSubmitAll(){
   const submitters = useRef({});
   const [pendingIds, setPendingIds] = useState([]);
@@ -2642,6 +1352,7 @@ function useSubmitAll(){
 // dans un groupe de couleur. Sans `onReorder` (un bucket dérivé d'une donnée —
 // couleur, fait/pas fait — plutôt que d'un ordre posé), `useDragReorder`
 // dégrade déjà proprement à une grille sans poignée.
+/* @atelier organisme — La grille de cartes d’une section, avec son glisser-déposer. */
 function TrackerCardGrid({ ids, byId, byTracker, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, onReorder, onEditTracker, registerSubmit }){
   const drag = useDragReorder(ids, onReorder);
   return (
@@ -2739,6 +1450,7 @@ function buildDaySections({ groupMode, trackers, masters, entries, dk, foodSumma
 // Grid of one editable card per tracker, for the given day. Utilisé par
 // l'Historique, qui ne connaît ni le groupement ni l'alimentation — il garde
 // le partage fixe Quotidiens / Plusieurs par jour d'origine.
+/* @atelier organisme — Les cartes du jour, rangées en sections selon le groupement choisi. */
 function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, onReorder, onEditTracker }){
   const dk = dayKey(dayTs);
   const byTracker = useMemo(() => {
@@ -2790,6 +1502,7 @@ function DayGrid({ trackers, entries, onAddEntry, onDeleteEntry, onEditEntry, da
   );
 }
 
+/* @atelier organisme — La carte qui remplit une journée — une forme de saisie par genre de tracker. */
 function DayCard({ tracker, dayEntries, onAddEntry, onDeleteEntry, onEditEntry, dayTs, isToday, containerRef, dragging, onDragStart, registerSubmit, onEditTracker }){
   const t = tracker;
   const daily = !!t.daily;
@@ -3090,6 +1803,7 @@ function copyStylesTo(win){
 }
 const PIP_SUPPORTED = typeof window !== 'undefined' && 'documentPictureInPicture' in window;
 
+/* @atelier page — Les chronomètres, en solo ou en parallèle. */
 function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, onReset, onRemove, onSave, onUpdate, onResetAll, onReorder, exclusive, onSetExclusive }){
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -3215,6 +1929,7 @@ function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, o
   );
 }
 
+/* @atelier organisme — Un chronomètre : son temps, ses boutons, le tracker où il se verse. */
 function ChronoCard({ chrono: c, now, tracker, onStart, onPause, onReset, onSave, onEdit, containerRef, dragging, onDragStart }){
   const elapsed = chronoElapsed(c, now);
   const isRunning = !!c.startedAt;
@@ -3276,6 +1991,7 @@ function ChronoCard({ chrono: c, now, tracker, onStart, onPause, onReset, onSave
 
 // Serves both creation and settings, the way a tracker's dialog does — same fields,
 // plus deletion once the chrono exists.
+/* @atelier modale — Les réglages d’un chronomètre. */
 function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
   const editing = !!chrono;
   const [trackerId, setTrackerId] = useState(chrono?.trackerId || '');
@@ -3321,7 +2037,7 @@ function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
         </div>
 
         {trackers.length === 0 && (
-          <div style={{fontSize:12,color:'var(--ink-3)',marginTop:10}}>
+          <div style={{fontSize:12,color:'var(--muted-foreground-2)',marginTop:10}}>
             Aucun tracker de durée pour l’instant — le chrono sera simplement nommé.
           </div>
         )}
@@ -3341,6 +2057,7 @@ function ChronoModal({ chrono, trackers, onClose, onSave, onDelete }){
 /* ============================================================
    Log view — the entries, split into "Jour", "Historique" and "Chrono"
    ============================================================ */
+/* @atelier page — Le Log et ses trois sous-écrans : Jour, Historique, Chrono. */
 function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder,
                   chronos, allTrackers, onAddChrono, onStartChrono, onPauseChrono, onResetChrono, onRemoveChrono, onSaveChrono, onUpdateChrono, onResetAllChronos, onReorderChronos, chronoExclusive, onSetChronoExclusive,
                   foodSummary, historyJump, onAddTracker, onEditTracker, showWeek, groupMode, sectionOrder, onReorderSections }){
@@ -3405,6 +2122,7 @@ function LogView({ logSub, onLogSub, trackers, masters, trackerById, entries, fi
 /* ============================================================
    History — a month calendar to open any day and edit its entries
    ============================================================ */
+/* @atelier page — L’historique : un jour passé, rouvert et modifiable. */
 function HistoryView({ trackers, masters = [], trackerById, entries, filterIds, onAddEntry, onDeleteEntry, onEditEntry, onReorder, jumpTo, onEditTracker, showWeek }){
   const [monthTs, setMonthTs] = useState(() => startOfMonth(Date.now()));
   const [selectedDay, setSelectedDay] = useState(() => startOfDay(Date.now()));
@@ -3505,6 +2223,7 @@ function HistoryView({ trackers, masters = [], trackerById, entries, filterIds, 
 /* ============================================================
    Month calendar — click any day to open it below
    ============================================================ */
+/* @atelier organisme — Le calendrier d’un mois, une pastille par jour rempli. */
 function MonthCalendar({ monthTs, onPrev, onNext, entries, selectedKey, onSelectDay }){
   const first = new Date(monthTs);
   const year = first.getFullYear(), month = first.getMonth();
@@ -3565,6 +2284,7 @@ function MonthCalendar({ monthTs, onPrev, onNext, entries, selectedKey, onSelect
 /* ============================================================
    Vues view (charts / heatmap / grid)
    ============================================================ */
+/* @atelier page — Les vues : graphes, tendance, calendrier, grille. */
 function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit, onOpenDay }){
   // Quatre vues à plat, pas trois dont une qui en cache trois autres : les
   // cartes, la tendance, le calendrier et la grille sont quatre façons de
@@ -3757,1061 +2477,11 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
   );
 }
 
-/* ============================================================
-   Chart card — line chart with axes
-   ============================================================ */
-function ChartCard({ tracker, entries, rangeDays, endTs = Date.now(), perRow = 1, containerRef, dragging, onDragStart, onEdit, onOpenDay, goalAt = null }){
-  const detail = chartDetail(perRow);
-  const compact = perRow >= 2;
-  // `endTs` et non « maintenant » : une période personnalisée peut se fermer
-  // sur un jour passé, et toute la carte se lit alors depuis cette borne.
-  const now = endTs;
-  const start = now - rangeDays*86400000;
-  const isCumulative = !!tracker.cumulative && (tracker.type === 'number' || tracker.type === 'duration');
-
-  // Aggregate per-day: average for number/scale/duration, sum/count for boolean.
-  // Cumulative trackers instead run a total across the tracker's whole history,
-  // so the range only decides how many days are drawn, not what's summed.
-  const grain = GRAINS.some(g => g.id === tracker.chartGrain) ? tracker.chartGrain : 'day';
-  const curveStyle = isCurveStyle(tracker.curveStyle) ? tracker.curveStyle : 'line';
-
-  const dailyPoints = useMemo(() => {
-    const jokerKeys = jokerDayKeys(entries);
-    if (isCumulative){
-      const valid = entries
-        .filter(e => !isJokerEntry(e) && trackerActiveOnKey(tracker, dayKey(e.ts)))
-        .map(e => ({ ts: e.ts, val: Number(e.value) }))
-        .filter(e => !isNaN(e.val))
-        .sort((a,b) => a.ts - b.ts);
-      const arr = [];
-      let vi = 0, running = 0;
-      for (let i = rangeDays - 1; i >= 0; i--){
-        const d = new Date(now - i*86400000);
-        const dayEnd = startOfDay(d.getTime()) + 86400000 - 1;
-        const viBefore = vi;
-        while (vi < valid.length && valid[vi].ts <= dayEnd){ running += valid[vi].val; vi++; }
-        // Nothing to plot before the first entry — the curve starts there, not at a flat zero.
-        // hasEntry marks only the days that actually got a new entry, so the line stays at
-        // the right height every day but a dot only lands where something was really logged.
-        arr.push({ ts: d.getTime(), value: vi > 0 ? running : null, hasEntry: vi > viBefore });
-      }
-      return arr;
-    }
-    const map = new Map();
-    for (const e of entries){
-      if (e.ts < start || isJokerEntry(e)) continue;
-      const k = dayKey(e.ts);
-      if (!map.has(k)) map.set(k, []);
-      map.get(k).push(e);
-    }
-    const arr = [];
-    for (let i = rangeDays - 1; i >= 0; i--){
-      const d = new Date(now - i*86400000);
-      const k = dayKey(d.getTime());
-      const items = map.get(k) || [];
-      let v = null;
-      // Only days inside the active window count toward the chart & its stats.
-      // A joker day is excluded outright — not zeroed, just left out.
-      if (items.length && !jokerKeys.has(k) && trackerActiveOnKey(tracker, k)){
-        if (tracker.type === 'boolean'){
-          v = items.some(x=>x.value === true) ? 1 : 0;
-        } else if (tracker.type === 'text' || tracker.type === 'choice'){
-          v = items.length;
-        } else {
-          const nums = items.map(x => Number(x.value)).filter(x => !isNaN(x));
-          v = aggregateNums(tracker, nums);
-        }
-      }
-      arr.push({ ts: d.getTime(), value: v, hasEntry: v != null });
-    }
-    return arr;
-  }, [entries, tracker, rangeDays, start, now, isCumulative]);
-
-  // One plotted point per day, week or month — the tracker's own setting.
-  const points = useMemo(
-    () => rollupPoints(dailyPoints, grain, { cumulative: isCumulative }),
-    [dailyPoints, grain, isCumulative]
-  );
-
-  const numericValues = points.map(p=>p.value).filter(v=>v!=null);
-  const hasData = numericValues.length > 0;
-
-  /* Une consigne à atteindre, quand le tracker en a une qui change dans le
-     temps (les objectifs de Food) : une marche, jamais un trait droit d'un bout
-     à l'autre — la cible a pu bouger en route, et une ligne unique dirait que
-     celle d'aujourd'hui valait déjà il y a deux mois. Elle entre dans l'échelle,
-     sinon un objectif au-dessus du plus haut jour sortirait du cadre. */
-  const goalValues = goalAt ? points.map(p => goalAt(p.ts)).filter(v => v != null && v > 0) : [];
-
-  // Stats
-  const latest = useMemo(() => {
-    const sorted = entries.slice().sort((a,b)=>b.ts-a.ts);
-    return sorted[0]?.value ?? null;
-  }, [entries]);
-  const avg = hasData ? numericValues.reduce((a,b)=>a+b,0)/numericValues.length : null;
-  const cumulativeTotal = isCumulative && points.length ? points[points.length-1].value : null;
-  const isSumMode = !tracker.daily && tracker.aggregate === 'sum' && (tracker.type === 'number' || tracker.type === 'duration');
-  const total = isSumMode && hasData ? numericValues.reduce((a,b)=>a+b,0) : null;
-
-  // SVG dimensions
-  // Le repère du dessin fait la largeur réelle de la carte (voir `useDrawWidth`) :
-  // une unité = un pixel, donc un rond reste rond et une graduation reste lisible.
-  const svgRef = useRef(null);
-  const W = useDrawWidth(svgRef), H = detail.height, PAD_L = detail.padL, PAD_R = 12, PAD_T = 10, PAD_B = detail.padB;
-  const innerW = W - PAD_L - PAD_R;
-  const innerH = H - PAD_T - PAD_B;
-
-  // Domain
-  // Scales and booleans have a fixed, meaningful range; everything else gets a
-  // domain snapped outward to round steps so the axis never reads 5h24 → 10h36.
-  const fixedScale = tracker.type === 'boolean' || tracker.type === 'scale';
-  const domain = fixedScale
-    ? (() => {
-        if (tracker.type !== 'scale') return { min: 0, max: 1, ticks: [0, 1], step: 1 };
-        const min = tracker.scaleMin ?? 1, max = tracker.scaleMax || 5;
-        return { min, max, ticks: [min, (min+max)/2, max], step: (max-min)/2 || 1 };
-      })()
-    // Aiming for ~6 gradations is what turns a 4.67-wide range into whole
-    // units, an 863-wide one into steps of 200, and a 1.3-wide one into
-    // halves — fewer ticks and the step jumps to the next coarser rung.
-    : niceDomain(
-        Math.min(...numericValues, ...goalValues, Infinity),
-        Math.max(...numericValues, ...goalValues, -Infinity),
-        detail.yTicks,
-        tracker.type
-      );
-  const yMin = domain.min, yMax = domain.max;
-  const yDecimals = decimalsForStep(domain.step);
-
-  const xAt = (i) => PAD_L + (i / Math.max(1, points.length - 1)) * innerW;
-  const yAt = (v) => PAD_T + innerH - ((v - yMin)/(yMax - yMin)) * innerH;
-
-  // Build path with gaps for null
-  const segments = [];
-  let cur = [];
-  points.forEach((p, i) => {
-    if (p.value == null){
-      if (cur.length) segments.push(cur); cur = [];
-    } else {
-      cur.push([xAt(i), yAt(p.value)]);
-    }
-  });
-  if (cur.length) segments.push(cur);
-
-  // Format y-axis. Decimals come from the step, never from the value's own
-  // size: rounding 12.5 and 13.0 to "13" and "13" made the axis unreadable.
-  const fmtY = (v) => {
-    if (tracker.type === 'duration') return fmtDuration(v);
-    if (tracker.type === 'scale')    return v.toFixed(decimalsForStep(tracker.scaleStep || 1));
-    if (tracker.type === 'boolean')  return v >= 0.5 ? 'oui' : 'non';
-    return v.toFixed(yDecimals);
-  };
-
-  // X-axis ticks (start, middle, end). Une carte serrée perd celui du milieu :
-  // trois dates dans 250 px se chevauchent au lieu de situer quoi que ce soit.
-  const xTicks = [
-    { i: 0, label: grainTick(points[0]?.ts, grain) },
-    ...(detail.midTick
-      ? [{ i: Math.floor(points.length/2), label: grainTick(points[Math.floor(points.length/2)]?.ts, grain) }]
-      : []),
-    { i: points.length-1, label: grainTick(points[points.length-1]?.ts, grain) },
-  ].filter(t => points[t.i]);
-
-  const yTicks = domain.ticks;
-
-  // Le stylo reste au niveau de la consigne jusqu'au jour où elle change, où il
-  // monte ou descend sur place. Un jour sans consigne coupe le trait.
-  let goalPath = '', prevGoalY = null;
-  if (goalAt) points.forEach((p, i) => {
-    const g = goalAt(p.ts);
-    if (g == null || g <= 0){ prevGoalY = null; return; }
-    const y = yAt(g), x = xAt(i);
-    if (prevGoalY == null) goalPath += `M${x} ${y}`;
-    else if (prevGoalY !== y) goalPath += `L${x} ${prevGoalY}L${x} ${y}`;
-    else goalPath += `L${x} ${y}`;
-    prevGoalY = y;
-  });
-
-  // Scrub the chart with a mouse or a finger: `active` is the hovered/touched
-  // day index, kept until the pointer leaves (mouse) or the close button is
-  // tapped (touch — there's no "leave" to rely on there).
-  const [active, setActive] = useState(null);
-  const pointToIndex = (clientX) => {
-    const el = svgRef.current;
-    if (!el || !points.length) return null;
-    const rect = el.getBoundingClientRect();
-    if (!rect.width) return null;
-    const relX = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    const xVB = relX * W;
-    const idx = Math.round(((xVB - PAD_L) / innerW) * (points.length - 1));
-    return Math.min(points.length - 1, Math.max(0, idx));
-  };
-  const handleMouseMove = (e) => { const i = pointToIndex(e.clientX); if (i != null) setActive(i); };
-
-  // Au doigt, la lecture ne s'ouvre qu'après un appui maintenu : faire défiler
-  // la page en effleurant un graphe faisait sinon surgir une bulle qu'on
-  // n'avait pas demandée. Une fois ouverte, le doigt balaie librement la courbe.
-  // À la souris le survol reste immédiat — il n'y a pas de défilement à
-  // confondre avec l'intention de lire.
-  const TOUCH_HOLD_MS = 260;
-  const TOUCH_SLOP = 10;
-  const touchHold = useRef(null);
-  const scrubbing = useRef(false);
-  const endTouchHold = () => {
-    if (touchHold.current?.timer) clearTimeout(touchHold.current.timer);
-    touchHold.current = null;
-  };
-  useEffect(() => endTouchHold, []);
-
-  const handleTouchStart = (e) => {
-    const t = e.touches[0]; if (!t) return;
-    scrubbing.current = false;
-    endTouchHold();
-    const x0 = t.clientX, y0 = t.clientY;
-    touchHold.current = {
-      x0, y0,
-      timer: setTimeout(() => {
-        touchHold.current = null;
-        scrubbing.current = true;
-        try { navigator.vibrate?.(10); } catch {}
-        const i = pointToIndex(x0);
-        if (i != null) setActive(i);
-      }, TOUCH_HOLD_MS),
-    };
-  };
-  const handleTouchMove = (e) => {
-    const t = e.touches[0]; if (!t) return;
-    if (scrubbing.current){
-      const i = pointToIndex(t.clientX);
-      if (i != null) setActive(i);
-      return;
-    }
-    // Le doigt part avant la fin de l'attente : c'est un défilement, pas une lecture.
-    const h = touchHold.current;
-    if (h && (Math.abs(t.clientX - h.x0) > TOUCH_SLOP || Math.abs(t.clientY - h.y0) > TOUCH_SLOP)) endTouchHold();
-  };
-  const handleTouchEnd = () => { endTouchHold(); scrubbing.current = false; };
-
-  const activePoint = active != null ? points[active] : null;
-
-  return (
-    <div ref={containerRef} className={`chart-card ${compact?'compact':''} ${perRow>=3?'dense':''} ${dragging?'dragging':''}`}>
-      <div className="chart-head">
-        <div className="name">
-          {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
-          <span style={{color:tracker.color}}>{tracker.name}</span>
-        </div>
-        <div className="chart-head-right">
-          <div className="stats">
-            {/* Trois paliers de détail : la valeur seule quand la carte est
-                étroite, puis la moyenne, puis le compte d'entrées. */}
-            {detail.stats === 'value' ? (
-              <div><span className="v">{latest != null ? fmtValue(tracker, latest) : '—'}</span></div>
-            ) : isCumulative ? (
-              <>
-                <div>actuel <span className="v">{latest != null ? fmtValue(tracker, latest) : '—'}</span></div>
-                <div>cumulé <span className="v">{cumulativeTotal != null ? fmtValue(tracker, +cumulativeTotal.toFixed(1)) : '—'}</span></div>
-              </>
-            ) : (
-              <>
-                <div>actuel <span className="v">{latest != null ? fmtValue(tracker, latest) : '—'}</span></div>
-                <div>{isSumMode ? 'total/jour' : 'moyenne'} <span className="v">{avg != null ? fmtValue(tracker, +avg.toFixed(1)) : '—'}</span></div>
-                {detail.stats === 'full' && isSumMode && <div>total période <span className="v">{total != null ? fmtValue(tracker, +total.toFixed(1)) : '—'}</span></div>}
-                {detail.stats === 'full' && <div>entrées <span className="v">{entries.filter(e=>e.ts >= start).length}</span></div>}
-              </>
-            )}
-          </div>
-          {onEdit && (
-            <button className="icon-btn chart-edit-btn" onClick={()=>onEdit(tracker)} aria-label="Paramètres du tracker" title="Paramètres du tracker">
-              <GearIcon />
-            </button>
-          )}
-        </div>
-      </div>
-      {hasData ? (
-        <div className="chart-svg-wrap" style={{position:'relative', touchAction:'pan-y'}}>
-        <svg ref={svgRef} className="chart-svg" style={{height: H + 'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice"
-          onMouseMove={handleMouseMove}
-          onMouseLeave={()=>setActive(null)}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onTouchCancel={handleTouchEnd}
-        >
-          {/* Y grid */}
-          {yTicks.map((v,i)=>(
-            <g key={i}>
-              <line className="chart-grid" x1={PAD_L} x2={W-PAD_R} y1={yAt(v)} y2={yAt(v)} />
-              {detail.axisLabels && <text className="chart-axis" x={PAD_L-6} y={yAt(v)+3} textAnchor="end">{fmtY(v)}</text>}
-            </g>
-          ))}
-          {curveStyle === 'bars' ? (
-            <ChartBars points={points} xAt={xAt} yAt={yAt} color={tracker.color}
-              baseY={barBaseY(yMin, yMax, yAt, PAD_T + innerH)}
-              spacing={innerW / Math.max(1, points.length - 1)} />
-          ) : (
-            <>
-              {/* Area fill */}
-              {segments.map((seg, si) => {
-                if (seg.length < 2) return null;
-                const d = curvePath(seg, curveStyle);
-                const area = d + ` L${seg[seg.length-1][0]},${PAD_T+innerH} L${seg[0][0]},${PAD_T+innerH} Z`;
-                return (
-                  <g key={si}>
-                    <path d={area} fill={tracker.color} opacity="0.08" />
-                    <path d={d} fill="none" stroke={tracker.color} strokeWidth="1" strokeLinejoin="round" strokeLinecap="round" />
-                  </g>
-                );
-              })}
-              {/* Interpolation over days with no data — dashed, so it never passes for a reading */}
-              {bridgesBetween(segments).map((b, i) => (
-                <line key={`b${i}`} x1={b.from[0]} y1={b.from[1]} x2={b.to[0]} y2={b.to[1]}
-                  stroke={tracker.color} strokeWidth="1.2" strokeDasharray="3 4" opacity="0.5" />
-              ))}
-              {/* Lone readings would otherwise be invisible: a segment of one draws no path */}
-              {segments.filter(s => s.length === 1).map((s, i) => (
-                <circle key={`l${i}`} cx={s[0][0]} cy={s[0][1]} r="2.5" fill="none"
-                  stroke={tracker.color} strokeWidth="1.2" />
-              ))}
-              {/* Points — only where something was actually logged, so a dense range (e.g. 365j)
-                  doesn't turn into a solid row of dots along an otherwise-continuous curve. */}
-              {points.map((p,i)=> p.value != null && p.hasEntry && (
-                <circle key={i} cx={xAt(i)} cy={yAt(p.value)} r="2" fill={tracker.color}>
-                  <title>{shortDate(p.ts)} · {fmtValue(tracker, +p.value.toFixed(1))}</title>
-                </circle>
-              ))}
-            </>
-          )}
-          {goalPath && (
-            <path d={goalPath} fill="none" stroke="var(--ink-2)" strokeWidth="1"
-              strokeDasharray="4 4" opacity="0.7" />
-          )}
-          {/* X ticks */}
-          {detail.axisLabels && xTicks.map((t,i)=>(
-            <text key={i} className="chart-axis" x={xAt(t.i)} y={H-6} textAnchor={i===0?'start':i===xTicks.length-1?'end':'middle'}>{t.label}</text>
-          ))}
-          {/* Scrub cursor — the day currently hovered/touched */}
-          {active != null && (
-            <g>
-              <line x1={xAt(active)} x2={xAt(active)} y1={PAD_T} y2={PAD_T+innerH} stroke={tracker.color} strokeWidth="1" strokeDasharray="2 3" opacity="0.6" />
-              {activePoint?.value != null && <circle cx={xAt(active)} cy={yAt(activePoint.value)} r="3.5" fill={tracker.color} stroke="var(--bg)" strokeWidth="1.5" />}
-            </g>
-          )}
-        </svg>
-        {activePoint && (
-          <ChartTooltip
-            xPct={(xAt(active) / W) * 100}
-            date={grainLabel(activePoint.ts, grain)}
-            value={activePoint.value != null ? fmtValue(tracker, +activePoint.value.toFixed(1)) + (fmtUnit(tracker) ? ' ' + fmtUnit(tracker) : '') : 'aucune donnée'}
-            /* A week or month point covers many days, so "open this day" has no
-               single answer — the button only appears at day grain. */
-            onEdit={onOpenDay && grain === 'day' ? ()=>onOpenDay(activePoint.ts) : null}
-            onClose={()=>setActive(null)}
-          />
-        )}
-        </div>
-      ) : (
-        <div style={{padding:'30px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucune donnée sur la période</div>
-      )}
-    </div>
-  );
-}
-
-/* ============================================================
-   ChartTooltip — floating readout for a scrubbed day, with a round
-   "open in history" button and a round close button. Positioned by
-   percentage along the chart's width so it tracks the SVG's own
-   responsive scaling without measuring pixels on every render.
-   ============================================================ */
-function ChartTooltip({ xPct, date, value, onEdit, onClose }){
-  const side = xPct > 60 ? 'right' : xPct < 40 ? 'left' : 'center';
-  return (
-    <div
-      className={`chart-tooltip ${side}`}
-      style={{ left: `${xPct}%` }}
-      onMouseDown={(e)=>e.stopPropagation()}
-      onTouchStart={(e)=>e.stopPropagation()}
-    >
-      <button className="icon-btn sm chart-tooltip-close" onClick={onClose} aria-label="Fermer" title="Fermer">
-        <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M1 1L8 8M8 1L1 8"/></svg>
-      </button>
-      <div className="chart-tooltip-date">{date}</div>
-      <div className="chart-tooltip-value">{value}</div>
-      {onEdit && (
-        <button className="icon-btn sm chart-tooltip-edit" onClick={onEdit} aria-label="Éditer ce jour dans l'historique" title="Éditer ce jour dans l'historique">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M11 2l3 3-8 8-3.5.5.5-3.5 8-8z"/>
-          </svg>
-        </button>
-      )}
-    </div>
-  );
-}
-
-function shortDate(ts){
-  if (!ts) return '';
-  const d = new Date(ts);
-  return d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'});
-}
-
-/* ============================================================
-   Normalization helpers for master/average charts
-   ============================================================ */
-// Build daily series [{ts, value|null}] for a tracker over rangeDays.
-function buildDailySeries(tracker, entries, rangeDays, endTs = Date.now()){
-  const now = endTs;
-  const start = now - rangeDays*86400000;
-  const jokerKeys = jokerDayKeys(entries);
-  const map = new Map();
-  for (const e of entries){
-    if (e.ts < start || isJokerEntry(e)) continue;
-    const k = dayKey(e.ts);
-    if (!map.has(k)) map.set(k, []);
-    map.get(k).push(e);
-  }
-  const arr = [];
-  for (let i = rangeDays - 1; i >= 0; i--){
-    const d = new Date(now - i*86400000);
-    const k = dayKey(d.getTime());
-    const items = map.get(k) || [];
-    let v = null;
-    // Outside the tracker's active window it contributes nothing (null), so it
-    // never drags an average up or down before it starts or after it's archived.
-    // A joker day is excluded the same way — left out, not zeroed.
-    if (items.length && !jokerKeys.has(k) && trackerActiveOnKey(tracker, k)){
-      if (tracker.type === 'boolean'){
-        v = items.some(x=>x.value === true) ? 1 : 0;
-      } else if (tracker.type === 'text' || tracker.type === 'choice'){
-        v = Math.min(1, items.length / 3); // count cap
-      } else {
-        const nums = items.map(x => Number(x.value)).filter(x => !isNaN(x));
-        v = aggregateNums(tracker, nums);
-      }
-    }
-    arr.push({ ts: d.getTime(), value: v });
-  }
-  return arr;
-}
-
-// Normalize a series to 0..1 using tracker-aware bounds.
-// A tracker's "good direction" decides which raw end reads as 1 (best) once
-// normalized: up-is-better (default), down-is-better, or closest-to-target —
-// so a metric where less is the win (ex. temps d'écran) can still push a
-// master or la Tendance générale upward when it improves.
-function directionFrac(tracker, value, min, max){
-  const dir = tracker.goodDirection || 'up';
-  const target = tracker.targetValue;
-  if (dir === 'target' && target != null){
-    const maxDev = Math.max(Math.abs(max - target), Math.abs(min - target)) || 1;
-    return 1 - Math.min(1, Math.abs(value - target) / maxDev);
-  }
-  const span = Math.max(1e-9, max - min);
-  let frac = (value - min) / span;
-  if (dir === 'down') frac = 1 - frac;
-  return frac;
-}
-// Whether a change from prevStat to curStat reads as an improvement, honoring
-// the tracker's goodDirection — independent of which way the raw number moved.
-function trendGoodness(tracker, curStat, prevStat){
-  if (curStat == null || prevStat == null) return null;
-  const dir = tracker.goodDirection || 'up';
-  if (dir === 'target' && tracker.targetValue != null){
-    const curDist = Math.abs(curStat - tracker.targetValue);
-    const prevDist = Math.abs(prevStat - tracker.targetValue);
-    if (curDist === prevDist) return 0;
-    return curDist < prevDist ? 1 : -1;
-  }
-  if (curStat === prevStat) return 0;
-  const wentUp = curStat > prevStat;
-  return dir === 'down' ? (wentUp ? -1 : 1) : (wentUp ? 1 : -1);
-}
-function normalizeSeries(tracker, series){
-  if (tracker.type === 'boolean') {
-    return series.map(p => ({ ts:p.ts, value: p.value == null ? null : p.value }));
-  }
-  if (tracker.type === 'scale') {
-    const min = tracker.scaleMin ?? 1;
-    const max = tracker.scaleMax || 5;
-    return series.map(p => ({ ts:p.ts, value: p.value == null ? null : directionFrac(tracker, p.value, min, max) }));
-  }
-  // number / duration / text — use min/max within the series
-  const vals = series.map(p=>p.value).filter(v=>v!=null);
-  if (vals.length < 2) {
-    return series.map(p => ({ ts:p.ts, value: p.value == null ? null : 0.5 }));
-  }
-  const min = Math.min(...vals), max = Math.max(...vals);
-  if (max === min) return series.map(p => ({ ts:p.ts, value: p.value == null ? null : 0.5 }));
-  return series.map(p => ({ ts:p.ts, value: p.value == null ? null : directionFrac(tracker, p.value, min, max) }));
-}
-
-// Forward-fill nulls so trend averages don't drop holes
-function forwardFill(series){
-  let last = null;
-  return series.map(p => {
-    if (p.value != null) { last = p.value; return p; }
-    return { ts:p.ts, value: last };
-  });
-}
-
-
-/* ============================================================
-   TrendChart — single line: average of normalized series
-   ============================================================ */
-function TrendChart({ trackers, entries, rangeDays, endTs = Date.now() }){
-  const series = useMemo(() => trackers.map(t => {
-    const raw = buildDailySeries(t, entries.filter(e=>e.trackerId===t.id), rangeDays, endTs);
-    return forwardFill(normalizeSeries(t, raw));
-  }), [trackers, entries, rangeDays, endTs]);
-
-  // Average per day
-  const avgSeries = useMemo(() => {
-    if (!series.length) return [];
-    const len = series[0].length;
-    const out = [];
-    for (let i = 0; i < len; i++){
-      const vals = series.map(s => s[i]?.value).filter(v => v != null);
-      out.push({ ts: series[0][i].ts, value: vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null });
-    }
-    return out;
-  }, [series]);
-
-  const numericValues = avgSeries.map(p=>p.value).filter(v=>v!=null);
-  const hasData = numericValues.length > 0;
-
-  const latest = numericValues[numericValues.length-1] ?? null;
-  const earliest = numericValues[0] ?? null;
-  const overallAvg = numericValues.length ? numericValues.reduce((a,b)=>a+b,0)/numericValues.length : null;
-  const delta = (latest != null && earliest != null) ? latest - earliest : null;
-
-  const svgRef = useRef(null);
-  const W = useDrawWidth(svgRef), H = 260, PAD_L = 38, PAD_R = 14, PAD_T = 16, PAD_B = 28;
-  const innerW = W - PAD_L - PAD_R;
-  const innerH = H - PAD_T - PAD_B;
-  const xAt = (i) => PAD_L + (i / Math.max(1, avgSeries.length - 1)) * innerW;
-  const yAt = (v) => PAD_T + innerH - v * innerH;
-
-  const yTicks = [0, 0.25, 0.5, 0.75, 1];
-
-  // Path with gaps
-  const segments = [];
-  let cur = [];
-  avgSeries.forEach((p, i) => {
-    if (p.value == null){ if (cur.length) segments.push(cur); cur = []; }
-    else cur.push([xAt(i), yAt(p.value)]);
-  });
-  if (cur.length) segments.push(cur);
-
-  // Smoothed line — simple 7-day moving average
-  const smoothed = avgSeries.map((p, i) => {
-    if (p.value == null) return { ts:p.ts, value: null };
-    const w = 7;
-    let sum = 0, n = 0;
-    for (let j = Math.max(0, i-w+1); j <= i; j++){
-      if (avgSeries[j].value != null){ sum += avgSeries[j].value; n++; }
-    }
-    return { ts:p.ts, value: n ? sum/n : null };
-  });
-  const smSegs = [];
-  let scur = [];
-  smoothed.forEach((p,i)=>{
-    if (p.value == null){ if (scur.length) smSegs.push(scur); scur = []; }
-    else scur.push([xAt(i), yAt(p.value)]);
-  });
-  if (scur.length) smSegs.push(scur);
-
-  const xTicks = avgSeries.length ? [
-    { i: 0, label: shortDate(avgSeries[0].ts) },
-    { i: Math.floor(avgSeries.length/2), label: shortDate(avgSeries[Math.floor(avgSeries.length/2)].ts) },
-    { i: avgSeries.length-1, label: shortDate(avgSeries[avgSeries.length-1].ts) },
-  ] : [];
-
-  if (!trackers.length) return <div className="empty"><span className="em-serif">Pas de tracker.</span></div>;
-
-  return (
-    <div className="chart-card">
-      <div className="chart-head">
-        <div className="name">
-          <span className="serif" style={{fontSize:18}}>Tendance générale</span>
-          <span style={{color:'var(--ink-3)',fontSize:12,marginLeft:8}}>moyenne normalisée — {trackers.length} séries</span>
-        </div>
-        <div className="stats">
-          <div>actuel <span className="v">{latest!=null ? Math.round(latest*100) : '—'}</span></div>
-          <div>moyenne <span className="v">{overallAvg!=null ? Math.round(overallAvg*100) : '—'}</span></div>
-          <div className={delta != null ? (delta>0?'pos':delta<0?'neg':'') : ''}>évolution
-            <span className="v" style={{marginLeft:6, color: delta != null ? (delta>0?'oklch(0.55 0.10 150)':delta<0?'oklch(0.55 0.10 30)':'inherit') : 'inherit'}}>
-              {delta != null ? (delta>0?'↑':delta<0?'↓':'=')+' '+Math.abs(Math.round(delta*100))+' pts' : '—'}
-            </span>
-          </div>
-        </div>
-      </div>
-      {hasData ? (
-        <svg ref={svgRef} className="chart-svg" style={{height:H+'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice">
-          {/* zone bands */}
-          <rect x={PAD_L} y={yAt(1)} width={innerW} height={innerH*0.25} fill="oklch(0.55 0.10 150)" opacity="0.04" />
-          <rect x={PAD_L} y={yAt(0.25)} width={innerW} height={innerH*0.25} fill="oklch(0.55 0.10 30)" opacity="0.04" />
-          {/* Y grid */}
-          {yTicks.map((v,i)=>(
-            <g key={i}>
-              <line className="chart-grid" x1={PAD_L} x2={W-PAD_R} y1={yAt(v)} y2={yAt(v)} />
-              <text className="chart-axis" x={PAD_L-6} y={yAt(v)+3} textAnchor="end">{Math.round(v*100)}</text>
-            </g>
-          ))}
-          {/* Raw avg — faint */}
-          {segments.map((seg, si) => seg.length >= 2 && (
-            <path key={`r${si}`} d={seg.map((p,i)=>`${i===0?'M':'L'}${p[0]},${p[1]}`).join(' ')}
-              fill="none" stroke="var(--ink-3)" strokeWidth="1" opacity="0.35" />
-          ))}
-          {/* Smoothed — bold */}
-          {smSegs.map((seg, si) => {
-            if (seg.length < 2) return null;
-            const d = seg.map((p,i)=>`${i===0?'M':'L'}${p[0]},${p[1]}`).join(' ');
-            const area = d + ` L${seg[seg.length-1][0]},${PAD_T+innerH} L${seg[0][0]},${PAD_T+innerH} Z`;
-            return (
-              <g key={`s${si}`}>
-                <path d={area} fill="var(--ink)" opacity="0.06" />
-                <path d={d} fill="none" stroke="var(--ink)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-              </g>
-            );
-          })}
-          {/* X ticks */}
-          {xTicks.map((t,i)=>(
-            <text key={i} className="chart-axis" x={xAt(t.i)} y={H-8} textAnchor={i===0?'start':i===xTicks.length-1?'end':'middle'}>{t.label}</text>
-          ))}
-        </svg>
-      ) : (
-        <div style={{padding:'40px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucune donnée sur la période</div>
-      )}
-      <div className="trend-foot">
-        <span className="serif">Lecture :</span> chaque tracker est ramené à une échelle 0–100 selon ses propres extrêmes, puis moyenné jour par jour. La ligne fine est la moyenne brute ; la ligne épaisse est lissée sur 7 jours.
-      </div>
-    </div>
-  );
-}
-
-/* Resolve a master's member tracker objects (data trackers only). */
-function masterMembers(master, trackerById){
-  return (master.members || []).map(id => trackerById[id]).filter(t => t && !isMaster(t));
-}
-/* Daily 0..1 index for a master: average of its members' normalized, gap-filled
-   performance, masked to the master's own active window. */
-// Each day's index reflects only what its members actually recorded that day.
-// Deliberately no forward-fill here: carrying the last reading onwards made a
-// single old entry keep scoring for weeks, so a master read a confident number
-// while its members held nothing. Gaps stay gaps — the charts draw them dashed.
-function computeMasterSeries(master, members, entries, rangeDays, endTs = Date.now()){
-  const series = members.map(t =>
-    normalizeSeries(t, buildDailySeries(t, entries.filter(e=>e.trackerId===t.id), rangeDays, endTs))
-  );
-  if (!series.length) return [];
-  const len = series[0].length;
-  const out = [];
-  for (let i = 0; i < len; i++){
-    const ts = series[0][i].ts;
-    const k = dayKey(ts);
-    if (!trackerActiveOnKey(master, k)){ out.push({ ts, value: null, filled: 0, total: members.length }); continue; }
-    const vals = series.map(s => s[i]?.value).filter(v => v != null);
-    out.push({
-      ts,
-      value: vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null,
-      filled: vals.length,
-      total: members.length,
-    });
-  }
-  return out;
-}
-
-/* ============================================================
-   Master strips — flat, read-only readings of each master's index
-   (0–100). Shown atop the "Jour" view (current value) and atop the
-   Historique day editor (value as of the opened day, via `dayTs`).
-   Reorderable among themselves.
-   ============================================================ */
-function MasterStrips({ masters, trackerById, entries, dayTs, onReorder, onEdit }){
-  const byId = useMemo(() => Object.fromEntries(masters.map(m => [m.id, m])), [masters]);
-  const ids = useMemo(() => masters.map(m => m.id), [masters]);
-  const drag = useDragReorder(ids, onReorder);
-  return (
-    <div className="master-strips">
-      {drag.order.map(id => {
-        const m = byId[id];
-        if (!m) return null;
-        return (
-          <MasterStrip key={m.id} master={m} trackerById={trackerById} entries={entries} dayTs={dayTs} onEdit={onEdit}
-            containerRef={drag.setNodeRef(m.id)} dragging={drag.dragId === m.id} onDragStart={drag.startDrag(m.id)} />
-        );
-      })}
-    </div>
-  );
-}
-function MasterStrip({ master, trackerById, entries, dayTs, containerRef, dragging, onDragStart, onEdit }){
-  const members = masterMembers(master, trackerById);
-  // The reading is always *that day's*, never the last one found further back:
-  // an index is a statement about a day, so a day with nothing recorded reads "—".
-  const today = useMemo(() => {
-    const end = (dayTs != null) ? startOfDay(dayTs) : Date.now();
-    const s = computeMasterSeries(master, members, entries, 30, end);
-    return s.length ? s[s.length - 1] : null;
-  }, [master, members, entries, dayTs]);
-  const pct = today?.value != null ? Math.round(today.value*100) : null;
-  // A partial index (2 of 4 members recorded) shouldn't read like a complete one.
-  const partial = pct != null && today.filled < today.total;
-  return (
-    <div ref={containerRef} className={`master-strip ${dragging?'dragging':''}`}>
-      <div className="ms-head">
-        {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
-        {/* Plus de losange ni de pastille « master » à côté du nom : c'est le
-            NOM qui porte le contour, en une seule chose au lieu de trois. Le
-            reste de la carte — une jauge et un indice sur 100 — dit déjà assez
-            qu'on ne remplit pas ça comme un tracker. */}
-        <span className="ms-name" style={{color:master.color, borderColor:master.color}}>{master.name}</span>
-        {partial && (
-          <span className="ms-partial" title={`${today.filled} membre(s) renseigné(s) sur ${today.total}`}>
-            {today.filled}/{today.total}
-          </span>
-        )}
-      </div>
-      <div className="ms-meter">
-        <div className="ms-fill" style={{width:`${pct||0}%`, background:master.color}}></div>
-      </div>
-      <div className="ms-val">{pct != null ? pct : '—'}<span className="ms-unit">/100</span></div>
-      {onEdit && (
-        <button className="icon-btn chart-edit-btn" onClick={()=>onEdit(master)} aria-label="Paramètres du master" title="Paramètres du master">
-          <GearIcon size={12} />
-        </button>
-      )}
-    </div>
-  );
-}
-
-/* ============================================================
-   Master tracker card — a saved index: average of the normalized
-   performance of its chosen member trackers (0–100 per day).
-   ============================================================ */
-function MasterTrackerCard({ master, trackerById, entries, rangeDays, endTs = Date.now(), perRow = 1, containerRef, dragging, onDragStart, onEdit }){
-  const detail = chartDetail(perRow);
-  const compact = perRow >= 2;
-  const members = masterMembers(master, trackerById);
-  const grain = GRAINS.some(g => g.id === master.chartGrain) ? master.chartGrain : 'day';
-  const curveStyle = isCurveStyle(master.curveStyle) ? master.curveStyle : 'line';
-
-  // Per-member normalized+filled series, then the master's own active window.
-  // The index is already 0–1, so its axis stays 0–100 whatever the grain —
-  // only how many days one point covers changes.
-  const dailySeries = useMemo(
-    () => computeMasterSeries(master, members, entries, rangeDays, endTs),
-    [master, members, entries, rangeDays, endTs]
-  );
-  const avgSeries = useMemo(() => rollupPoints(dailySeries, grain), [dailySeries, grain]);
-
-  const numericValues = avgSeries.map(p=>p.value).filter(v=>v!=null);
-  const hasData = numericValues.length > 0;
-  const latest = numericValues[numericValues.length-1] ?? null;
-  const earliest = numericValues[0] ?? null;
-  const overallAvg = numericValues.length ? numericValues.reduce((a,b)=>a+b,0)/numericValues.length : null;
-  const delta = (latest != null && earliest != null) ? latest - earliest : null;
-
-  // Un master a plus d'amplitude à montrer qu'une série brute : il garde une
-  // hauteur plus généreuse à densité égale.
-  const svgRef = useRef(null);
-  const W = useDrawWidth(svgRef), H = perRow >= 3 ? 100 : compact ? 130 : 220, PAD_L = detail.padL, PAD_R = 14, PAD_T = 14, PAD_B = detail.padB;
-  const innerW = W - PAD_L - PAD_R;
-  const innerH = H - PAD_T - PAD_B;
-  const xAt = (i) => PAD_L + (i / Math.max(1, avgSeries.length - 1)) * innerW;
-  const yAt = (v) => PAD_T + innerH - v * innerH;
-  const yTicks = [0, 0.5, 1];
-
-  const segments = [];
-  let cur = [];
-  avgSeries.forEach((p, i) => {
-    if (p.value == null){ if (cur.length) segments.push(cur); cur = []; }
-    else cur.push([xAt(i), yAt(p.value)]);
-  });
-  if (cur.length) segments.push(cur);
-
-  const xTicks = avgSeries.length ? [
-    { i: 0, label: grainTick(avgSeries[0].ts, grain) },
-    { i: Math.floor(avgSeries.length/2), label: grainTick(avgSeries[Math.floor(avgSeries.length/2)].ts, grain) },
-    { i: avgSeries.length-1, label: grainTick(avgSeries[avgSeries.length-1].ts, grain) },
-  ] : [];
-
-  return (
-    <div ref={containerRef} className={`chart-card ${compact?'compact':''} ${perRow>=3?'dense':''} ${dragging?'dragging':''}`}>
-      <div className="chart-head">
-        <div className="name">
-          {onDragStart && <DragHandle onPointerDown={onDragStart} dragging={dragging} />}
-          <span className="master-mark" style={{background:master.color}}></span><span>{master.name}</span>
-          {!compact && <span className="master-tag">master</span>}
-        </div>
-        <div className="chart-head-right">
-          <div className="stats">
-            {detail.stats === 'value' ? (
-              <div><span className="v">{latest!=null ? Math.round(latest*100) : '—'}</span></div>
-            ) : (
-              <>
-                <div>actuel <span className="v">{latest!=null ? Math.round(latest*100) : '—'}</span></div>
-                <div>moyenne <span className="v">{overallAvg!=null ? Math.round(overallAvg*100) : '—'}</span></div>
-                <div>évolution <span className="v" style={{marginLeft:6, color: delta!=null ? (delta>0?'oklch(0.55 0.10 150)':delta<0?'oklch(0.55 0.10 30)':'inherit') : 'inherit'}}>
-                  {delta!=null ? (delta>0?'↑':delta<0?'↓':'=')+' '+Math.abs(Math.round(delta*100)) : '—'}
-                </span></div>
-              </>
-            )}
-          </div>
-          {onEdit && (
-            <button className="icon-btn chart-edit-btn" onClick={()=>onEdit(master)} aria-label="Paramètres du master" title="Paramètres du master">
-              <GearIcon />
-            </button>
-          )}
-        </div>
-      </div>
-      {members.length === 0 ? (
-        <div style={{padding:'30px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucun tracker membre — modifiez ce master pour en choisir</div>
-      ) : hasData ? (
-        <svg ref={svgRef} className="chart-svg" style={{height: H + 'px'}} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice">
-          {yTicks.map((v,i)=>(
-            <g key={i}>
-              <line className="chart-grid" x1={PAD_L} x2={W-PAD_R} y1={yAt(v)} y2={yAt(v)} />
-              {detail.axisLabels && <text className="chart-axis" x={PAD_L-6} y={yAt(v)+3} textAnchor="end">{Math.round(v*100)}</text>}
-            </g>
-          ))}
-          {curveStyle === 'bars' ? (
-            // L'indice est déjà borné 0–1 : les bâtons partent toujours du bas du cadre.
-            <ChartBars points={avgSeries} xAt={xAt} yAt={yAt} color={master.color}
-              baseY={PAD_T + innerH} spacing={innerW / Math.max(1, avgSeries.length - 1)} />
-          ) : (
-            <>
-              {/* Days where no member recorded anything are bridged dashed, not drawn solid */}
-              {bridgesBetween(segments).map((b, i) => (
-                <line key={`b${i}`} x1={b.from[0]} y1={b.from[1]} x2={b.to[0]} y2={b.to[1]}
-                  stroke={master.color} strokeWidth="1.4" strokeDasharray="3 4" opacity="0.5" />
-              ))}
-              {segments.map((seg, si) => {
-                if (seg.length < 2) return seg.length === 1
-                  ? <circle key={si} cx={seg[0][0]} cy={seg[0][1]} r="2.5" fill={master.color} />
-                  : null;
-                const d = curvePath(seg, curveStyle);
-                const area = d + ` L${seg[seg.length-1][0]},${PAD_T+innerH} L${seg[0][0]},${PAD_T+innerH} Z`;
-                return (
-                  <g key={si}>
-                    <path d={area} fill={master.color} opacity="0.08" />
-                    <path d={d} fill="none" stroke={master.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-                  </g>
-                );
-              })}
-            </>
-          )}
-          {detail.axisLabels && xTicks.map((t,i)=>(
-            <text key={i} className="chart-axis" x={xAt(t.i)} y={H-6} textAnchor={i===0?'start':i===xTicks.length-1?'end':'middle'}>{t.label}</text>
-          ))}
-        </svg>
-      ) : (
-        <div style={{padding:'30px 0',textAlign:'center',color:'var(--ink-3)',fontSize:13}}>aucune donnée sur la période</div>
-      )}
-      {!compact && members.length > 0 && (
-        <div className="master-legend">
-          {members.map(t => (
-            <div key={t.id} className="lg-item">
-              <span className="lg-dot" style={{background:t.color}}></span>
-              <span className="lg-name">{t.name}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ============================================================
-   Calendar heatmap card
-   ============================================================ */
-function CalendarCard({ tracker, entries, rangeDays, endTs = Date.now(), onEdit }){
-  // Always render last ~365 days of cells (or rangeDays), aligned to weeks
-  const days = Math.min(Math.max(rangeDays, 30), 365);
-  const now = new Date(endTs); now.setHours(0,0,0,0);
-  // start at most `days` ago, then snap to Monday
-  let start = new Date(now); start.setDate(start.getDate() - (days-1));
-  // align to Monday (1)
-  const dow = (start.getDay() + 6) % 7; // 0=Mon
-  start.setDate(start.getDate() - dow);
-
-  // Aggregate per day
-  const jokerKeys = jokerDayKeys(entries);
-  const byDay = new Map();
-  for (const e of entries){
-    if (isJokerEntry(e)) continue;
-    const k = dayKey(e.ts);
-    if (!byDay.has(k)) byDay.set(k, []);
-    byDay.get(k).push(e);
-  }
-
-  // Build cells from start..now in weeks (columns)
-  const cells = [];
-  const totalDays = Math.floor((now - start) / 86400000) + 1;
-  const weeks = Math.ceil(totalDays / 7);
-  // values for color scaling
-  const dayVals = [];
-  for (let i = 0; i < totalDays; i++){
-    const d = new Date(start); d.setDate(d.getDate() + i);
-    const k = dayKey(d.getTime());
-    // A joker day reads as empty — excluded, not a zero.
-    const items = (trackerActiveOnKey(tracker, k) && !jokerKeys.has(k) ? byDay.get(k) : null) || [];
-    let v = 0;
-    if (items.length){
-      if (tracker.type === 'boolean'){
-        v = items.some(x=>x.value === true) ? 1 : 0;
-      } else if (tracker.type === 'text' || tracker.type === 'choice'){
-        v = items.length;
-      } else {
-        const nums = items.map(x => Number(x.value)).filter(x => !isNaN(x));
-        v = aggregateNums(tracker, nums) ?? 0;
-      }
-    }
-    dayVals.push({ ts: d.getTime(), v, count: items.length, items });
-  }
-  const max = Math.max(...dayVals.map(d=>d.v), 0.0001);
-
-  // 7 rows × N columns (weeks)
-  const rows = 7;
-  const cols = weeks;
-
-  const W = 800, H = 7 * 14 + 20;
-  const CELL = 11, GAP = 3;
-
-  return (
-    <div className="chart-card">
-      <div className="chart-head">
-        <div className="name"><span style={{color:tracker.color}}>{tracker.name}</span></div>
-        <div className="chart-head-right">
-          <div className="stats">
-            <div>jours actifs <span className="v">{dayVals.filter(d=>d.count>0).length}/{totalDays}</span></div>
-          </div>
-          {onEdit && (
-            <button className="icon-btn chart-edit-btn" onClick={()=>onEdit(tracker)} aria-label="Paramètres du tracker" title="Paramètres du tracker">
-              <GearIcon />
-            </button>
-          )}
-        </div>
-      </div>
-      <svg viewBox={`0 0 ${cols*(CELL+GAP)} ${H}`} preserveAspectRatio="xMinYMid meet" style={{width:'100%',height:`${H}px`}}>
-        {dayVals.map((d, i) => {
-          const col = Math.floor(i/7);
-          const row = i % 7;
-          const intensity = max > 0 ? d.v / max : 0;
-          let fill = 'var(--bg-2)';
-          if (d.count > 0){
-            // 4 buckets
-            const bucket = Math.min(3, Math.floor(intensity * 4));
-            const lights = [0.92, 0.80, 0.65, 0.50];
-            const chrs   = [0.04, 0.07, 0.10, 0.12];
-            // parse hue from tracker.color if oklch, else fallback
-            fill = `oklch(${lights[bucket]} ${chrs[bucket]} 150)`;
-            // Use tracker color hue if it's an oklch string
-            const m = String(tracker.color).match(/oklch\([\d\.]+ [\d\.]+ ([\d\.]+)\)/);
-            if (m){ fill = `oklch(${lights[bucket]} ${chrs[bucket]} ${m[1]})`; }
-            else if (tracker.color === '#1c1b18'){
-              const grays = ['#e3dfd5','#bdb8a9','#7a766c','#1c1b18'];
-              fill = grays[bucket];
-            }
-          }
-          const dateLabel = new Date(d.ts).toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'});
-          return (
-            <rect
-              key={i}
-              x={col*(CELL+GAP)}
-              y={row*(CELL+GAP)}
-              width={CELL} height={CELL}
-              rx="2"
-              fill={fill}
-            >
-              <title>{dateLabel} · {d.count ? fmtValue(tracker, +d.v.toFixed(1)) : 'rien'}</title>
-            </rect>
-          );
-        })}
-      </svg>
-      <div className="heat-legend">
-        moins
-        <span className="lg" style={{background:'var(--bg-2)'}}></span>
-        <span className="lg" style={{background:'oklch(0.92 0.04 150)'}}></span>
-        <span className="lg" style={{background:'oklch(0.80 0.07 150)'}}></span>
-        <span className="lg" style={{background:'oklch(0.65 0.10 150)'}}></span>
-        <span className="lg" style={{background:'oklch(0.50 0.12 150)'}}></span>
-        plus
-      </div>
-    </div>
-  );
-}
-
-/* ============================================================
-   Grid summary (KPI cards)
-   ============================================================ */
-function GridSummary({ trackers, entries, rangeDays, endTs = Date.now(), onEdit }){
-  const now = endTs;
-  const start = now - rangeDays*86400000;
-  const prevStart = start - rangeDays*86400000;
-
-  const cards = trackers.map(t => {
-    const tEntries = entries.filter(e => e.trackerId === t.id);
-    const jokerKeys = jokerDayKeys(tEntries);
-    // A joker day drops out entirely — its entries never enter the average/sum.
-    const active = (e) => !isJokerEntry(e) && !jokerKeys.has(dayKey(e.ts)) && trackerActiveOnKey(t, dayKey(e.ts));
-    const inRange = entries.filter(e => e.trackerId === t.id && e.ts >= start && active(e));
-    const prev    = entries.filter(e => e.trackerId === t.id && e.ts >= prevStart && e.ts < start && active(e));
-    const stat = (items) => {
-      if (!items.length) return null;
-      if (t.type === 'boolean') return items.filter(x=>x.value===true).length;
-      if (t.type === 'text' || t.type === 'choice') return items.length;
-      const nums = items.map(x=>Number(x.value)).filter(x=>!isNaN(x));
-      return aggregateNums(t, nums);
-    };
-    const curStat = stat(inRange);
-    const prevStat = stat(prev);
-    const delta = curStat != null && prevStat != null && prevStat !== 0 ? (curStat - prevStat) / Math.abs(prevStat) : null;
-    // Which way is progress depends on the tracker's own goodDirection — a raw
-    // increase isn't automatically "up" in the trend's sense if less is better.
-    const goodness = (t.type === 'number' || t.type === 'scale' || t.type === 'duration')
-      ? trendGoodness(t, curStat, prevStat) : (delta != null ? (delta>0?1:delta<0?-1:0) : null);
-
-    let display = '—';
-    if (curStat != null){
-      if (t.type === 'boolean') display = `${curStat}j`;
-      else if (t.type === 'text' || t.type === 'choice') display = `${curStat}`;
-      else display = fmtValue(t, +curStat.toFixed(1));
-    }
-
-    const showAggTag = !t.daily && t.aggregate === 'sum' && (t.type === 'number' || t.type === 'duration');
-    return { t, display, count: inRange.length, delta, goodness, showAggTag };
-  });
-
-  return (
-    <div className="gridview">
-      {cards.map(c => (
-        <div className="gv-card" key={c.t.id}>
-          <div className="label">
-            <span style={{color:c.t.color}}>{c.t.name}</span>
-            {onEdit && (
-              <button className="icon-btn sm chart-edit-btn" onClick={()=>onEdit(c.t)} aria-label="Paramètres du tracker" title="Paramètres du tracker">
-                <GearIcon size={12} />
-              </button>
-            )}
-          </div>
-          <div className="v">
-            {c.display}
-            {fmtUnit(c.t) && c.display !== '—' && <span className="u">{fmtUnit(c.t)}</span>}
-            {c.showAggTag && <span className="tk-chip" style={{marginLeft:8,verticalAlign:'middle'}}>total</span>}
-          </div>
-          <div className={`trend ${c.goodness != null ? (c.goodness>0?'up':c.goodness<0?'down':'') : ''}`}>
-            {c.count} entrée{c.count>1?'s':''}
-            {c.delta != null && <> · {c.delta>0?'↑':c.delta<0?'↓':'='} {Math.abs(c.delta*100).toFixed(0)}%</>}
-          </div>
-        </div>
-      ))}
-      {cards.length === 0 && <div className="empty"><span className="em-serif">Pas de tracker.</span></div>}
-    </div>
-  );
-}
 
 /* ============================================================
    Entry modal (edit an existing entry)
    ============================================================ */
+/* @atelier modale — Corriger ou effacer une entrée déjà notée. */
 function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
   const t = tracker;
   const [num, setNum]     = useState(t.type==='number' ? String(entry.value ?? '') : '');
@@ -4983,6 +2653,7 @@ function EntryModal({ entry, tracker, onClose, onSave, onDelete }){
    nom, la courbe, la granularité, le cumul, la couleur) est exactement ce qui
    reste vrai pour eux. Une seconde page de réglages n'aurait dit qu'une
    variante de celle-ci — c'est le même objet. */
+/* @atelier modale — Les réglages d’un tracker — la plus grande modale de l’app, réduite à l’affichage avec scope="display". */
 function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, onArchive, onUnarchive, onSync, syncError = null, scope = 'full' }){
   const isEdit = !!tracker;
   const display = scope === 'display';
@@ -5170,7 +2841,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           </div>
         </div>}
 
-        <div className="field" style={{borderBottom: display ? 'none' : isMasterKind ? '1px solid var(--line)' : undefined}}>
+        <div className="field" style={{borderBottom: display ? 'none' : isMasterKind ? '1px solid var(--border)' : undefined}}>
           <label>Nom</label>
           <input ref={nameRef} value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') submit();}}
             placeholder={isMasterKind ? 'ex: Forme, Bien-être, Discipline…' : 'ex: Caféine, Humeur, Sport…'} />
@@ -5193,7 +2864,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
           </div>
         ) : (
           <>
-            <div className="field" style={{borderBottom: (type==='number'||type==='scale'||type==='choice') ? '1px solid var(--line)' : 'none', flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
+            <div className="field" style={{borderBottom: (type==='number'||type==='scale'||type==='choice') ? '1px solid var(--border)' : 'none', flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>
               <label style={{width:'auto'}}>Type de donnée</label>
               <div className="typegrid">
                 {TYPES.map(ty => (
@@ -5579,6 +3250,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
 /* ============================================================
    Auth — email + password (magic link as fallback)
    ============================================================ */
+/* @atelier page — La connexion. */
 function SignIn(){
   const [mode, setMode] = useState('signin'); // signin | signup
   const [email, setEmail] = useState('');
@@ -5631,7 +3303,7 @@ function SignIn(){
       </div>
       <div className="card">
         <h3 style={{margin:0,fontSize:15,fontWeight:500}}>{mode==='signup' ? 'Créer un compte' : 'Connexion'}</h3>
-        <p style={{fontSize:13,color:'var(--ink-3)',marginTop:6,marginBottom:6}}>
+        <p style={{fontSize:13,color:'var(--muted-foreground-2)',marginTop:6,marginBottom:6}}>
           {mode==='signup' ? 'Choisissez un e-mail et un mot de passe.' : 'Entrez votre e-mail et votre mot de passe.'}
         </p>
         <div className="field">
@@ -5648,24 +3320,24 @@ function SignIn(){
             onKeyDown={e=>{ if(e.key==='Enter') submit(); }}
             placeholder="au moins 6 caractères" />
         </div>
-        {err && <div style={{color:'var(--warn)', fontSize:12, marginTop:10}}>{err}</div>}
-        {info && <div style={{color:'var(--accent)', fontSize:12, marginTop:10}}>{info}</div>}
+        {err && <div style={{color:'var(--destructive)', fontSize:12, marginTop:10}}>{err}</div>}
+        {info && <div style={{color:'var(--primary)', fontSize:12, marginTop:10}}>{info}</div>}
         <div className="save">
           <span className="hint">
-            {mode==='signin' && <button style={{fontSize:12,color:'var(--ink-3)'}} onClick={forgot}>Mot de passe oublié ?</button>}
+            {mode==='signin' && <button style={{fontSize:12,color:'var(--muted-foreground-2)'}} onClick={forgot}>Mot de passe oublié ?</button>}
           </span>
           <button className="primary" disabled={!canSubmit || busy} onClick={submit}>
             {busy ? '…' : (mode==='signup' ? 'Créer' : 'Se connecter')}
           </button>
         </div>
         <hr className="thin" />
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:12,color:'var(--ink-3)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:12,color:'var(--muted-foreground-2)'}}>
           {mode==='signup' ? (
-            <button style={{fontSize:12,color:'var(--ink-2)'}} onClick={()=>{setMode('signin');setErr('');setInfo('');}}>← J'ai déjà un compte</button>
+            <button style={{fontSize:12,color:'var(--muted-foreground)'}} onClick={()=>{setMode('signin');setErr('');setInfo('');}}>← J'ai déjà un compte</button>
           ) : (
-            <button style={{fontSize:12,color:'var(--ink-2)'}} onClick={()=>{setMode('signup');setErr('');setInfo('');}}>Créer un compte</button>
+            <button style={{fontSize:12,color:'var(--muted-foreground)'}} onClick={()=>{setMode('signup');setErr('');setInfo('');}}>Créer un compte</button>
           )}
-          <button style={{fontSize:12,color:'var(--ink-3)'}} onClick={magicLink}>Recevoir un lien par e-mail</button>
+          <button style={{fontSize:12,color:'var(--muted-foreground-2)'}} onClick={magicLink}>Recevoir un lien par e-mail</button>
         </div>
       </div>
     </div>
@@ -5675,6 +3347,7 @@ function SignIn(){
 /* ============================================================
    Set / change password (used while logged in and after reset link)
    ============================================================ */
+/* @atelier modale — Changer de mot de passe, y compris après un lien de réinitialisation. */
 function PasswordModal({ recovery, onClose }){
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -5696,7 +3369,7 @@ function PasswordModal({ recovery, onClose }){
         <div className="modal-sub">Vous pourrez ensuite vous connecter avec votre e-mail et ce mot de passe.</div>
         {done ? (
           <>
-            <p style={{fontSize:13,color:'var(--accent)',margin:'10px 0 0'}}>Mot de passe enregistré ✓</p>
+            <p style={{fontSize:13,color:'var(--primary)',margin:'10px 0 0'}}>Mot de passe enregistré ✓</p>
             <div className="modal-actions">
               <button className="primary" onClick={onClose}>Fermer</button>
             </div>
@@ -5712,8 +3385,8 @@ function PasswordModal({ recovery, onClose }){
               <input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)}
                 onKeyDown={e=>{ if(e.key==='Enter') submit(); }} placeholder="retapez le mot de passe" />
             </div>
-            {err && <div style={{color:'var(--warn)', fontSize:12, marginTop:10}}>{err}</div>}
-            {password && confirm && password !== confirm && <div style={{color:'var(--warn)', fontSize:12, marginTop:10}}>Les mots de passe ne correspondent pas.</div>}
+            {err && <div style={{color:'var(--destructive)', fontSize:12, marginTop:10}}>{err}</div>}
+            {password && confirm && password !== confirm && <div style={{color:'var(--destructive)', fontSize:12, marginTop:10}}>Les mots de passe ne correspondent pas.</div>}
             <div className="modal-actions">
               {!recovery && <button className="ghost" onClick={onClose}>Annuler</button>}
               <button className="primary" disabled={!canSave} onClick={submit}>Enregistrer</button>
@@ -5725,20 +3398,24 @@ function PasswordModal({ recovery, onClose }){
   );
 }
 
-/* L'atelier (app.sink.jsx) vit à une adresse plutôt que dans un onglet : ce
+/* L'atelier (app.atelier.jsx) vit à une adresse plutôt que dans un onglet : ce
    n'est pas une page de l'app mais une page pour celui qui la fabrique, et
    elle n'a besoin ni de compte ni de données. Le test est exact — le lien de
-   réinitialisation de mot de passe arrive lui aussi par le hash. */
-const isSinkHash = () => (window.location.hash || '') === '#sink';
+   réinitialisation de mot de passe arrive lui aussi par le hash.
+   `#sink` reste accepté : c'était son adresse, et un lien posé quelque part ne
+   doit pas tomber dans le vide parce qu'on a changé le mot. */
+const ATELIER_HASHES = ['#atelier', '#sink'];
+const isAtelierHash = () => ATELIER_HASHES.indexOf(window.location.hash || '') !== -1;
 
+/* @atelier technique — Le routeur : atelier, récupération de mot de passe, connexion, ou app. */
 function Root(){
   const [session, setSession] = useState(undefined); // undefined = loading, null = signed out
   const [recovery, setRecovery] = useState(false);   // arrived via password-reset link
-  // Taper #sink dans la barre d'adresse ne recharge pas la page : sans écouter
-  // le changement de hash, l'atelier ne s'ouvrirait qu'au rechargement suivant.
-  const [sink, setSink] = useState(isSinkHash);
+  // Taper #atelier dans la barre d'adresse ne recharge pas la page : sans
+  // écouter le changement de hash, l'atelier ne s'ouvrirait qu'au rechargement.
+  const [atelier, setAtelier] = useState(isAtelierHash);
   useEffect(() => {
-    const onHash = () => setSink(isSinkHash());
+    const onHash = () => setAtelier(isAtelierHash());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -5768,7 +3445,7 @@ function Root(){
 
   // Avant l'attente de session : l'atelier ne montre que des composants, il
   // n'a rien à attendre de la base.
-  if (sink) return <SinkView />;
+  if (atelier) return <AtelierView />;
   if (session === undefined) return <div className="empty"><span className="em-serif">Chargement…</span></div>;
   if ((recovery || urlRecovery) && session) return <PasswordModal recovery onClose={closeRecovery} />;
   if (!session) return <SignIn />;

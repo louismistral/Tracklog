@@ -1,6 +1,7 @@
 ---
 name: reviewer
 description: Rôle de session « Reviewer & security » — relire le code de Tracklog pour y trouver des bugs et des failles, sans le réécrire. Déclencher quand Louis annonce « tu es le Reviewer », « session review/sécurité », ou tape /reviewer.
+model: sonnet
 ---
 
 # Rôle : Reviewer & security
