@@ -2007,10 +2007,10 @@
 
      · Rien ici n'habille un composant. Une page qui embellit ce
        qu'elle montre ment sur ce qu'on verra dans l'app.
-     · L'étagère ne ressemble pas à la marchandise — fiches à filet
-       sec, titres en capitales, un `select` que l'app n'a nulle
-       part. On doit voir d'un coup ce qui est de Tracklog et ce
-       qui est de l'atelier.
+     · L'étagère ne ressemble pas à la marchandise — vignettes à
+       filet sec, légendes en mono, titres en capitales. On doit
+       voir d'un coup ce qui est de Tracklog et ce qui est de
+       l'atelier.
 
      Un seul de ces sélecteurs vaut pour l'app : `.atelier`, posé à
      côté de `.app` sur la page entière.
@@ -2048,32 +2048,40 @@
   .at-h-n{font-size:12px;color:var(--muted-foreground-2)}
   .at-note{font-size:12px;color:var(--muted-foreground-2);line-height:1.65;margin:0 0 18px;max-width:70ch}
 
-  /* Une famille = une grille. Les atomes tiennent à plusieurs par ligne, tout
-     le reste prend la largeur : un graphe rétréci de moitié n'est plus le
-     graphe qu'on livre. */
-  .at-grid{display:grid;gap:14px}
-  .at-grid.many{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
-  .at-grid.one{grid-template-columns:minmax(0,1fr)}
+  /* Une famille = une grille de vignettes de même taille. Une carte ouverte
+     prend la ligne entière : elle n'a plus rien d'une vignette, elle montre
+     tout ce qu'elle gardait. Un composant large — un graphe, une rangée de
+     réglage — réclame deux colonnes même fermé : rétréci de moitié, ce n'est
+     plus la chose qu'on livre. */
+  .at-grid{display:grid;gap:12px;align-items:start;grid-auto-flow:row dense;
+    grid-template-columns:repeat(auto-fill,minmax(212px,1fr))}
+  .at-card[data-span="2"]{grid-column:span 2}
+  .at-card.open{grid-column:1/-1}
 
   .at-card{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);
-    padding:16px 16px 18px;min-width:0;scroll-margin-top:86px}
-  .at-card-h{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-  .at-card-id{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
-  .at-name{font-size:13px;color:var(--foreground)}
-  .at-fam{font-size:9px;text-transform:uppercase;letter-spacing:0.14em;color:var(--muted-foreground-2);
-    border:1px solid var(--border);border-radius:var(--radius-pill);padding:2px 8px}
-  .at-desc{font-size:12px;color:var(--muted-foreground);line-height:1.6;margin:8px 0 0;max-width:78ch}
-  .at-src{font-size:10px;color:var(--muted-foreground-2);margin:4px 0 0}
-  .at-nospec{font-size:11px;color:var(--muted-foreground-2);margin:10px 0 0;font-style:italic}
-  .at-card.bare{padding:13px 14px 14px}
+    min-width:0;scroll-margin-top:86px;display:flex;flex-direction:column}
+  .at-card.open{padding:16px 16px 18px;gap:12px}
 
-  /* Le seul `select` du projet, et c'est voulu : l'app n'en a aucun, donc le
-     voir ici dit « ceci est une commande de l'atelier, pas un contrôle de
-     Tracklog ». Le déguiser en `Segmented` aurait brouillé exactement ça. */
-  .at-sel{font-family:var(--font-sans);font-size:10px;text-transform:uppercase;letter-spacing:0.1em;
-    color:var(--muted-foreground);background:transparent;border:1px solid var(--border);
-    border-radius:var(--radius);padding:4px 8px;cursor:pointer}
-  .at-sel:hover{border-color:var(--border-strong);color:var(--foreground)}
+  /* La légende d'une vignette, et le bouton qui l'ouvre : le nom à gauche, le
+     nombre de déclinaisons à droite. C'est tout ce qu'une carte fermée a le
+     droit de dire — le reste attend qu'on l'ouvre. */
+  .at-card-h{display:flex;align-items:center;gap:8px;width:100%;min-width:0;text-align:left;
+    background:none;border:none;border-top:1px solid var(--border);padding:8px 11px;
+    cursor:pointer;color:var(--muted-foreground);font-family:var(--font-sans);
+    transition:color .2s var(--ease)}
+  .at-card.open>.at-card-h{border-top:none;padding:0}
+  .at-card-h:hover{color:var(--foreground)}
+  .at-name{font-size:12px;color:var(--foreground);flex:1 1 auto;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .at-card-n{font-size:10px;color:var(--muted-foreground-2);flex:0 0 auto}
+  /* Le chevron : fermé il pointe de côté, ouvert il pointe en bas. */
+  .at-fold{display:inline-flex;flex:0 0 auto;color:var(--muted-foreground-2);
+    transition:transform .3s var(--ease)}
+  .at-card:not(.open) .at-fold{transform:rotate(-90deg)}
+
+  .at-desc{font-size:12px;color:var(--muted-foreground);line-height:1.6;margin:0;max-width:78ch}
+  .at-src{font-size:10px;color:var(--muted-foreground-2);margin:0}
+  .at-nospec{font-size:11px;color:var(--muted-foreground-2);margin:0;font-style:italic}
 
   /* Le cadre d'aperçu. Il porte son propre `data-theme`, donc son propre fond :
      sans `background:var(--background)`, un spécimen en thème clair se poserait
@@ -2088,19 +2096,84 @@
     padding:3px 8px;border-bottom-left-radius:var(--radius)}
   .at-frame-in{min-width:0}
 
-  /* Les variantes d'un composant, les unes sous les autres dans le même cadre :
-     même thème, même accent, même fond — la seule chose qui change entre deux
-     est ce qu'on veut comparer. */
-  .at-vars{display:flex;flex-direction:column;gap:18px;min-width:0}
-  .at-var{min-width:0}
-  .at-var-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px;
-    font-size:9px;text-transform:uppercase;letter-spacing:0.13em;color:var(--muted-foreground-2)}
-  .at-var-h code{font-size:10px;text-transform:none;letter-spacing:0;color:var(--muted-foreground)}
-  .at-var-b{display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-width:0}
-  .at-var.wide>.at-var-b{display:block}
-  /* La largeur d'une colonne de formulaire — celle des paramètres. Un champ
-     étalé sur toute la page ne se lit pas comme celui qu'on aura sous les yeux. */
-  .at-var.col>.at-var-b{max-width:520px}
+  /* ---- Les vignettes ------------------------------------------------------
+     L'unité de la page : une chose, centrée, sur le fond de son thème. Trois
+     règles, et rien qui habille ce qu'elles montrent :
+
+     · `place-items:center` — un spécimen collé dans un coin ne se compare pas
+       à celui d'à côté. Centré, l'œil n'a qu'une colonne à suivre.
+     · `contain:layout paint` — l'app a des calques `position:fixed` (`.scrim`,
+       `.fd-add-page`, la barre de sélection). Rendus nus dans une liste, ils
+       se collent au bord de la FENÊTRE et repeignent la page : la première
+       version de cette section était entièrement masquée par eux. Contenue,
+       la vignette devient leur repère, et on les voit à l'échelle où on peut
+       les regarder.
+     · une hauteur minimale commune — sans elle, une ligne de ronds de 19 px et
+       une carte de 200 font une grille en dents de scie. */
+  /* Les vignettes d'une carte ouverte : une rangée qui se replie, chacune à la
+     taille de ce qu'elle contient. Une grille à colonnes fixes coupait les
+     `Segmented` un peu longs au milieu d'un mot — ici c'est la chose qui donne
+     sa largeur à sa case, et celle qui ne tient pas passe à la ligne. */
+  .at-specs{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;min-width:0}
+  .at-card:not(.open) .at-specs{display:block}
+
+  /* Des vignettes LIÉES : les états d'une même apparition, ou le même spécimen
+     sous plusieurs thèmes. Le fond commun est tout ce qu'il y a à en dire —
+     ce sont la même chose, vue autrement. Une vignette qui n'a rien à lier n'a
+     pas de fond : le liant doit vouloir dire quelque chose. */
+  .at-tie{display:flex;gap:4px;flex:0 0 auto;max-width:100%;
+    border-radius:calc(var(--radius) + 3px)}
+  .at-tie:not(.solo){background:var(--muted);padding:3px}
+  .at-tie.wide{flex:1 1 100%;width:100%}
+
+  .at-spec{position:relative;flex:0 0 auto;max-width:100%;min-width:0}
+  .at-stage{display:grid;place-items:center;padding:12px;width:max-content;max-width:100%;
+    min-width:56px;min-height:56px;
+    background:var(--background);color:var(--foreground);border:1px solid var(--border);
+    border-radius:var(--radius);overflow:hidden;position:relative;contain:layout paint;
+    font-family:var(--font-sans);font-size-adjust:var(--font-size-adjust);
+    letter-spacing:var(--tracking-body)}
+  .at-stage>*{max-width:100%;min-width:0}
+  /* Fermée, la vignette EST le haut de la carte : toute la largeur, une hauteur
+     commune à toutes les cartes — c'est elle qui fait la grille — pas de filet
+     et pas de coins en bas, la légende vient s'y coller. Ce qui dépasse est
+     recadré : la vignette situe, la carte ouverte montre. */
+  .at-card:not(.open) .at-tie{display:block;padding:0;background:none}
+  .at-card:not(.open) .at-spec{width:100%}
+  .at-card:not(.open) .at-stage{width:100%;height:112px;min-width:0;border:none;
+    border-radius:calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0}
+  /* Un composant large prend la ligne entière, et son contenu repart de la
+     gauche comme dans l'app. `col` lui rend la largeur d'une colonne de
+     réglages — étalé sur la page, un champ ne se lit pas comme celui qu'on
+     aura sous les yeux. */
+  .at-tie.wide .at-stage{display:block;width:100%}
+  .at-tie.col .at-stage>*{max-width:520px}
+  .at-card .at-stage.void{border:1px dashed var(--border-strong)}
+
+  /* Le remplissage d'une boîte vide. Beaucoup d'apparitions sont des
+     conteneurs de mise en page : dans l'app ils contiennent toujours quelque
+     chose, ici ils seraient un rectangle invisible. Ce trait dit « il y a une
+     boîte, et voilà ce qu'elle fait à ce qu'on lui donne » sans prétendre être
+     du texte. */
+  .at-ghost{display:inline-block;width:46px;height:6px;border-radius:var(--radius-pill);
+    background:var(--muted-foreground-2);opacity:.22}
+
+  /* ---- Le survol ----------------------------------------------------------
+     Un seul hover pour toute la page, et il porte tout ce qui s'écrivait avant
+     sous les vignettes : le libellé, la manette qui produit cette variante
+     (une prop, une classe, un état), et où elle vit. En ligne, ces trois
+     lignes doublaient la hauteur de chaque fiche — on venait regarder une
+     forme, on lisait du texte.
+     Borné à la largeur de sa vignette, il se replie sur deux lignes plutôt que
+     de pousser la page de côté. */
+  .at-spec[data-tip]::after{content:attr(data-tip);position:absolute;z-index:6;
+    left:0;bottom:calc(100% + 5px);width:max-content;max-width:100%;
+    font-family:var(--font-mono);font-size:10px;line-height:1.45;
+    color:var(--foreground);background:var(--card);border:1px solid var(--border-strong);
+    border-radius:var(--radius);padding:4px 7px;box-shadow:var(--shadow-card);
+    opacity:0;pointer-events:none;transition:opacity .15s var(--ease)}
+  .at-spec[data-tip]:hover::after{opacity:1}
+
   .at-stack{display:flex;flex-direction:column;gap:14px}
   .at-out{font-size:11px;color:var(--muted-foreground-2);margin-top:10px}
 
@@ -2127,61 +2200,6 @@
   .at-orphans li{display:flex;align-items:baseline;gap:10px;min-width:0}
   .at-orphans code{font-size:12px;color:var(--foreground)}
 
-  /* ---- Déclinaisons : l'inventaire des apparitions ------------------------
-     Une ligne = une combinaison de classes qui existe vraiment dans l'app :
-     la chose à gauche, son sélecteur à droite. La chose est rendue avec ses
-     vraies classes, donc rien ici ne doit l'habiller — ces règles ne posent
-     que la grille autour. */
-  .at-decls{display:flex;flex-direction:column;gap:2px;min-width:0}
-  .at-decls.dense{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:2px 18px}
-  /* Dans la grille dense, une vignette est bornée en hauteur : `div.app` ou
-     `div.empty` sont des conteneurs pleine page, et les laisser prendre leur
-     taille réelle ferait des trous de 175 px au milieu d'une liste de ronds de
-     26. Recadrée, on voit son coin — assez pour la situer, et l'aperçu au
-     thème près reste juste. Les familles, elles, ne bornent rien : c'est là
-     qu'on veut la chose entière. */
-  .at-decls.dense .at-decl-box{max-height:58px}
-  .at-decl{display:flex;align-items:center;gap:12px;padding:7px 0;min-width:0;
-    border-top:1px solid var(--border)}
-  .at-decl:first-child{border-top:none}
-  /* La boîte d'accueil : une case de taille fixe pour que les sélecteurs
-     s'alignent en colonne d'une ligne à l'autre, quelle que soit la taille de
-     ce qu'elle contient. Un rond de 19 px et une carte pleine largeur ne
-     peuvent pas se lire dans la même colonne sinon. */
-  /* `contain` n'est pas une coquetterie, c'est ce qui rend cette section
-     possible. Parmi les apparitions de l'app il y a des calques plein écran —
-     `.scrim`, `.fd-add-page`, `.fd-selbar`, le trait de dépôt — en
-     `position:fixed`. Rendus tels quels dans une liste, ils se collent au
-     bord de la FENÊTRE et repeignent la page en noir : la première version de
-     cette page était entièrement masquée par eux. `contain:layout paint` fait
-     de chaque case le repère de ses propres descendants fixés, donc un calque
-     plein écran remplit sa vignette au lieu de l'écran. On voit ce qu'il fait,
-     à l'échelle où on peut le regarder. */
-  /* Largeur FIXE, pas « au contenu » : c'est elle qui met les sélecteurs en
-     colonne d'une ligne à l'autre. Sans ça l'œil doit repartir de zéro à
-     chaque ligne, et comparer dix-sept ronds devient impossible — or c'est
-     tout ce que cette section a à offrir. */
-  .at-decl-box{flex:0 0 132px;width:132px;min-height:26px;display:flex;
-    align-items:center;justify-content:flex-start;overflow:hidden;
-    position:relative;contain:layout paint}
-  .at-decl-box>*{max-width:100%}
-  /* Une variante d'ÉTAT (`.on`, `.ticking`) : celles qui ne sont là que dans
-     certaines conditions. Le liseré pointillé dit « celle-ci ne se voit pas
-     tout le temps », pour qu'on ne la prenne pas pour une déclinaison de plus. */
-  .at-decl-box.state{flex:0 0 74px;width:74px;border-left:1px dashed var(--border-strong);
-    padding-left:10px;margin-left:2px}
-  .at-decl-txt{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0;flex:1 1 auto}
-  .at-decl-sel{font-size:11px;color:var(--muted-foreground-2)}
-  .at-decl-sel b{font-weight:400;color:var(--foreground)}
-  .at-decl-sel u{text-decoration:none;color:var(--muted-foreground-2);opacity:.65}
-  .at-decl-lab{font-size:10px;color:var(--muted-foreground)}
-  .at-decl .at-src{margin:0;margin-left:auto;padding-left:14px;white-space:nowrap}
-  /* Le chevron de repli d'une carte de base : dix-sept déclinaisons, c'est
-     beaucoup à traverser quand on cherche une autre famille. */
-  .at-fold{background:none;border:none;padding:0;cursor:pointer;color:var(--muted-foreground-2);
-    display:inline-flex;transition:transform .3s var(--ease),color .3s var(--ease)}
-  .at-fold:hover{color:var(--foreground)}
-  .at-fold[aria-expanded="false"]{transform:rotate(-90deg)}
   .at-sub{font-family:var(--font-serif);font-style:var(--font-serif-style);font-weight:400;
     font-size:19px;margin:30px 0 6px;display:flex;align-items:baseline;gap:9px}
   .at-sub-lab{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;
@@ -2197,9 +2215,7 @@
   @media (max-width:640px){
     .at-bar{position:static;gap:12px 18px}
     .at-frames.multi{grid-template-columns:minmax(0,1fr)}
-    .at-grid.many{grid-template-columns:minmax(0,1fr)}
-    .at-decls.dense{grid-template-columns:minmax(0,1fr)}
-    /* Au doigt, le sélecteur passe sous la chose plutôt que de la comprimer. */
-    .at-decl{flex-wrap:wrap;gap:6px 12px}
-    .at-decl-txt{margin-left:0;width:100%}
+    /* Une colonne : rien ne s'étale sur deux quand il n'y en a qu'une. */
+    .at-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+    .at-card[data-span="2"]{grid-column:span 1}
   }
