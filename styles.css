@@ -2127,12 +2127,79 @@
   .at-orphans li{display:flex;align-items:baseline;gap:10px;min-width:0}
   .at-orphans code{font-size:12px;color:var(--foreground)}
 
+  /* ---- Déclinaisons : l'inventaire des apparitions ------------------------
+     Une ligne = une combinaison de classes qui existe vraiment dans l'app :
+     la chose à gauche, son sélecteur à droite. La chose est rendue avec ses
+     vraies classes, donc rien ici ne doit l'habiller — ces règles ne posent
+     que la grille autour. */
+  .at-decls{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .at-decls.dense{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:2px 18px}
+  /* Dans la grille dense, une vignette est bornée en hauteur : `div.app` ou
+     `div.empty` sont des conteneurs pleine page, et les laisser prendre leur
+     taille réelle ferait des trous de 175 px au milieu d'une liste de ronds de
+     26. Recadrée, on voit son coin — assez pour la situer, et l'aperçu au
+     thème près reste juste. Les familles, elles, ne bornent rien : c'est là
+     qu'on veut la chose entière. */
+  .at-decls.dense .at-decl-box{max-height:58px}
+  .at-decl{display:flex;align-items:center;gap:12px;padding:7px 0;min-width:0;
+    border-top:1px solid var(--border)}
+  .at-decl:first-child{border-top:none}
+  /* La boîte d'accueil : une case de taille fixe pour que les sélecteurs
+     s'alignent en colonne d'une ligne à l'autre, quelle que soit la taille de
+     ce qu'elle contient. Un rond de 19 px et une carte pleine largeur ne
+     peuvent pas se lire dans la même colonne sinon. */
+  /* `contain` n'est pas une coquetterie, c'est ce qui rend cette section
+     possible. Parmi les apparitions de l'app il y a des calques plein écran —
+     `.scrim`, `.fd-add-page`, `.fd-selbar`, le trait de dépôt — en
+     `position:fixed`. Rendus tels quels dans une liste, ils se collent au
+     bord de la FENÊTRE et repeignent la page en noir : la première version de
+     cette page était entièrement masquée par eux. `contain:layout paint` fait
+     de chaque case le repère de ses propres descendants fixés, donc un calque
+     plein écran remplit sa vignette au lieu de l'écran. On voit ce qu'il fait,
+     à l'échelle où on peut le regarder. */
+  /* Largeur FIXE, pas « au contenu » : c'est elle qui met les sélecteurs en
+     colonne d'une ligne à l'autre. Sans ça l'œil doit repartir de zéro à
+     chaque ligne, et comparer dix-sept ronds devient impossible — or c'est
+     tout ce que cette section a à offrir. */
+  .at-decl-box{flex:0 0 132px;width:132px;min-height:26px;display:flex;
+    align-items:center;justify-content:flex-start;overflow:hidden;
+    position:relative;contain:layout paint}
+  .at-decl-box>*{max-width:100%}
+  /* Une variante d'ÉTAT (`.on`, `.ticking`) : celles qui ne sont là que dans
+     certaines conditions. Le liseré pointillé dit « celle-ci ne se voit pas
+     tout le temps », pour qu'on ne la prenne pas pour une déclinaison de plus. */
+  .at-decl-box.state{flex:0 0 74px;width:74px;border-left:1px dashed var(--border-strong);
+    padding-left:10px;margin-left:2px}
+  .at-decl-txt{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0;flex:1 1 auto}
+  .at-decl-sel{font-size:11px;color:var(--muted-foreground-2)}
+  .at-decl-sel b{font-weight:400;color:var(--foreground)}
+  .at-decl-sel u{text-decoration:none;color:var(--muted-foreground-2);opacity:.65}
+  .at-decl-lab{font-size:10px;color:var(--muted-foreground)}
+  .at-decl .at-src{margin:0;margin-left:auto;padding-left:14px;white-space:nowrap}
+  /* Le chevron de repli d'une carte de base : dix-sept déclinaisons, c'est
+     beaucoup à traverser quand on cherche une autre famille. */
+  .at-fold{background:none;border:none;padding:0;cursor:pointer;color:var(--muted-foreground-2);
+    display:inline-flex;transition:transform .3s var(--ease),color .3s var(--ease)}
+  .at-fold:hover{color:var(--foreground)}
+  .at-fold[aria-expanded="false"]{transform:rotate(-90deg)}
+  .at-sub{font-family:var(--font-serif);font-style:var(--font-serif-style);font-weight:400;
+    font-size:19px;margin:30px 0 6px;display:flex;align-items:baseline;gap:9px}
+  .at-sub-lab{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;
+    color:var(--muted-foreground-2);margin:20px 0 0;display:flex;align-items:baseline;gap:8px}
+  .at-sub-lab span{color:var(--foreground)}
+  .at-desc-sm{font-size:11px;margin-top:5px}
+
   .at-classes{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
   .at-classes code{font-size:10px;color:var(--muted-foreground-2);border:1px solid var(--border);
     border-radius:var(--radius-pill);padding:2px 8px}
+  .at-classes code.dead{border-style:dashed;opacity:.7}
 
   @media (max-width:640px){
     .at-bar{position:static;gap:12px 18px}
     .at-frames.multi{grid-template-columns:minmax(0,1fr)}
     .at-grid.many{grid-template-columns:minmax(0,1fr)}
+    .at-decls.dense{grid-template-columns:minmax(0,1fr)}
+    /* Au doigt, le sélecteur passe sous la chose plutôt que de la comprimer. */
+    .at-decl{flex-wrap:wrap;gap:6px 12px}
+    .at-decl-txt{margin-left:0;width:100%}
   }

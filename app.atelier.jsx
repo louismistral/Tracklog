@@ -60,6 +60,8 @@ const ATELIER_SOURCES = ['app.core.jsx', 'app.ui.jsx', 'app.charts.jsx', 'app.js
 const ATELIER_FAMILIES = [
   { id:'jeton',     label:'Jetons',
     note:"Les variables CSS. Tout le reste n'en est qu'un assemblage : une couleur écrite en dur ailleurs serait une couleur qui ne suit pas le thème." },
+  { id:'declinaison', label:'Déclinaisons',
+    note:"L'autre façon de compter. Un composant est une brique du code, avec un nom ; une APPARITION est une combinaison de classes qui existe vraiment quelque part dans l'app. Rangées par classe de base : `.icon-btn` porte la forme partagée, `.cal-nav` ou `.danger` la modifient. Rien n'est écrit à la main ici — tout est relu dans les `className=` des sources." },
   { id:'atome',     label:'Atomes',
     note:"Ce qui ne se découpe plus : un glyphe, une bascule, une pastille. Aucun n'a de sens seul, aucun n'en perd en changeant de page." },
   { id:'molecule',  label:'Molécules',
@@ -152,14 +154,22 @@ function parseTokens(css, jsSources){
    sautés pour ne pas ramasser un `.5` de nombre décimal ou une valeur. */
 function parseClasses(css){
   const noComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  const seen = new Set();
+  const all = new Set();
+  /* Le chrome de l'atelier ne se juge pas lui-même. On le reconnaît sans liste
+     à tenir : une classe qui n'apparaît JAMAIS que dans un sélecteur portant
+     aussi un `.at-…` appartient à l'étagère, pas à la marchandise. C'est
+     comme ça que `.multi` (de `.at-frames.multi`) ou `.dead` (de
+     `.at-classes code.dead`) cessent de se dénoncer comme du CSS mort — elles
+     sont bien portées, mais par cette page, qui n'est pas l'app. */
+  const outside = new Set();
   let depth = 0, buf = '';
   for (let i = 0; i < noComments.length; i++){
     const ch = noComments[i];
     if (ch === '{'){
       if (depth === 0){
-        const cls = buf.match(/\.(-?[A-Za-z_][\w-]*)/g) || [];
-        cls.forEach(c => seen.add(c.slice(1)));
+        const cls = (buf.match(/\.(-?[A-Za-z_][\w-]*)/g) || []).map(c => c.slice(1));
+        const chrome = cls.some(c => c.indexOf('at-') === 0 || c === 'atelier');
+        cls.forEach(c => { all.add(c); if (!chrome) outside.add(c); });
       }
       depth++; buf = '';
     } else if (ch === '}'){
@@ -168,14 +178,178 @@ function parseClasses(css){
       buf += ch;
     }
   }
-  return [...seen].sort();
+  const list = [...all].sort();
+  return { list, chrome: new Set(list.filter(c => !outside.has(c))) };
+}
+
+/* ---- L'autre inventaire : les apparitions ---------------------------------
+   Un composant est une brique du CODE : il a un nom, il se réutilise, et c'est
+   lui qu'on trouve par son annotation. Une APPARITION est une brique du RENDU :
+   la combinaison de classes qu'un élément porte réellement quelque part dans
+   l'app — `button.icon-btn.cal-nav`. Les deux existent, aucune ne remplace
+   l'autre, et elles ne se recouvrent pas :
+
+     · `GearIcon` est un composant, et il apparaît sous six habillages.
+     · `button.icon-btn.cal-nav` est une apparition, et n'est aucun composant —
+       c'est un bouton écrit à la main dans un écran. Sans cet inventaire, il
+       n'existerait nulle part dans l'atelier.
+
+   Tout se lit dans la source, rien ne s'écrit à la main : une combinaison
+   nouvelle apparaît le lendemain, une combinaison supprimée disparaît.
+
+   Les classes de base les plus déclinées sont celles qui portent une FORME
+   partagée — `.icon-btn` en a dix-sept. C'est là qu'une incohérence se voit :
+   dix-sept ronds censés être le même rond, posés l'un à côté de l'autre. */
+
+/* Les tags qu'on sait rendre seuls. Un `input` ou un `svg` demandent des
+   attributs qu'on n'a pas ; un tag à Majuscule est un composant React, donc il
+   relève de l'autre inventaire et n'a rien à faire ici. */
+const AT_TAGS = ['div','span','button','a','p','section','article','header','footer','nav',
+                 'label','li','ul','ol','h1','h2','h3','h4','i','b','em','strong','code','small','u'];
+const AT_CLASS_WORD = /^[a-z][a-z0-9-]*$/;
+const AT_CLASSNAME = /className=(?:"([^"]*)"|\{`([^`]*)`\})/g;
+
+/* Avance jusqu'au `>` qui ferme la balise ouvrante. Les accolades et les
+   chaînes sont sautées : un `onClick={()=>x}` contient un `>` qui n'est pas la
+   fin de la balise, et le prendre pour tel décalerait tout ce qui suit. */
+function atEndOfOpenTag(text, from){
+  let depth = 0;
+  for (let i = from; i < text.length; i++){
+    const c = text[i];
+    if (c === '{') depth++;
+    else if (c === '}') depth--;
+    else if (c === '"' || c === "'" || c === '`'){
+      const q = c; i++;
+      while (i < text.length && text[i] !== q){ if (text[i] === '\\') i++; i++; }
+    }
+    else if (depth === 0 && c === '>') return { at:i, selfClosing: text[i-1] === '/' };
+  }
+  return { at:-1, selfClosing:false };
+}
+
+function parseAppearances(file, text){
+  const out = [];
+  const lineOf = (i) => text.slice(0, i).split('\n').length;
+  AT_CLASSNAME.lastIndex = 0;
+  let m;
+  while ((m = AT_CLASSNAME.exec(text))){
+    // Le tag : le `<` le plus proche en remontant.
+    const open = text.lastIndexOf('<', m.index);
+    if (open === -1 || m.index - open > 600) continue;
+    const tm = /^<([A-Za-z][\w.]*)/.exec(text.slice(open, open + 40));
+    if (!tm) continue;
+    const tag = tm[1];
+
+    /* Deux formes d'écriture. `className="a b"` donne la combinaison exacte.
+       Un gabarit à accolades donne une base — ce qui précède la première
+       accolade — plus des classes d'ÉTAT, celles qui ne sont là que dans
+       certaines conditions. Les deux sont montrées, séparément : une classe
+       d'état posée en permanence mentirait sur ce qu'elle est. */
+    let words = [], optional = [];
+    if (m[1] != null){
+      words = m[1].split(/\s+/);
+    } else {
+      words = m[2].split('${')[0].split(/\s+/);
+      const inner = m[2].match(/\$\{[^}]*\}/g) || [];
+      inner.forEach(seg => {
+        const lits = seg.match(/['"][a-z][a-z0-9 -]*['"]/g) || [];
+        lits.forEach(l => l.slice(1, -1).split(/\s+/).forEach(w => {
+          if (AT_CLASS_WORD.test(w) && optional.indexOf(w) === -1) optional.push(w);
+        }));
+      });
+    }
+    words = words.filter(w => AT_CLASS_WORD.test(w));
+    if (!words.length) continue;
+
+    const end = atEndOfOpenTag(text, m.index + m[0].length);
+    if (end.at === -1) continue;
+    const opening = text.slice(open, end.at);
+
+    // Le nom humain : celui que l'app donne déjà aux lecteurs d'écran.
+    const lab = /aria-label="([^"]{1,44})"/.exec(opening) || /title="([^"]{1,44})"/.exec(opening);
+
+    // Ce qu'il y a dedans : un texte court, ou une icône auto-fermante.
+    let content = null, icon = null;
+    if (!end.selfClosing){
+      const after = text.slice(end.at + 1, end.at + 200);
+      const im = /^\s*<([A-Z]\w*)[^<>]*\/>/.exec(after);
+      if (im) icon = im[1];
+      else {
+        const stop = after.indexOf('<');
+        const raw = stop === -1 ? '' : after.slice(0, stop);
+        const t = raw.trim();
+        if (t && t.length <= 14 && !/[{}]/.test(raw)) content = t;
+      }
+    }
+    out.push({ tag, classes:words, optional, content, icon,
+               label: lab ? lab[1] : null, file, line: lineOf(m.index),
+               isComponent: /^[A-Z]/.test(tag), renderable: AT_TAGS.indexOf(tag) !== -1 });
+  }
+  return out;
+}
+
+/* Une apparition = un tag + un jeu de classes. Le même bouton écrit à cinq
+   endroits est UNE apparition vue cinq fois, pas cinq : ce qui compte est la
+   forme, et le nombre d'usages dit seulement à quel point elle est répandue. */
+function groupAppearances(rows){
+  const byKey = new Map();
+  rows.forEach(r => {
+    if (!r.renderable) return;
+    const key = r.tag + '.' + r.classes.join('.');
+    let a = byKey.get(key);
+    if (!a){
+      a = { key, tag:r.tag, classes:r.classes, optional:[], content:null,
+            icon:null, label:null, uses:0, where:[] };
+      byKey.set(key, a);
+    }
+    a.uses++;
+    r.optional.forEach(o => { if (a.optional.indexOf(o) === -1) a.optional.push(o); });
+    if (!a.content && r.content) a.content = r.content;
+    if (!a.icon && r.icon) a.icon = r.icon;
+    if (!a.label && r.label) a.label = r.label;
+    if (a.where.length < 6) a.where.push(`${r.file}:${r.line}`);
+  });
+
+  /* Le regroupement par PREMIÈRE classe. Ce n'est pas une règle du CSS — il
+     n'y a ni parent ni enfant entre deux classes — c'est la convention de ce
+     projet, et elle est tenue : la forme partagée s'écrit en premier, ce qui
+     la modifie ensuite. C'est exactement ce que dit `.icon-btn.sm` dans la
+     feuille, où la règle n'existe que pour les deux ensemble. */
+  const bases = new Map();
+  byKey.forEach(a => {
+    const b = a.classes[0];
+    if (!bases.has(b)) bases.set(b, { base:b, items:[] });
+    bases.get(b).items.push(a);
+  });
+  const all = [...bases.values()];
+  all.forEach(g => g.items.sort((x, y) => y.uses - x.uses || x.key.localeCompare(y.key)));
+  // Les familles d'abord, de la plus déclinée à la moins ; les uniques après.
+  const familles = all.filter(g => g.items.length > 1)
+                      .sort((a, b) => b.items.length - a.items.length || a.base.localeCompare(b.base));
+  const uniques  = all.filter(g => g.items.length === 1)
+                      .sort((a, b) => a.base.localeCompare(b.base));
+  return { familles, uniques, total: byKey.size };
+}
+
+/* Toutes les classes que l'app porte vraiment, états compris — plus celles
+   qu'un bout de JS pose à la main (`classList.add('reordering')`), invisibles
+   d'un `className=`. Sert à distinguer une classe que l'atelier ne montre pas
+   encore d'une classe que PLUS PERSONNE ne porte, c'est-à-dire du CSS mort. */
+function wornClasses(rows, jsSources){
+  const worn = new Set();
+  rows.forEach(r => { r.classes.forEach(c => worn.add(c)); r.optional.forEach(c => worn.add(c)); });
+  const add = /classList\.(?:add|remove|toggle)\(\s*['"`]([a-z][a-z0-9-]*)/g;
+  jsSources.forEach(src => { let m; while ((m = add.exec(src))) worn.add(m[1]); });
+  return worn;
 }
 
 /* Le chargement : cinq sources, une feuille, tout en parallèle. En échec —
    ouvert depuis le disque en `file://`, où `fetch` refuse — l'atelier le dit
    plutôt que de se montrer vide et d'avoir l'air en panne. */
 function useAtelierSources(){
-  const [state, setState] = useState({ ready:false, error:null, components:[], tokens:[], classes:[] });
+  const [state, setState] = useState({ ready:false, error:null, components:[], tokens:[],
+                                       classes:[], chrome:new Set(),
+                                       decl:{ familles:[], uniques:[], total:0 }, worn:new Set() });
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -193,10 +367,20 @@ function useAtelierSources(){
         const jsSources = texts.slice(0, -1);
         const components = [];
         ATELIER_SOURCES.forEach((f, i) => components.push(...parseAtelierSource(f, jsSources[i])));
+        /* Les apparitions ne se lisent que dans les fichiers qui RENDENT
+           quelque chose : app.core.jsx ne dessine rien, par sa règle d'entrée. */
+        const rows = [];
+        ATELIER_SOURCES.forEach((f, i) => {
+          if (f !== 'app.core.jsx') rows.push(...parseAppearances(f, jsSources[i]));
+        });
+        const cls = parseClasses(css);
         setState({ ready:true, error:null, components,
-                   tokens: parseTokens(css, jsSources), classes: parseClasses(css) });
+                   tokens: parseTokens(css, jsSources), classes: cls.list, chrome: cls.chrome,
+                   decl: groupAppearances(rows), worn: wornClasses(rows, jsSources) });
       } catch(e){
-        if (!cancelled) setState({ ready:true, error:e.message || String(e), components:[], tokens:[], classes:[] });
+        if (!cancelled) setState({ ready:true, error:e.message || String(e), components:[], tokens:[],
+                                   classes:[], chrome:new Set(),
+                                       decl:{ familles:[], uniques:[], total:0 }, worn:new Set() });
       }
     })();
     return () => { cancelled = true; };
@@ -292,12 +476,114 @@ function SpecCard({ entry, variants, themes, accent }){
   );
 }
 
+/* ---- Rendre une apparition ------------------------------------------------
+   On refabrique l'élément tel que la source l'écrit : son tag, ses classes,
+   son contenu. Pas une imitation — le vrai tag avec les vraies classes, donc
+   la vraie feuille de style s'y applique, exactement comme dans l'app.
+
+   Ce qu'on met dedans, dans l'ordre de préférence :
+     1. le texte littéral trouvé dans la source (« ‹ », « ✕ », « i »)
+     2. l'icône que la source y pose, si c'est un composant qu'on sait monter —
+        tout vit dans un seul espace de noms, donc `GearIcon` est joignable par
+        son nom (voir CLAUDE.md, « un seul espace de noms »)
+     3. rien : un conteneur de mise en page n'a pas de contenu, et sa boîte
+        vide est précisément ce qu'on veut voir. */
+function atIconByName(name){
+  try {
+    const fn = (typeof window !== 'undefined' && window[name]) || undefined;
+    return typeof fn === 'function' ? fn : null;
+  } catch(e){ return null; }
+}
+
+function Appearance({ item, extra }){
+  const cls = item.classes.concat(extra || []).join(' ');
+  const props = { className: cls };
+  // Un bouton d'atelier ne doit rien déclencher, et ne doit pas non plus
+  // envoyer un formulaire fantôme en étant cliqué.
+  if (item.tag === 'button') props.type = 'button';
+  if (item.tag === 'a') props.href = '#';
+  if (item.label) props['aria-label'] = item.label;
+
+  let child = null;
+  if (item.content) child = item.content;
+  else if (item.icon){
+    const Icon = atIconByName(item.icon);
+    child = Icon ? React.createElement(Icon, null) : null;
+  }
+  return React.createElement(item.tag, props, child);
+}
+
+/* Une déclinaison : ce qu'on voit, et le sélecteur qui le produit.
+   Le sélecteur est écrit comme le navigateur le nomme — `button.icon-btn.sm` —
+   parce que c'est sous ce nom-là qu'on le retrouvera en inspectant la page. */
+function DeclRow({ item }){
+  return (
+    <div className="at-decl">
+      <div className="at-decl-box"><Appearance item={item} /></div>
+      {item.optional.length > 0 && item.optional.map(o => (
+        <div className="at-decl-box state" key={o} title={`état .${o}`}>
+          <Appearance item={item} extra={[o]} />
+        </div>
+      ))}
+      <div className="at-decl-txt">
+        <code className="mono at-decl-sel">
+          {item.tag}<b>{item.classes.map(c => '.' + c).join('')}</b>
+          {item.optional.map(o => <u key={o}>.{o}</u>)}
+        </code>
+        {item.label && <span className="at-decl-lab">{item.label}</span>}
+        <span className="at-src mono">{item.where[0]}{item.uses > 1 ? ` · ${item.uses} usages` : ''}</span>
+      </div>
+    </div>
+  );
+}
+
+/* La carte d'une classe de base, et toutes ses déclinaisons sous elle.
+   C'est LA vue que cette famille existe pour donner : dix-sept ronds censés
+   être le même rond, posés côte à côte. Une intruse s'y voit en une seconde,
+   là où il aurait fallu ouvrir sept écrans pour la débusquer. */
+function DeclCard({ group, themes, accent }){
+  const [own, setOwn] = useState('');
+  const [open, setOpen] = useState(true);
+  const shown = own ? (own === 'all' ? THEMES.map(t => t.id) : [own]) : themes;
+  const many = shown.length > 1;
+  return (
+    <article className="at-card" id={`at-base-${group.base}`}>
+      <header className="at-card-h">
+        <div className="at-card-id">
+          <button className="at-fold" onClick={()=>setOpen(o=>!o)} aria-expanded={open}>
+            <ChevronDown />
+          </button>
+          <code className="mono at-name">.{group.base}</code>
+          <span className="at-fam">{group.items.length} déclinaison{group.items.length>1?'s':''}</span>
+        </div>
+        <ThemeSelect value={own} onChange={setOwn} withAll />
+      </header>
+      {open && (
+        <div className={`at-frames ${many ? 'multi' : ''}`}>
+          {shown.map(th => (
+            <ThemeFrame key={th} theme={th} accent={accent} label={many ? themeLabel(th) : null}>
+              <div className="at-decls">
+                {group.items.map(it => <DeclRow key={it.key} item={it} />)}
+              </div>
+            </ThemeFrame>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
 const themeLabel = (id) => (THEMES.find(t => t.id === id) || {}).label || id;
 
 /* Les familles qui tiennent à plusieurs par ligne : les atomes parce qu'ils
    sont petits, les pages et la technique parce qu'elles n'ont rien à montrer —
    treize fiches sans spécimen en pleine largeur, c'est treize écrans de vide. */
 const AT_DENSE = { atome:true, page:true, technique:true };
+
+/* Les familles qui viennent de l'annotation d'un composant. Les trois autres —
+   jetons, déclinaisons, classes — se construisent autrement et ont leur propre
+   section, d'où cette liste plutôt qu'un filtre par élimination. */
+const AT_COMPONENT_FAMS = ['atome','molecule','organisme','modale','page','technique'];
 
 /* ---- Les données de démonstration -----------------------------------------
    Déterministes : la même page à chaque chargement, sinon deux captures ne se
@@ -875,9 +1161,9 @@ function TokenGrid({ tokens, theme, accent }){
    Trois familles sont exclues d'office — le chrome de l'atelier lui-même, le
    curseur de bureau et l'écran de secours de chargement : ils ne font pas
    partie du vocabulaire de l'app. */
-const AT_OFF_STAGE = /^(at-|cursor-|has-cursor|boot-)/;
+const AT_OFF_STAGE = /^(at-|atelier$|cursor-|has-cursor|boot-)/;
 
-function useClassCoverage(rootRef, classes, deps){
+function useClassCoverage(rootRef, classes, chrome, worn, deps){
   const [seen, setSeen] = useState(null);
   const measure = useCallback(() => {
     if (!rootRef.current) return;
@@ -888,13 +1174,24 @@ function useClassCoverage(rootRef, classes, deps){
     setSeen(found);
   }, [rootRef]);
   useEffect(() => {
-    const id = setTimeout(measure, 400);
+    const id = setTimeout(measure, 500);
     return () => clearTimeout(id);
   }, deps);
-  if (!classes.length) return { missing:[], covered:0, total:0, measure };
-  const kept = classes.filter(cl => !AT_OFF_STAGE.test(cl));
-  const missing = seen ? kept.filter(cl => !seen.has(cl)) : [];
-  return { missing, covered: kept.length - missing.length, total: kept.length, measure };
+
+  const kept = classes.filter(cl => !AT_OFF_STAGE.test(cl) && !chrome.has(cl));
+  if (!kept.length || !seen) return { morte:[], absente:[], couverte:0, total:kept.length, measure };
+
+  /* Trois seaux, et c'est le croisement des deux inventaires qui les sépare :
+     ce que la FEUILLE déclare, ce que l'APP porte, ce que l'ATELIER rend.
+       · déclarée mais portée nulle part  → du CSS mort, à supprimer
+       · portée mais pas rendue ici       → un trou de cette page
+       · rendue                           → couverte
+     Avant, tout ce qui manquait était dans le même sac et il fallait aller
+     voir soi-même laquelle des deux choses c'était. */
+  const morte = kept.filter(cl => !worn.has(cl) && !seen.has(cl));
+  const absente = kept.filter(cl => worn.has(cl) && !seen.has(cl));
+  return { morte, absente, couverte: kept.length - morte.length - absente.length,
+           total: kept.length, measure };
 }
 
 /* ============================================================
@@ -969,8 +1266,15 @@ function AtelierView(){
   const byFamily = {};
   filtered.forEach(c => { (byFamily[c.family] = byFamily[c.family] || []).push(c); });
 
+  /* La recherche filtre les deux inventaires du même geste : taper « icon »
+     doit montrer et les composants et les apparitions qui en parlent. */
+  const matchDecl = (g) => !q || (g.base + ' ' + g.items.map(i => i.key + ' ' + (i.label || '')).join(' '))
+                                   .toLowerCase().includes(q.toLowerCase());
+  const declFamilles = src.decl.familles.filter(matchDecl);
+  const declUniques = src.decl.uniques.filter(matchDecl);
+
   const themes = theme === 'all' ? THEMES.map(t => t.id) : [theme];
-  const cover = useClassCoverage(rootRef, src.classes, [src.ready, q, theme]);
+  const cover = useClassCoverage(rootRef, src.classes, src.chrome, src.worn, [src.ready, q, theme]);
 
   const counts = {};
   declared.forEach(c => { counts[c.family] = (counts[c.family] || 0) + 1; });
@@ -1028,9 +1332,14 @@ function AtelierView(){
 
         {src.ready && !src.error && (
           <>
+            {/* Les deux inventaires, côte à côte, dès la première ligne : ce sont
+                deux façons de compter la même app, et aucune ne se déduit de
+                l'autre. 98 composants d'un côté, 412 apparitions de l'autre. */}
             <div className="at-summary">
               <AtCount n={declared.length} label="composants déclarés" />
               <AtCount n={withSpec} label="avec spécimen" />
+              <AtCount n={src.decl.total} label="apparitions" />
+              <AtCount n={src.decl.familles.length} label="bases déclinées" />
               <AtCount n={src.tokens.length} label="jetons" />
               <AtCount n={cover.total} label="classes" />
               <AtCount n={orphans.length} label="non déclarés" bad={orphans.length > 0} />
@@ -1092,8 +1401,39 @@ function AtelierView(){
               </div>
             </section>
 
+            {/* ---- Déclinaisons (l'axe des apparitions) ---- */}
+            <section className="at-fam-sec" id="at-fam-declinaison">
+              <h2 className="at-h">Déclinaisons <span className="at-h-n mono">{src.decl.total}</span></h2>
+              <p className="at-note">{ATELIER_FAMILIES[1].note}</p>
+
+              <div className="at-grid one">
+                {declFamilles.map(g => (
+                  <DeclCard key={g.base} group={g} themes={themes} accent={accent} />
+                ))}
+              </div>
+
+              {declUniques.length > 0 && (
+                <>
+                  <h3 className="at-sub">Apparitions uniques <span className="at-h-n mono">{declUniques.length}</span></h3>
+                  <p className="at-note">
+                    Une classe de base portée par une seule combinaison : rien à comparer, mais elle existe,
+                    donc elle est là. C'est ce qui fait de cette page un inventaire et pas une sélection.
+                  </p>
+                  <div className={`at-frames ${themes.length > 1 ? 'multi' : ''}`}>
+                    {themes.map(th => (
+                      <ThemeFrame key={th} theme={th} accent={accent} label={themes.length > 1 ? themeLabel(th) : null}>
+                        <div className="at-decls dense">
+                          {declUniques.map(g => <DeclRow key={g.base} item={g.items[0]} />)}
+                        </div>
+                      </ThemeFrame>
+                    ))}
+                  </div>
+                </>
+              )}
+            </section>
+
             {/* ---- Les familles de composants ---- */}
-            {ATELIER_FAMILIES.filter(f => f.id !== 'jeton' && f.id !== 'classe').map(f => (
+            {ATELIER_FAMILIES.filter(f => AT_COMPONENT_FAMS.indexOf(f.id) !== -1).map(f => (
               <section className="at-fam-sec" key={f.id} id={`at-fam-${f.id}`}>
                 <h2 className="at-h">{f.label} <span className="at-h-n mono">{(byFamily[f.id] || []).length}</span></h2>
                 <p className="at-note">{f.note}</p>
@@ -1116,13 +1456,30 @@ function AtelierView(){
               <p className="at-note">{ATELIER_FAMILIES[ATELIER_FAMILIES.length-1].note}</p>
               <div className="card">
                 <p className="at-desc">
-                  <b>{cover.covered}</b> des <b>{cover.total}</b> classes de la feuille sont rendues quelque part
-                  sur cette page. Les autres sont listées ci-dessous : chacune est soit un état que l'atelier ne
-                  montre pas encore, soit du CSS que plus personne n'utilise.
+                  <b>{cover.couverte}</b> des <b>{cover.total}</b> classes de la feuille sont rendues quelque part
+                  sur cette page. Les autres se divisent en deux, et la différence commande deux gestes opposés :
+                  ce que l'app porte sans que l'atelier le montre est un trou <em>de cette page</em> ; ce que
+                  personne ne porte est du CSS à supprimer.
                   {' '}<button className="fd-link" onClick={cover.measure}>Recompter</button>
                 </p>
+
+                <p className="at-sub-lab">
+                  Portées par l'app, pas montrées ici <span className="mono">{cover.absente.length}</span>
+                </p>
                 <div className="at-classes">
-                  {cover.missing.map(cl => <code className="mono" key={cl}>.{cl}</code>)}
+                  {cover.absente.map(cl => <code className="mono" key={cl}>.{cl}</code>)}
+                </div>
+
+                <p className="at-sub-lab">
+                  Déclarées, portées nulle part <span className="mono">{cover.morte.length}</span>
+                </p>
+                <p className="at-desc at-desc-sm">
+                  Aucun <code className="mono">className=</code> de l'app ne les nomme, aucun JS ne les pose.
+                  Restent les fausses pistes : une classe construite par un calcul que la lecture ne sait pas
+                  suivre, ou posée par une bibliothèque. À vérifier une par une avant de couper.
+                </p>
+                <div className="at-classes">
+                  {cover.morte.map(cl => <code className="mono dead" key={cl}>.{cl}</code>)}
                 </div>
               </div>
             </section>
