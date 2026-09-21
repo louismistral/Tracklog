@@ -3405,7 +3405,14 @@ function PasswordModal({ recovery, onClose }){
    `#sink` reste accepté : c'était son adresse, et un lien posé quelque part ne
    doit pas tomber dans le vide parce qu'on a changé le mot. */
 const ATELIER_HASHES = ['#atelier', '#sink'];
-const isAtelierHash = () => ATELIER_HASHES.indexOf(window.location.hash || '') !== -1;
+/* `#at-…` est accepté aussi : les ancres internes de l'atelier portent ce
+   préfixe, et une page rouverte sur l'une d'elles doit revenir à l'atelier,
+   pas à l'app. Le sommaire, lui, défile sans toucher au hash — deux filets
+   plutôt qu'un, parce qu'une adresse copiée-collée n'a plus de JS pour elle. */
+const isAtelierHash = () => {
+  const h = window.location.hash || '';
+  return ATELIER_HASHES.indexOf(h) !== -1 || h.indexOf('#at-') === 0;
+};
 
 /* @atelier technique — Le routeur : atelier, récupération de mot de passe, connexion, ou app. */
 function Root(){

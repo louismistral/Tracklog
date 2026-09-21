@@ -244,7 +244,12 @@
      tout ce qui ne pose pas explicitement le sien suit le thème, et les
      intitulés qui ont déjà leur propre interlettrage gardent le leur. */
   body{text-shadow:var(--text-glow);letter-spacing:var(--tracking-body);font-size-adjust:var(--font-size-adjust)}
-  body{min-height:100vh;overflow-x:hidden;touch-action:manipulation}
+  /* `clip` et non `hidden` : les deux coupent ce qui déborde à droite, mais
+     `hidden` fait du <body> une boîte de défilement, et une `position:sticky`
+     posée dedans n'a plus rien à quoi se tenir — la barre de l'atelier
+     remontait avec la page au lieu de rester en haut. `clip` coupe sans créer
+     de boîte de défilement, donc le collant fonctionne. */
+  body{min-height:100vh;overflow-x:clip;touch-action:manipulation}
   ::selection{background:var(--primary);color:var(--primary-foreground)}
   ::-webkit-scrollbar{width:10px;height:10px}
   ::-webkit-scrollbar-thumb{background:var(--border-strong)}
@@ -2064,7 +2069,6 @@
     border:1px solid var(--border);border-radius:var(--radius-pill);padding:2px 8px}
   .at-desc{font-size:12px;color:var(--muted-foreground);line-height:1.6;margin:8px 0 0;max-width:78ch}
   .at-src{font-size:10px;color:var(--muted-foreground-2);margin:4px 0 0}
-  .at-nospec{font-size:11px;color:var(--muted-foreground-2);margin:10px 0 0;font-style:italic}
   .at-card.bare{padding:13px 14px 14px}
 
   /* Le seul `select` du projet, et c'est voulu : l'app n'en a aucun, donc le
@@ -2088,24 +2092,28 @@
     padding:3px 8px;border-bottom-left-radius:var(--radius)}
   .at-frame-in{min-width:0}
 
-  /* Les variantes d'un composant, les unes sous les autres dans le même cadre :
-     même thème, même accent, même fond — la seule chose qui change entre deux
-     est ce qu'on veut comparer. */
-  .at-vars{display:flex;flex-direction:column;gap:18px;min-width:0}
-  .at-var{min-width:0}
-  .at-var-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px;
-    font-size:9px;text-transform:uppercase;letter-spacing:0.13em;color:var(--muted-foreground-2)}
-  .at-var-h code{font-size:10px;text-transform:none;letter-spacing:0;color:var(--muted-foreground)}
-  .at-var-b{display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-width:0}
-  .at-var.wide>.at-var-b{display:block}
-  /* La largeur d'une colonne de formulaire — celle des paramètres. Un champ
-     étalé sur toute la page ne se lit pas comme celui qu'on aura sous les yeux. */
-  .at-var.col>.at-var-b{max-width:520px}
+  /* Le bloc d'informations d'une fiche : une ligne par nature d'information,
+     l'intitulé à gauche en colonne fixe pour qu'elles s'alignent d'une fiche à
+     l'autre. Il est DANS la fiche et pas dans une bulle au survol : une
+     information qu'il faut aller chercher avec la souris ne se compare pas et
+     ne se lit pas à deux. Ce qui change au survol, c'est son contenu. */
+  .at-info{margin:10px 0 0;padding:0;display:grid;gap:0}
+  .at-info-l{display:flex;align-items:baseline;gap:12px;min-width:0;padding:4px 0;
+    border-top:1px solid var(--border)}
+  .at-info-l:first-child{border-top:none}
+  .at-info-l dt{flex:0 0 88px;font-size:9px;text-transform:uppercase;letter-spacing:0.13em;
+    color:var(--muted-foreground-2);line-height:1.8}
+  .at-info-l dd{margin:0;min-width:0;flex:1 1 auto;font-size:12px;line-height:1.6;
+    color:var(--muted-foreground);overflow-wrap:anywhere}
+  .at-info-l dd code,.at-info-l dd .mono{font-size:11px;color:var(--foreground)}
+  .at-card.shut{padding-bottom:14px}
+  .at-name.plain{font-size:13px;color:var(--foreground)}
   .at-stack{display:flex;flex-direction:column;gap:14px}
   .at-out{font-size:11px;color:var(--muted-foreground-2);margin-top:10px}
 
   /* Les jetons : le rond, le nom, et la valeur RÉSOLUE dessous — c'est elle qui
      arrive à l'écran, pas ce qui est écrit dans la feuille. */
+  .at-tokgrp>.at-sub-lab:first-child{margin-top:0}
   .at-toks{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;width:100%}
   .at-tok{display:flex;align-items:center;gap:10px;min-width:0}
   .at-tok-sw{width:26px;height:26px;flex-shrink:0;border-radius:var(--radius);
@@ -2133,7 +2141,10 @@
      vraies classes, donc rien ici ne doit l'habiller — ces règles ne posent
      que la grille autour. */
   .at-decls{display:flex;flex-direction:column;gap:2px;min-width:0}
-  .at-decls.dense{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:2px 18px}
+  .at-decls.dense{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:2px 18px}
+  /* En grille dense la place est comptée : la case d'état se resserre plutôt
+     que de pousser le sélecteur hors de sa colonne. */
+  .at-decls.dense .at-decl-box.state{flex:0 0 48px;width:48px;padding-left:7px}
   /* Dans la grille dense, une vignette est bornée en hauteur : `div.app` ou
      `div.empty` sont des conteneurs pleine page, et les laisser prendre leur
      taille réelle ferait des trous de 175 px au milieu d'une liste de ronds de
@@ -2175,7 +2186,21 @@
   .at-decl-sel b{font-weight:400;color:var(--foreground)}
   .at-decl-sel u{text-decoration:none;color:var(--muted-foreground-2);opacity:.65}
   .at-decl-lab{font-size:10px;color:var(--muted-foreground)}
-  .at-decl .at-src{margin:0;margin-left:auto;padding-left:14px;white-space:nowrap}
+  .at-decl-nu{font-style:italic;opacity:.55}
+  /* La ligne survolée, celle dont le bloc du haut parle en ce moment. Un filet
+     à gauche et rien d'autre : un fond aurait repeint ce qu'on est en train de
+     juger, et une vitrine qui habille sa marchandise ment. */
+  .at-decl{border-left:2px solid transparent;padding-left:8px;margin-left:-10px}
+  .at-decl.on{border-left-color:var(--primary)}
+  /* Ce qui ne tient pas dans une case : le nom passe au-dessus et la chose
+     prend sa vraie largeur. `contain` saute avec — une modale ouverte depuis
+     une fiche DOIT couvrir la page, c'est ce qu'on est venu regarder. */
+  .at-decl.wide{flex-direction:column;align-items:stretch;gap:8px;padding:12px 0 12px 8px}
+  .at-decl.wide .at-decl-box{flex:1 1 auto;width:auto;max-height:none;display:block;
+    overflow:visible;contain:none}
+  /* La largeur d'une colonne de formulaire — celle des paramètres. Un champ
+     étalé sur toute la page ne se lit pas comme celui qu'on aura sous les yeux. */
+  .at-decl.wide.col .at-decl-box{max-width:520px}
   /* Le chevron de repli d'une carte de base : dix-sept déclinaisons, c'est
      beaucoup à traverser quand on cherche une autre famille. */
   .at-fold{background:none;border:none;padding:0;cursor:pointer;color:var(--muted-foreground-2);
