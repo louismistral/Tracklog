@@ -2187,6 +2187,8 @@
   .at-decl-sel u{text-decoration:none;color:var(--muted-foreground-2);opacity:.65}
   .at-decl-lab{font-size:10px;color:var(--muted-foreground)}
   .at-decl-nu{font-style:italic;opacity:.55}
+  .at-ghost{display:inline-block;width:46px;height:6px;border-radius:var(--radius-pill);
+    background:var(--muted-foreground-2);opacity:.22}
   /* La ligne survolée, celle dont le bloc du haut parle en ce moment. Un filet
      à gauche et rien d'autre : un fond aurait repeint ce qu'on est en train de
      juger, et une vitrine qui habille sa marchandise ment. */

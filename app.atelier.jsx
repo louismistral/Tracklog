@@ -593,6 +593,11 @@ function Appearance({ item, extra }){
     const Icon = atIconByName(item.icon);
     child = Icon ? React.createElement(Icon, null) : null;
   }
+  /* Un conteneur de mise en page n'a pas de contenu littéral, et sa boîte vide
+     est précisément ce qu'on veut voir — mais vide, elle ne se distingue pas
+     d'un élément cassé. Un trait dedans lui donne de quoi occuper sa place
+     sans rien prétendre de plus. */
+  if (child == null) child = React.createElement('span', { className:'at-ghost' });
   return React.createElement(item.tag, props, child);
 }
 
