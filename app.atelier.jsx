@@ -61,7 +61,7 @@ const ATELIER_FAMILIES = [
   { id:'jeton',     label:'Jetons',
     note:"Les variables CSS. Tout le reste n'en est qu'un assemblage : une couleur écrite en dur ailleurs serait une couleur qui ne suit pas le thème." },
   { id:'declinaison', label:'Déclinaisons',
-    note:"L'autre façon de compter. Un composant est une brique du code, avec un nom ; une DÉCLINAISON est une forme qui existe vraiment quelque part dans l'app — une combinaison de classes, ou l'un de ses états. Rangées par classe de base : `.icon-btn` porte la forme partagée, `.cal-nav`, `.sm` ou `.on` la modifient. Les cartes à une seule déclinaison sont les plus nombreuses et restent là : c'est ce qui fait de cette page un inventaire et pas une sélection. Rien n'est écrit à la main ici — tout est relu dans les `className=` des sources." },
+    note:"L'autre façon de compter. Un composant est une brique du code, avec un nom ; une DÉCLINAISON est une forme qui existe vraiment quelque part dans l'app — une combinaison de classes, ou l'un de ses états. Rangées par classe de base : `.icon-btn` porte la forme partagée, `.cal-nav`, `.sm` ou `.on` la modifient. Deux sections, parce qu'on ne les regarde pas pareil : ce qui se décline se compare — les formes côte à côte, l'intruse se voit —, ce qui n'est écrit qu'une fois n'a rien à comparer et reste là pour l'inventaire, sans noyer le reste sous le nombre. Rien n'est écrit à la main ici — tout est relu dans les `className=` des sources." },
   { id:'atome',     label:'Atomes',
     note:"Ce qui ne se découpe plus : un glyphe, une bascule, une pastille. Aucun n'a de sens seul, aucun n'en perd en changeant de page." },
   { id:'molecule',  label:'Molécules',
@@ -433,18 +433,36 @@ function ThemeFrame({ theme, accent, label, children }){
    · Le nom ne s'écrit plus sous la chose, il vit dans le survol. Écrits en
      ligne, les libellés et les sélecteurs doublaient la hauteur de chaque
      fiche et faisaient lire du texte là où on venait regarder une forme. */
-function Spec({ tip, theme, accent, children }){
+function Spec({ theme, accent, onShow, active, children }){
   return (
-    <div className="at-spec" data-tip={tip || undefined}>
+    <div className={`at-spec${active ? ' on' : ''}`}
+         onMouseEnter={onShow || undefined} onFocus={onShow || undefined}>
       <div className="at-stage" data-theme={theme} style={atAccentVars(accent)}>{children}</div>
     </div>
   );
 }
 
-/* Ce que dit le survol : le libellé, la manette qui produit cette variante
-   (une prop, une classe, un état), puis où elle vit. Du plus lisible au plus
-   technique, séparés par un point. */
-const atTip = (...parts) => parts.filter(Boolean).join(' · ');
+/* ---- Ce que dit une carte ouverte -----------------------------------------
+   Une ligne par information : le type à gauche, la valeur à droite. Ces lignes
+   ont été une bulle flottante au survol, et une bulle s'en va au premier
+   mouvement — il fallait retrouver la vignette pour relire une ligne, et rien
+   ne se comparait d'une vignette à l'autre. Posées dans le corps de la carte,
+   elles restent ; c'est la vignette survolée qui décide ce qu'elles disent.
+   Une carte fermée n'en montre aucune : elle n'a que son nom et son nombre. */
+function AtInfo({ rows }){
+  const list = (rows || []).filter(r => r && r.v);
+  if (!list.length) return null;
+  return (
+    <dl className="at-info">
+      {list.map(r => (
+        <div className={`at-info-row${r.full ? ' full' : ''}`} key={r.k}>
+          <dt>{r.k}</dt>
+          <dd className={r.prose ? '' : 'mono'}>{r.v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
 /* Des vignettes LIÉES : les états d'une même apparition, ou le même spécimen
    sous plusieurs thèmes. Elles partagent un fond, et c'est tout ce qu'il y a à
@@ -461,14 +479,15 @@ function SpecTie({ solo, wide, col, children }){
 /* Les variantes d'un composant. Une variante par groupe ; sous « Tous », le
    groupe tient ses thèmes côte à côte, ce qui est exactement ce qu'on lui
    demande de comparer. */
-function AtSpecs({ variants, themes, accent }){
+function AtSpecs({ variants, themes, accent, onShow, active }){
   return (
     <div className="at-specs">
       {variants.map((v, i) => (
         <SpecTie key={i} solo={themes.length < 2} wide={v.wide} col={v.col}>
           {themes.map(th => (
             <Spec key={th} theme={th} accent={accent}
-                  tip={atTip(v.label, v.code, themes.length > 1 ? themeLabel(th) : null)}>
+                  active={!!active && active.i === i && active.th === th}
+                  onShow={onShow ? () => onShow(i, th) : null}>
               {v.node}
             </Spec>
           ))}
@@ -482,10 +501,12 @@ function AtSpecs({ variants, themes, accent }){
    Fermée : la chose, son nom, et le nombre de variantes qu'elle garde pour
    quand on l'ouvrira. Rien d'autre — une vitrine se regarde avant de se lire,
    et la description au repos faisait de chaque fiche un paragraphe à traverser.
-   Ouverte : le nom, la description tirée de la source, toutes les variantes
-   côte à côte, et où le composant vit. */
+   Ouverte : le nom, les variantes côte à côte, puis tout ce qu'on en sait —
+   la description tirée de la source, la variante survolée, sa manette, et où
+   le composant est déclaré. */
 function SpecCard({ entry, variants, themes, accent }){
   const [open, setOpen] = useState(false);
+  const [hov, setHov] = useState(null);
   const first = variants ? variants[0] : null;
   const head = (
     <button className="at-card-h" onClick={()=>setOpen(o=>!o)} aria-expanded={open}>
@@ -505,19 +526,37 @@ function SpecCard({ entry, variants, themes, accent }){
   );
 
   if (!open) return (
-    <article className="at-card" data-span={first && first.wide ? 2 : 1} id={`at-${entry.name}`}>
+    <article className="at-card" data-span={first && first.wide ? 2 : 1} id={`atelier-c-${entry.name}`}>
       {variants
         ? <AtSpecs variants={[first]} themes={themes} accent={accent} />
         : <div className="at-specs"><div className="at-spec"><div className="at-stage void" /></div></div>}
       {head}
     </article>
   );
+
+  /* La vignette survolée, ou la première tant qu'on n'a survolé personne : le
+     corps d'une carte ouverte ne doit jamais être vide. */
+  const i = hov && variants && hov.i < variants.length ? hov.i : 0;
+  const th = hov && themes.indexOf(hov.th) !== -1 ? hov.th : themes[0];
+  const v = variants ? variants[i] : null;
+  const rows = [
+    { k:'Description', v: entry.desc, full:true, prose:true },
+    { k:'Famille', v: entry.family },
+    { k:'Déclinaisons', v: variants ? String(variants.length) : 'aucune' },
+    v ? { k:'Variante', v: v.label || '—' } : null,
+    v ? { k:'Manette', v: v.code } : null,
+    themes.length > 1 ? { k:'Thème', v: themeLabel(th) } : null,
+    { k:'Déclaré', v:`${entry.file}:${entry.line}` },
+  ];
+
   return (
-    <article className="at-card open" id={`at-${entry.name}`}>
+    <article className="at-card open" id={`atelier-c-${entry.name}`}>
       {head}
-      {entry.desc && <p className="at-desc">{entry.desc}</p>}
-      {variants ? <AtSpecs variants={variants} themes={themes} accent={accent} /> : nospec}
-      <p className="at-src mono">{entry.family} · {entry.file}:{entry.line}</p>
+      {variants
+        ? <AtSpecs variants={variants} themes={themes} accent={accent}
+                   active={{ i, th }} onShow={(vi, vth)=>setHov({ i:vi, th:vth })} />
+        : nospec}
+      <AtInfo rows={rows} />
     </article>
   );
 }
@@ -573,17 +612,14 @@ function Appearance({ item, extra }){
    forme de plus. Mais les états d'une même combinaison restent sur leur fond
    commun : ce sont des variantes d'une chose, pas des choses.
 
-   Le sélecteur — `button.icon-btn.sm` — n'est plus écrit à côté : il est dans
-   le survol, avec le nom humain et le fichier. C'est sous ce nom-là qu'on le
-   retrouvera en inspectant la page. */
+   Le sélecteur — `button.icon-btn.sm` — n'est pas écrit à côté de chaque
+   vignette : il s'affiche dans le corps de la carte, pour celle qu'on survole,
+   avec le nom humain, le nombre d'usages et les endroits où elle est écrite.
+   C'est sous ce nom-là qu'on la retrouvera en inspectant la page. */
 function DeclCard({ group, themes, accent }){
   const [open, setOpen] = useState(false);
+  const [hov, setHov] = useState(null);
   const first = group.items[0];
-  const tipOf = (it, st) => atTip(
-    it.tag + it.classes.map(c => '.' + c).join('') + (st ? '.' + st : ''),
-    it.label,
-    `${it.where[0]}${it.uses > 1 ? ` · ${it.uses} usages` : ''}`
-  );
   const head = (
     <button className="at-card-h" onClick={()=>setOpen(o=>!o)} aria-expanded={open}>
       <span className="at-fold" aria-hidden="true"><ChevronDown /></span>
@@ -593,11 +629,11 @@ function DeclCard({ group, themes, accent }){
   );
 
   if (!open) return (
-    <article className="at-card" id={`at-base-${group.base}`}>
+    <article className="at-card" id={`atelier-d-${group.base}`}>
       <div className="at-specs">
         <SpecTie solo={themes.length < 2}>
           {themes.map(th => (
-            <Spec key={th} theme={th} accent={accent} tip={tipOf(first, null)}>
+            <Spec key={th} theme={th} accent={accent}>
               <Appearance item={first} />
             </Spec>
           ))}
@@ -606,20 +642,39 @@ function DeclCard({ group, themes, accent }){
       {head}
     </article>
   );
+
+  const hi = hov && group.items[hov.i] ? hov.i : 0;
+  const it = group.items[hi];
+  const st = hov && hov.i === hi ? hov.st : null;
+  const th = hov && themes.indexOf(hov.th) !== -1 ? hov.th : themes[0];
+  const rows = [
+    { k:'Classe de base', v:'.' + group.base },
+    { k:'Déclinaisons', v:String(group.count) },
+    { k:'Sélecteur', v: it.tag + it.classes.map(c => '.' + c).join('') + (st ? '.' + st : '') },
+    { k:'État', v: st ? '.' + st : 'aucun' },
+    { k:'Nom', v: it.label },
+    { k:'Occurrences', v: `${it.uses} ${it.uses > 1 ? 'usages' : 'usage'}` },
+    { k:'Apparaît', v: it.where.join('   '), full:true },
+    themes.length > 1 ? { k:'Thème', v: themeLabel(th) } : null,
+  ];
+
   return (
-    <article className="at-card open" id={`at-base-${group.base}`}>
+    <article className="at-card open" id={`atelier-d-${group.base}`}>
       {head}
       <div className="at-specs">
-        {group.items.map(it => (
-          <SpecTie key={it.key} solo={it.optional.length === 0 && themes.length < 2}>
-            {[null].concat(it.optional).map(st => themes.map(th => (
-              <Spec key={(st || '·') + th} theme={th} accent={accent} tip={tipOf(it, st)}>
-                <Appearance item={it} extra={st ? [st] : null} />
+        {group.items.map((item, i) => (
+          <SpecTie key={item.key} solo={item.optional.length === 0 && themes.length < 2}>
+            {[null].concat(item.optional).map(s => themes.map(t => (
+              <Spec key={(s || '·') + t} theme={t} accent={accent}
+                    active={i === hi && (st || null) === (s || null) && t === th}
+                    onShow={()=>setHov({ i, st:s || null, th:t })}>
+                <Appearance item={item} extra={s ? [s] : null} />
               </Spec>
             )))}
           </SpecTie>
         ))}
       </div>
+      <AtInfo rows={rows} />
     </article>
   );
 }
@@ -1180,9 +1235,14 @@ function TokenGrid({ tokens, theme, accent }){
     setVals(next);
   }, [tokens, theme, accent]);
   const isColor = (v) => /^(#|rgb|hsl|oklch|oklab|lab|lch|color-mix|transparent)/i.test(v);
-  return (
-    <div className="at-toks" ref={ref}>
-      {tokens.map(t => {
+  /* Deux listes, pas une. Une couleur se juge d'un coup d'œil, à son rond ;
+     un rayon, une police ou une durée se lisent. Mêlées, les secondes se
+     perdaient entre cent pastilles et on ne trouvait plus `--radius`. */
+  const couleurs = tokens.filter(t => isColor(vals[t] || ''));
+  const autres = tokens.filter(t => !isColor(vals[t] || ''));
+  const grid = (list) => (
+    <div className="at-toks">
+      {list.map(t => {
         const v = vals[t] || '';
         return (
           <div key={t} className="at-tok">
@@ -1196,6 +1256,14 @@ function TokenGrid({ tokens, theme, accent }){
           </div>
         );
       })}
+    </div>
+  );
+  return (
+    <div className="at-tok-split" ref={ref}>
+      <p className="at-sub-lab">Couleurs <span className="mono">{couleurs.length}</span></p>
+      {grid(couleurs)}
+      <p className="at-sub-lab">Formes, polices, durées <span className="mono">{autres.length}</span></p>
+      {grid(autres)}
     </div>
   );
 }
@@ -1317,6 +1385,13 @@ function AtelierView(){
   const matchDecl = (g) => !q || (g.base + ' ' + g.items.map(i => i.key + ' ' + (i.label || '')).join(' '))
                                    .toLowerCase().includes(q.toLowerCase());
   const declBases = src.decl.bases.filter(matchDecl);
+  /* Deux seaux, et ils ne se regardent pas pareil. Une classe de base qui se
+     décline est une FORME PARTAGÉE : ses déclinaisons côte à côte, c'est là
+     qu'une intruse se voit. Une classe qui n'existe qu'en un exemplaire n'a
+     rien à comparer — elle est là pour l'inventaire, et mêlée aux autres elle
+     les noyait sous le nombre. */
+  const declMulti = declBases.filter(g => g.count > 1);
+  const declSolo = declBases.filter(g => g.count === 1);
 
   const themes = theme === 'all' ? THEMES.map(t => t.id) : [theme];
   const cover = useClassCoverage(rootRef, src.classes, src.chrome, src.worn, [src.ready, q, theme]);
@@ -1391,7 +1466,7 @@ function AtelierView(){
             </div>
 
             {orphans.length > 0 && (
-              <div className="card at-alert" id="at-orphelins">
+              <div className="card at-alert" id="atelier-orphelins">
                 <p className="at-alert-h">{orphans.length} composant{orphans.length>1?'s':''} sans annotation</p>
                 <p className="at-desc">
                   Un composant se présente par une ligne <code className="mono">@atelier &lt;famille&gt; — &lt;description&gt;</code>
@@ -1411,7 +1486,7 @@ function AtelierView(){
 
             <nav className="at-nav">
               {ATELIER_FAMILIES.map(f => (
-                <a key={f.id} className="pill" href={`#at-fam-${f.id}`}>
+                <a key={f.id} className="pill" href={`#atelier-fam-${f.id}`}>
                   {f.label}
                   {counts[f.id] != null && <span className="at-nav-n mono">{counts[f.id]}</span>}
                 </a>
@@ -1419,7 +1494,7 @@ function AtelierView(){
             </nav>
 
             {/* ---- Jetons ---- */}
-            <section className="at-fam-sec" id="at-fam-jeton">
+            <section className="at-fam-sec" id="atelier-fam-jeton">
               <h2 className="at-h">Jetons</h2>
               <p className="at-note">{ATELIER_FAMILIES[0].note}</p>
               <article className="at-card open">
@@ -1439,11 +1514,22 @@ function AtelierView(){
             </section>
 
             {/* ---- Déclinaisons (l'axe des apparitions) ---- */}
-            <section className="at-fam-sec" id="at-fam-declinaison">
+            <section className="at-fam-sec" id="atelier-fam-declinaison">
               <h2 className="at-h">Déclinaisons <span className="at-h-n mono">{src.decl.variants}</span></h2>
               <p className="at-note">{ATELIER_FAMILIES[1].note}</p>
+              <p className="at-sub-lab">
+                Formes partagées, plusieurs déclinaisons <span className="mono">{declMulti.length}</span>
+              </p>
               <div className="at-grid">
-                {declBases.map(g => (
+                {declMulti.map(g => (
+                  <DeclCard key={g.base} group={g} themes={themes} accent={accent} />
+                ))}
+              </div>
+              <p className="at-sub-lab">
+                Écrites une seule fois <span className="mono">{declSolo.length}</span>
+              </p>
+              <div className="at-grid">
+                {declSolo.map(g => (
                   <DeclCard key={g.base} group={g} themes={themes} accent={accent} />
                 ))}
               </div>
@@ -1451,7 +1537,7 @@ function AtelierView(){
 
             {/* ---- Les familles de composants ---- */}
             {ATELIER_FAMILIES.filter(f => AT_COMPONENT_FAMS.indexOf(f.id) !== -1).map(f => (
-              <section className="at-fam-sec" key={f.id} id={`at-fam-${f.id}`}>
+              <section className="at-fam-sec" key={f.id} id={`atelier-fam-${f.id}`}>
                 <h2 className="at-h">{f.label} <span className="at-h-n mono">{(byFamily[f.id] || []).length}</span></h2>
                 <p className="at-note">{f.note}</p>
                 {(byFamily[f.id] || []).length === 0 ? (
@@ -1468,7 +1554,7 @@ function AtelierView(){
             ))}
 
             {/* ---- Classes ---- */}
-            <section className="at-fam-sec" id="at-fam-classe">
+            <section className="at-fam-sec" id="atelier-fam-classe">
               <h2 className="at-h">Classes <span className="at-h-n mono">{cover.total}</span></h2>
               <p className="at-note">{ATELIER_FAMILIES[ATELIER_FAMILIES.length-1].note}</p>
               <div className="card">

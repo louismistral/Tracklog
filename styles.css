@@ -244,7 +244,12 @@
      tout ce qui ne pose pas explicitement le sien suit le thème, et les
      intitulés qui ont déjà leur propre interlettrage gardent le leur. */
   body{text-shadow:var(--text-glow);letter-spacing:var(--tracking-body);font-size-adjust:var(--font-size-adjust)}
-  body{min-height:100vh;overflow-x:hidden;touch-action:manipulation}
+  /* `clip` et non `hidden` : les deux coupent ce qui dépasse à droite, mais
+     `hidden` fait de <body> une BOÎTE DE DÉFILEMENT — et un `position:sticky`
+     posé dedans se cale alors sur elle, qui ne défile jamais, donc ne colle
+     nulle part. C'est ce qui tenait la barre de l'atelier en haut de page au
+     lieu de la faire suivre. `clip` coupe sans créer la boîte. */
+  body{min-height:100vh;overflow-x:clip;touch-action:manipulation}
   ::selection{background:var(--primary);color:var(--primary-foreground)}
   ::-webkit-scrollbar{width:10px;height:10px}
   ::-webkit-scrollbar-thumb{background:var(--border-strong)}
@@ -2116,6 +2121,17 @@
      sa largeur à sa case, et celle qui ne tient pas passe à la ligne. */
   .at-specs{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;min-width:0}
   .at-card:not(.open) .at-specs{display:block}
+  /* Un même module pour les deux inventaires. Les variantes d'un composant
+     viennent d'une prop, celles d'une déclinaison d'une classe — mais on les
+     regarde du même œil, et deux rangées qui ne tombent pas au même endroit
+     ne se comparent pas. Une taille plancher commune les réaligne, sans
+     empêcher une chose plus grande de prendre la place qu'il lui faut. */
+  .at-card.open .at-specs,
+  .at-card.open .at-tie{align-items:stretch}
+  .at-card.open .at-stage{min-width:148px;min-height:104px}
+  /* Sauf ce qui prend la ligne entière : une carte, une rangée de réglage
+     donnent déjà leur hauteur, et le plancher n'y ajouterait que du vide. */
+  .at-card.open .at-tie.wide .at-stage{min-height:0}
 
   /* Des vignettes LIÉES : les états d'une même apparition, ou le même spécimen
      sous plusieurs thèmes. Le fond commun est tout ce qu'il y a à en dire —
@@ -2159,26 +2175,42 @@
     background:var(--muted-foreground-2);opacity:.22}
 
   /* ---- Le survol ----------------------------------------------------------
-     Un seul hover pour toute la page, et il porte tout ce qui s'écrivait avant
-     sous les vignettes : le libellé, la manette qui produit cette variante
-     (une prop, une classe, un état), et où elle vit. En ligne, ces trois
-     lignes doublaient la hauteur de chaque fiche — on venait regarder une
-     forme, on lisait du texte.
-     Borné à la largeur de sa vignette, il se replie sur deux lignes plutôt que
-     de pousser la page de côté. */
-  .at-spec[data-tip]::after{content:attr(data-tip);position:absolute;z-index:6;
-    left:0;bottom:calc(100% + 5px);width:max-content;max-width:100%;
-    font-family:var(--font-mono);font-size:10px;line-height:1.45;
-    color:var(--foreground);background:var(--card);border:1px solid var(--border-strong);
-    border-radius:var(--radius);padding:4px 7px;box-shadow:var(--shadow-card);
-    opacity:0;pointer-events:none;transition:opacity .15s var(--ease)}
-  .at-spec[data-tip]:hover::after{opacity:1}
+     Le survol ne porte plus de texte : il DÉSIGNE. La vignette sous le curseur
+     se souligne, et c'est le corps de la carte qui dit ce qu'elle est — une
+     bulle flottante s'en allait au premier mouvement, et deux vignettes ne se
+     comparaient jamais puisqu'on ne pouvait en lire qu'une à la fois. */
+  .at-card.open .at-spec{cursor:default}
+  .at-card.open .at-spec.on .at-stage{border-color:var(--primary)}
+  .at-card.open .at-spec:hover .at-stage{border-color:var(--primary)}
+
+  /* ---- Ce que dit une carte ouverte ---------------------------------------
+     Une ligne par type d'information, l'intitulé à gauche sur une colonne
+     fixe : ce sont des lignes qu'on compare d'une carte à l'autre, et deux
+     intitulés qui ne commencent pas au même endroit ne se comparent pas.
+     Une carte fermée n'en montre aucune. */
+  .at-info{display:flex;flex-direction:column;gap:5px;margin:0;padding-top:11px;
+    border-top:1px solid var(--border)}
+  .at-info-row{display:flex;gap:10px;align-items:baseline;min-width:0}
+  /* Une ligne pleine passe en colonne — et `flex-basis` de l'intitulé y
+     deviendrait une HAUTEUR de 104 px, soit un trou entre le titre et sa
+     valeur. En colonne, l'intitulé ne vaut que ce qu'il mesure. */
+  .at-info-row.full{flex-direction:column;gap:3px;align-items:stretch}
+  .at-info-row.full dt{flex:0 0 auto}
+  .at-info dt{flex:0 0 104px;font-size:9px;text-transform:uppercase;letter-spacing:0.11em;
+    color:var(--muted-foreground-2);white-space:nowrap}
+  .at-info dd{margin:0;min-width:0;font-size:11px;line-height:1.6;color:var(--foreground);
+    overflow-wrap:anywhere}
+  .at-info dd:not(.mono){color:var(--muted-foreground);font-size:12px;max-width:78ch}
+  .at-info dd.mono{font-family:var(--font-mono);white-space:pre-wrap}
 
   .at-stack{display:flex;flex-direction:column;gap:14px}
   .at-out{font-size:11px;color:var(--muted-foreground-2);margin-top:10px}
 
   /* Les jetons : le rond, le nom, et la valeur RÉSOLUE dessous — c'est elle qui
      arrive à l'écran, pas ce qui est écrit dans la feuille. */
+  .at-tok-split{display:flex;flex-direction:column;gap:6px;width:100%}
+  .at-tok-split .at-sub-lab{margin:16px 0 4px}
+  .at-tok-split .at-sub-lab:first-child{margin-top:0}
   .at-toks{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;width:100%}
   .at-tok{display:flex;align-items:center;gap:10px;min-width:0}
   .at-tok-sw{width:26px;height:26px;flex-shrink:0;border-radius:var(--radius);
@@ -2205,6 +2237,9 @@
   .at-sub-lab{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;
     color:var(--muted-foreground-2);margin:20px 0 0;display:flex;align-items:baseline;gap:8px}
   .at-sub-lab span{color:var(--foreground)}
+  /* Un intertitre posé au-dessus d'une grille en est le toit : sans marge
+     basse il flottait entre deux grilles sans dire laquelle il nommait. */
+  .at-fam-sec>.at-sub-lab{margin:28px 0 12px}
   .at-desc-sm{font-size:11px;margin-top:5px}
 
   .at-classes{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}

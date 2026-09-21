@@ -3403,9 +3403,17 @@ function PasswordModal({ recovery, onClose }){
    elle n'a besoin ni de compte ni de données. Le test est exact — le lien de
    réinitialisation de mot de passe arrive lui aussi par le hash.
    `#sink` reste accepté : c'était son adresse, et un lien posé quelque part ne
-   doit pas tomber dans le vide parce qu'on a changé le mot. */
+   doit pas tomber dans le vide parce qu'on a changé le mot.
+
+   Les ancres internes de l'atelier (`#atelier-fam-jeton`) comptent pour
+   l'atelier, et c'est toute la raison de leur préfixe : un sommaire qui change
+   le hash sortait de la page qu'il servait à parcourir, et cliquer « Jetons »
+   renvoyait à l'app. */
 const ATELIER_HASHES = ['#atelier', '#sink'];
-const isAtelierHash = () => ATELIER_HASHES.indexOf(window.location.hash || '') !== -1;
+const isAtelierHash = () => {
+  const h = window.location.hash || '';
+  return ATELIER_HASHES.some(a => h === a || h.indexOf(a + '-') === 0);
+};
 
 /* @atelier technique — Le routeur : atelier, récupération de mot de passe, connexion, ou app. */
 function Root(){
