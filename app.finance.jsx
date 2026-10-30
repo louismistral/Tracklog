@@ -210,29 +210,39 @@ function FinTable({ lines }){
   );
 }
 
-/* @atelier organisme — Le tableau des commandes : date, produit, variante, prix TTC, frais Etsy, production + envoi, net. Défile de côté sur téléphone plutôt que de serrer sept colonnes. */
+/* @atelier organisme — Le tableau des commandes : date, produit, variante et net ; une ligne se déplie sur tout son détail. */
 function FinOrdersTable({ orders, showBiz }){
+  const [open, setOpen] = useState(null);
   const n = (v) => Number(v) || 0;
   return (
     <div className="fin-scroll">
       <table className="fin-otable">
-        <thead><tr>
-          <th>Date</th><th className="fin-txt">Produit</th><th className="fin-txt">Variante</th>
-          <th>Prix TTC</th><th>Frais Etsy</th><th>Prod. + envoi</th><th>Net</th>
-        </tr></thead>
+        <thead><tr><th>Date</th><th className="fin-txt">Produit</th><th className="fin-txt">Variante</th><th>Net</th></tr></thead>
         <tbody>
           {orders.map(o => {
-            const d = String(o.day);
+            const k = o.business + o.commande, isOpen = open === k;
+            const ttc = n(o.prix_ht) + n(o.taxe_acheteur);
             return (
-              <tr key={o.business + o.commande} className={o.statut ? 'fin-cancel' : ''} title={o.statut || undefined}>
-                <td>{d.slice(8, 10)}/{d.slice(5, 7)}/{d.slice(2, 4)}</td>
-                <td className="fin-txt"><span className="fin-clamp">{o.produit || 'Commande'}</span>{showBiz ? <span className="fin-biz">{o.business === 'arro' ? 'Arro' : 'Redline'}</span> : null}</td>
-                <td className="fin-txt fin-muted">{o.variante || '—'}</td>
-                <td>{finAmount(n(o.prix_ht) + n(o.taxe_acheteur))}</td>
-                <td>{finAmount(n(o.frais_etsy))}</td>
-                <td>{finAmount(n(o.couts))}</td>
-                <td className={`fin-strong ${finSign(n(o.net))}`}>{finAmount(n(o.net))}</td>
-              </tr>
+              <React.Fragment key={k}>
+                <tr className={`fin-orow ${o.statut ? 'fin-cancel' : ''} ${isOpen ? 'open' : ''}`} onClick={()=>setOpen(isOpen ? null : k)}>
+                  <td>{String(o.day)}</td>
+                  <td className="fin-txt"><span className="fin-clamp">{o.produit || 'Commande'}</span>{showBiz ? <span className="fin-biz">{o.business === 'arro' ? 'Arro' : 'Redline'}</span> : null}</td>
+                  <td className="fin-txt fin-muted">{o.variante || '—'}</td>
+                  <td className={`fin-strong ${finSign(n(o.net))}`}>{finAmount(n(o.net))}</td>
+                </tr>
+                {isOpen && (
+                  <tr className="fin-odetail"><td colSpan={4}>
+                    <div className="fin-kv"><span>Prix TTC payé</span><b>{finMoney(ttc)}</b></div>
+                    <div className="fin-kv"><span>Taxe acheteur (reversée)</span><b>{finMoney(-n(o.taxe_acheteur))}</b></div>
+                    <div className="fin-kv"><span>Prix HT</span><b>{finMoney(n(o.prix_ht))}</b></div>
+                    <div className="fin-kv"><span>Frais Etsy (TVA comprise)</span><b>{finMoney(n(o.frais_etsy))}</b></div>
+                    <div className="fin-kv"><span>Production + envoi</span><b>{finMoney(n(o.couts))}</b></div>
+                    <div className="fin-kv fin-strong"><span>Net</span><b className={finSign(n(o.net))}>{finMoney(n(o.net))}</b></div>
+                    {o.statut && <span className="tc-empty-note">{o.statut}</span>}
+                    {/^[0-9]+$/.test(o.commande) && <span className="tc-empty-note">Commande n° {o.commande}</span>}
+                  </td></tr>
+                )}
+              </React.Fragment>
             );
           })}
         </tbody>

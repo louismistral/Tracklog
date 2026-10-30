@@ -1731,6 +1731,7 @@ function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, o
   const running = chronos.some(c => c.startedAt);
   const [now, setNow] = useState(() => Date.now());
   const [pipWin, setPipWin] = useState(null);
+  const [focus, setFocus] = useState(false);
 
   // Only tick while something is actually running — a paused board costs nothing.
   useEffect(() => {
@@ -1813,6 +1814,7 @@ function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, o
                 {pipWin && <button className="chrono-btn ghost" onClick={()=>pipWin.close()}>Refermer</button>}
               </>
             )}
+            <button className="chrono-btn" onClick={()=>setFocus(true)} title="Le chrono seul, en gros, sur tout l'écran">⛶ Grand écran</button>
             <button
               className="chrono-btn ghost"
               onClick={()=>{ if (confirm('Remettre tous les chronos à zéro ?')) onResetAll(); }}
@@ -1831,6 +1833,8 @@ function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, o
         </>
       )}
 
+      {focus && <ChronoFocus chronos={sortedChronos} now={now} onClose={()=>setFocus(false)} />}
+
       {/* Rendered into the floating window, but still part of this React tree. */}
       {pipWin && ReactDOM.createPortal(cards, pipWin.document.body)}
 
@@ -1848,6 +1852,36 @@ function ChronoView({ chronos, trackers, trackerById, onAdd, onStart, onPause, o
       )}
     </div>
   );
+}
+
+/* @atelier page — Le chrono seul, en très gros chiffres, sur tout l'écran : un écran qu'on laisse à côté pendant qu'on travaille. Montre le chrono qui tourne (le premier s'il y en a plusieurs, sinon le premier tout court). Échap ou double-clic pour sortir. */
+function ChronoFocus({ chronos, now, onClose }){
+  const ref = useRef(null);
+  const c = chronos.find(x => x.startedAt) || chronos[0];
+  const ms = c ? chronoElapsed(c, now) : 0;
+  const t = Math.floor(ms / 1000), pad = (v) => String(v).padStart(2, '0');
+  useEffect(() => {
+    const el = ref.current;
+    // Vrai plein écran quand le navigateur l'accorde ; sinon le cadre couvre quand même la fenêtre.
+    el?.requestFullscreen?.().catch(() => {});
+    // Garder l'écran allumé tant qu'il est affiché.
+    let lock = null;
+    navigator.wakeLock?.request('screen').then(l => { lock = l; }).catch(() => {});
+    const onFs = () => { if (!document.fullscreenElement) onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('fullscreenchange', onFs);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFs);
+      document.removeEventListener('keydown', onKey);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      lock?.release?.().catch(() => {});
+    };
+  }, []);
+  return ReactDOM.createPortal(
+    <div ref={ref} className="chrono-focus" onDoubleClick={onClose} role="timer" aria-label={c?.label || 'Chrono'}>
+      <span className="chrono-focus-time">{pad(Math.floor(t / 3600))}:{pad(Math.floor(t / 60) % 60)}:{pad(t % 60)}</span>
+    </div>, document.body);
 }
 
 /* @atelier organisme — Un chronomètre : son temps, ses boutons, le tracker où il se verse. */
