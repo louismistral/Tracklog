@@ -34,18 +34,25 @@ const MAX_PER_ROW = 3;
 /* @atelier technique — La largeur réelle d’un graphe, mesurée plutôt que devinée. */
 function useDrawWidth(ref, fallback = 800){
   const [w, setW] = useState(fallback);
+  const obs = useRef({ el: null, ro: null });
+  // Sans dépendances : le dessin peut n'apparaître qu'à un rendu suivant (une
+  // carte sans données n'en a pas), et il faut alors le mesurer — sinon il
+  // reste à 800 px, rogné dans sa carte.
   useLayoutEffect(() => {
-    const el = ref.current;
+    const el = ref.current, o = obs.current;
+    if (el === o.el) return;
+    if (o.ro) o.ro.disconnect();
+    o.el = el; o.ro = null;
     if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(entries => {
+    o.ro = new ResizeObserver(entries => {
       const px = Math.round(entries[0].contentRect.width);
       // Un arrondi au pixel : sans lui, une largeur fractionnaire relancerait
       // un rendu à chaque image pendant une animation de mise en page.
       if (px > 0) setW(px);
     });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [ref]);
+    o.ro.observe(el);
+  });
+  useEffect(() => () => { if (obs.current.ro) obs.current.ro.disconnect(); }, []);
   return w;
 }
 
