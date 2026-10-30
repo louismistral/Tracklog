@@ -545,7 +545,7 @@ function ChartCard({ tracker, entries, rangeDays, endTs = Date.now(), perRow = 1
               ))}
               {/* Points — only where something was actually logged, so a dense range (e.g. 365j)
                   doesn't turn into a solid row of dots along an otherwise-continuous curve. */}
-              {points.map((p,i)=> p.value != null && p.hasEntry && (
+              {tracker.showDots !== false && points.map((p,i)=> p.value != null && p.hasEntry && (
                 <circle key={i} cx={xAt(i)} cy={yAt(p.value)} r="2" fill={tracker.color}>
                   <title>{shortDate(p.ts)} · {fmtValue(tracker, +p.value.toFixed(1))}</title>
                 </circle>

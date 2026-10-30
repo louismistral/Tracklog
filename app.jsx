@@ -2640,6 +2640,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
   const [curveStyle, setCurveStyle] = useState(isCurveStyle(tracker?.curveStyle) ? tracker.curveStyle : 'line');
   const [chartGrain, setChartGrain] = useState(
     GRAINS.some(g => g.id === tracker?.chartGrain) ? tracker.chartGrain : 'day');
+  const [showDots, setShowDots] = useState(tracker?.showDots !== false);
   const [startDate, setStartDate] = useState(tracker?.startDate || dayKey(tracker?.createdAt || Date.now()));
   const [endDate, setEndDate] = useState(tracker?.endDate || '');
   // Le calendrier de la période d'activité — celui de l'Historique (`MonthCalendar`),
@@ -2671,7 +2672,7 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
   const submit = () => {
     if (!canSave) return;
     if (display){
-      onSave({ name: name.trim(), color, curveStyle, chartGrain, cumulative });
+      onSave({ name: name.trim(), color, curveStyle, chartGrain, cumulative, showDots });
       return;
     }
     const t = { name: name.trim(), color };
@@ -2986,6 +2987,21 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
             </InfoBubble>
           </div>
         </div>
+
+        {/* Réglage d'affichage seul pour l'instant : sur un tracker de la base il
+            demanderait une colonne `trackers.show_dots` (migration) avant d'être proposé. */}
+        {display && (
+          <div className="field spread">
+            <label>Points</label>
+            <div className="ctl-with-info">
+              <BoolPill value={showDots} onChange={setShowDots} onLabel="Avec" offLabel="Sans" />
+              <InfoBubble title="Points">
+                Un point marque chaque jour où la valeur a changé. <span className="k">Sans</span> : la ligne seule,
+                plus lisible quand les changements sont nombreux. Le survol lit toujours chaque jour.
+              </InfoBubble>
+            </div>
+          </div>
+        )}
 
         {!display && !isMasterKind && (type === 'number' || type === 'scale' || type === 'duration') && (
           <div className="field" style={{flexDirection:'column',alignItems:'stretch',gap:8,paddingTop:14}}>

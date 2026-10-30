@@ -107,6 +107,7 @@ Une ligne = une définition. Le *pourquoi* d'une fonctionnalité est dans
 | **Granularité** (`chartGrain`) | `day` (défaut) · `week` (lundi→dimanche) · `month` — ce qu'un point couvre. Les jours d'une période sont ramenés à leur moyenne (un cumulatif prend la valeur de fin). |
 | **Forme de courbe** (`curveStyle`) | `line` (défaut) · `smooth` (Catmull-Rom passant par chaque point) · `bars`. Purement visuel. |
 | **Graphe cumulatif** (`cumulative`) | Nombre/durée : le graphe trace la somme depuis le début — une courbe qui ne peut que monter. |
+| **Points** (`showDots`) | Les points d'un graphe aux jours où la valeur a changé ; `false` = la ligne seule. Réglage des graphes de Food et de Finance seulement (`TrackerModal scope="display"`) : sur un tracker de la base il demanderait la colonne `trackers.show_dots`. |
 | **Master Strip** | La carte d'un master : une jauge 0–100 de sa valeur du jour, en tête du Jour et de l'Historique. |
 | **Appui maintenu** | Au doigt, réordonner (~350 ms) et lire un graphe (~260 ms) ne s'arment qu'après un appui immobile ; partir avant fait simplement défiler. À la souris, tout est immédiat. |
 
