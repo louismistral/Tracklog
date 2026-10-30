@@ -8,23 +8,26 @@
    remplace à chaque synchro les tables `finance_lines` (une
    ligne d'argent, en HT et TVA) et `finance_orders` (le net de
    chaque commande). La page n'écrit que ce qu'aucun service ne
-   connaît : les frais externes (`finance_extra`) et, pour un
-   business qui produit lui-même, le coût réel d'une commande
-   (`finance_order_costs`).
+   connaît : les frais externes (`finance_extra`). Arro, arrêté,
+   n'a pas de boutique reliée : ses lignes ont été importées une
+   fois (tableau des commandes Notion + relevés mensuels Etsy).
 
    Pas de statut TVA : la TVA payée sur les frais est un coût,
    le résultat se lit dans la colonne Total. La taxe de
    l'acheteur entre avec la vente et repart aussitôt (net 0).
    ============================================================ */
 
+// `archived` : business arrêté, ses chiffres ont été importés une fois (commandes du
+// tableau Notion, frais hors commandes des relevés Etsy) et ne se relisent plus.
 const FIN_BUSINESSES = [
   { id:'redline', label:'Redline' },
-  { id:'arro',    label:'Arro' },
+  { id:'arro',    label:'Arro', archived:true },
 ];
-const FIN_SECTIONS = ['Etsy', 'Gelato', 'Production', 'Frais externes', 'Frais uniques'];
+const FIN_SECTIONS = ['Etsy', 'Site', 'Gelato', 'Production', 'Frais externes', 'Frais uniques'];
 const FIN_LINE_ORDER = ['Ventes', 'Taxe acheteur reversée', 'Frais de transaction', 'Frais de paiement',
   'Frais réglementaires', 'Mise en ligne', 'Renouvellement après vente', 'Pub Etsy Ads', 'Pub hors Etsy',
-  'Crédit trafic vendeur', 'Production + livraison', 'Impression + emballage', 'Timbre'];
+  'Crédit trafic vendeur', 'Frais Etsy', 'Frais Webflow', 'Pub et frais hors commandes',
+  'Production + livraison', 'Impression + emballage', 'Timbre', 'Dédouanement'];
 const finEur = new Intl.NumberFormat('fr-FR', { style:'currency', currency:'EUR' });
 const finMoney = (v) => finEur.format(v || 0);
 // Dans un tableau, le « € » est dans l'en-tête : sans lui à chaque case, quatre colonnes tiennent sur un téléphone.
@@ -36,7 +39,7 @@ const finSign = (v) => v < 0 ? 'fin-neg' : '';
 
 /* @atelier technique — Les données Finance du compte : lignes, commandes, frais externes, état des boutiques, et la synchro. */
 function useFinanceData(){
-  const [data, setData] = useState({ lines:[], orders:[], extra:[], costs:[] });
+  const [data, setData] = useState({ lines:[], orders:[], extra:[] });
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
@@ -44,13 +47,12 @@ function useFinanceData(){
   // Une table manquante ne bloque jamais l'app : on lit en tolérant l'erreur.
   const load = useCallback(async () => {
     const read = async (q) => { const { data:d, error } = await q; return error ? [] : (d || []); };
-    const [lines, orders, extra, costs] = await Promise.all([
+    const [lines, orders, extra] = await Promise.all([
       read(supabase.from('finance_lines').select('business,day,section,ligne,commande,ht,tva').limit(20000)),
       read(supabase.from('finance_orders').select('*').limit(5000)),
       read(supabase.from('finance_extra').select('*').order('day', { ascending:false })),
-      read(supabase.from('finance_order_costs').select('*')),
     ]);
-    setData({ lines, orders, extra, costs });
+    setData({ lines, orders, extra });
   }, []);
 
   const refreshStatus = useCallback(async () => {
@@ -158,8 +160,7 @@ function FinanceView(){
             <FinOrder key={o.business + o.commande} o={o} showBiz={business==='all'}
               open={openOrder === o.business + o.commande}
               onToggle={()=>setOpenOrder(k => k === o.business + o.commande ? null : o.business + o.commande)}
-              cost={fin.costs.find(c => c.business === o.business && c.commande === o.commande)}
-              onSaved={()=>fin.sync(o.business)} />
+              />
           ))}
         </div>
       </div>
@@ -216,21 +217,8 @@ function FinTable({ lines }){
   );
 }
 
-/* @atelier molecule — Une commande : produit et net ; dépliée, le détail et, pour un business qui produit lui-même, ses coûts corrigeables. */
-function FinOrder({ o, showBiz, open, onToggle, cost, onSaved }){
-  const editable = o.business === 'arro' && o.statut !== 'Annulée';
-  const [prod, setProd] = useState('');
-  const [stamp, setStamp] = useState('');
-  const [saving, setSaving] = useState(false);
-  useEffect(() => { setProd(cost?.production ?? ''); setStamp(cost?.postage ?? ''); }, [cost, open]);
-  const save = async () => {
-    setSaving(true);
-    const row = { business:o.business, commande:o.commande,
-                  production: prod === '' ? null : Number(prod), postage: stamp === '' ? null : Number(stamp) };
-    const { error } = await supabase.from('finance_order_costs').upsert(row);
-    if (error) alert(error.message); else await onSaved();
-    setSaving(false);
-  };
+/* @atelier molecule — Une commande : produit et net ; dépliée, son détail. */
+function FinOrder({ o, showBiz, open, onToggle }){
   const d = String(o.day);
   return (
     <div className={`fin-order ${o.statut ? 'fin-cancel' : ''}`}>
@@ -250,17 +238,7 @@ function FinOrder({ o, showBiz, open, onToggle, cost, onSaved }){
           <div className="fin-kv"><span>Frais Etsy</span><b>{finMoney(Number(o.frais_etsy))}</b></div>
           <div className="fin-kv"><span>{o.business === 'redline' ? 'Gelato' : 'Production + timbre'}</span><b>{finMoney(Number(o.couts))}</b></div>
           <div className="fin-kv fin-strong"><span>Net</span><b className={finSign(Number(o.net))}>{finMoney(Number(o.net))}</b></div>
-          <span className="tc-empty-note">Commande n° {o.commande}</span>
-          {editable && (
-            <div className="fin-edit">
-              <NumField label="Production" unit="€" value={prod} onChange={setProd} placeholder="auto" />
-              <NumField label="Timbre" unit="€" value={stamp} onChange={setStamp} placeholder="auto" />
-              <span className="tc-empty-note">Vide = valeur par défaut selon la taille (10×10 ou 18×18).</span>
-              <div className="period-row">
-                <button type="button" className="period-arch go" disabled={saving} onClick={save}>{saving ? 'Calcul…' : 'Enregistrer'}</button>
-              </div>
-            </div>
-          )}
+          {/^\d+$/.test(o.commande) && <span className="tc-empty-note">Commande n° {o.commande}</span>}
         </div>
       )}
     </div>
@@ -360,6 +338,12 @@ function FinShopsCard({ fin }){
       </div>
       {FIN_BUSINESSES.map(b => {
         const s = fin.status?.[b.id];
+        if (b.archived) return (
+          <div key={b.id} className="field spread">
+            <label>{b.label}</label>
+            <span className="tc-empty-note">Arrêté — chiffres importés (Notion + relevés Etsy), plus de lecture.</span>
+          </div>
+        );
         return (
           <div key={b.id} className="field spread">
             <label>{s?.label || b.label}</label>

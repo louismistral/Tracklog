@@ -143,12 +143,11 @@ Une ligne = une définition. Le *pourquoi* d'une fonctionnalité est dans
 
 | Terme | Définition |
 |---|---|
-| **Business** | Une activité dont on suit l'argent, une boutique Etsy chacune : `redline` (Redline Editions, production Gelato) · `arro` (Arro Designs, impression 3D maison). Registre `BUSINESSES` côté fonction, `FIN_BUSINESSES` côté page. |
+| **Business** | Une activité dont on suit l'argent : `redline` (Redline Editions, boutique Etsy + production Gelato, relue par la fonction) · `arro` (Arro Designs, impression 3D maison, **arrêté** : `archived` dans `FIN_BUSINESSES`, chiffres importés une fois depuis le tableau Notion et les relevés Etsy, jamais relus). |
 | **Ligne d'argent** (`finance_lines`) | Un mouvement lu chez Etsy ou Gelato, en **HT** et **TVA** séparés, rangé par section (Etsy, Gelato, Production, Frais uniques) et rattaché à une commande quand il en dépend. Écrite par la fonction seule ; la page ne fait que lire. |
 | **Taxe acheteur reversée** | La taxe payée par le client : elle entre avec la vente (colonne TVA) et repart aussitôt sur sa propre ligne — net zéro, comme la page « Bénéfices » d'Etsy. |
 | **Hors commandes** | Ce qui ne dépend d'aucune vente : pub, mises en ligne, renouvellements, frais uniques et externes. Résultat = net des commandes + hors commandes. |
 | **Frais externes** (`finance_extra`) | Un frais qu'aucun service ne connaît (matériel, domaine, abonnement), saisi dans la page. **Unique** (`is_unique`) ou courant ; les uniques se masquent d'un bouton. |
-| **Coût corrigé** (`finance_order_costs`) | Pour un business qui produit lui-même : production et timbre réels d'une commande, à la place des valeurs par défaut (taille 10×10 / 18×18). |
 | **Pas de statut TVA** | La TVA payée sur les frais est un coût : le résultat se lit dans la colonne **Total**, pas HT. |
 
 ### Compte et apparence
