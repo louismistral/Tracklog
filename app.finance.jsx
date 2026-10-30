@@ -66,18 +66,63 @@ function useFinanceCharts(){
   return { trackerFor, saveChart };
 }
 
-// Une entrée par jour de la période, zéro compris : un jour sans vente vaut 0 €,
-// ce n'est pas un trou. Midi comme horodatage, qu'un changement d'heure ne
-// fasse pas glisser un jour dans son voisin.
+// Une entrée par jour où l'argent a bougé, et seulement ceux-là : un cumul
+// garde sa hauteur entre deux, et ne pose un point que là où quelque chose
+// s'est passé (un point chaque jour faisait une ligne en pointillés épais).
+// Midi comme horodatage, qu'un changement d'heure ne fasse pas glisser un jour.
 function finEntries(lines, spec, startKey, endKey){
   const byDay = {};
-  for (const l of lines){ const d = String(l.day).slice(0, 10); byDay[d] = (byDay[d] || 0) + spec.of(l); }
-  const out = [];
-  for (let ts = dayKeyToTs(startKey) + 43200000; dayKey(ts) <= endKey; ts += 86400000){
-    const d = dayKey(ts);
-    out.push({ id: `${spec.key}@${d}`, trackerId: 'fin:' + spec.key, value: +(byDay[d] || 0).toFixed(2), ts });
+  for (const l of lines){
+    const d = String(l.day).slice(0, 10);
+    if (d >= startKey && d <= endKey) byDay[d] = (byDay[d] || 0) + spec.of(l);
   }
-  return out;
+  return Object.keys(byDay).filter(d => Math.abs(byDay[d]) >= 0.005).sort()
+    .map(d => ({ id: `${spec.key}@${d}`, trackerId: 'fin:' + spec.key, value: +byDay[d].toFixed(2), ts: dayKeyToTs(d) + 43200000 }));
+}
+
+// Les frais externes sont des lignes comme les autres, saisies en positif.
+const finAllLines = (lines, extra) => [
+  ...lines.map(l => ({ ...l, ht:Number(l.ht), tva:Number(l.tva) })),
+  ...extra.map(x => ({ business:x.business, day:x.day, section:x.is_unique ? 'Frais uniques' : 'Frais externes',
+                       ligne:x.libelle, commande:null, ht:-Math.abs(Number(x.ht)), tva:-Math.abs(Number(x.tva)) })),
+];
+
+/* Les deux graphes de Finance dans l'onglet Vues, parmi les cartes des
+   trackers, sur la période de Vues : tous les business, frais uniques compris.
+   Lecture seule — la synchro avec Etsy reste l'affaire de l'onglet Finance. */
+/* @atelier organisme — Le CA et le bénéfice parmi les cartes de l’onglet Vues. */
+function FinanceVueCards({ rangeDays, endTs, all, perRow }){
+  const [lines, setLines] = useState([]);
+  const [editKey, setEditKey] = useState(null);
+  const { trackerFor, saveChart } = useFinanceCharts();
+  useEffect(() => {
+    const read = async (q) => { const { data:d, error } = await q; return error ? [] : (d || []); };
+    Promise.all([
+      read(supabase.from('finance_lines').select('business,day,section,ligne,commande,ht,tva').limit(20000)),
+      read(supabase.from('finance_extra').select('*')),
+    ]).then(([l, x]) => setLines(finAllLines(l, x)));
+  }, []);
+  if (!lines.length) return null;
+  const endKey = dayKey(endTs);
+  // « Tout » remonte à la première ligne d'argent, comme une carte de tracker à sa première entrée.
+  const startKey = all
+    ? lines.reduce((m, l) => { const d = String(l.day).slice(0, 10); return d < m ? d : m; }, endKey)
+    : dayKey(startOfDay(endTs) - (rangeDays - 1) * 86400000);
+  const days = Math.max(1, Math.round((dayKeyToTs(endKey) - dayKeyToTs(startKey)) / 86400000) + 1);
+  return (
+    <>
+      {FIN_CHARTS.map(sp => (
+        <ChartCard key={sp.key} perRow={perRow} tracker={trackerFor(sp)}
+          entries={finEntries(lines, sp, startKey, endKey)} rangeDays={days} endTs={endTs}
+          onEdit={()=>setEditKey(sp.key)} />
+      ))}
+      {editKey && (
+        <TrackerModal scope="display" tracker={trackerFor(FIN_CHARTS.find(x => x.key === editKey))}
+          onClose={()=>setEditKey(null)}
+          onSave={(patch)=>{ saveChart(editKey, patch); setEditKey(null); }} />
+      )}
+    </>
+  );
 }
 
 /* @atelier technique — Les données Finance du compte : lignes, commandes, frais externes, état des boutiques, et la synchro. */
@@ -133,12 +178,7 @@ function FinanceView(){
   const { trackerFor, saveChart } = useFinanceCharts();
 
   const inBiz = (r) => business === 'all' || r.business === business;
-  // Les frais externes sont des lignes comme les autres, saisies en positif.
-  const allLines = useMemo(() => [
-    ...fin.lines.map(l => ({ ...l, ht:Number(l.ht), tva:Number(l.tva) })),
-    ...fin.extra.map(x => ({ business:x.business, day:x.day, section:x.is_unique ? 'Frais uniques' : 'Frais externes',
-                             ligne:x.libelle, commande:null, ht:-Math.abs(Number(x.ht)), tva:-Math.abs(Number(x.tva)) })),
-  ], [fin.lines, fin.extra]);
+  const allLines = useMemo(() => finAllLines(fin.lines, fin.extra), [fin.lines, fin.extra]);
 
   const months = useMemo(() => [...new Set(allLines.filter(inBiz).map(l => String(l.day).slice(0, 7)))].sort(), [allLines, business]);
   const today = dayKey(Date.now());

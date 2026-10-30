@@ -2406,6 +2406,8 @@ function VuesView({ trackers, trackerById, entries, filterIds, onReorder, onEdit
                 ? <MasterTrackerCard key={t.id} perRow={perRow} master={t} trackerById={trackerById} entries={entries} rangeDays={rangeFor(t)} endTs={endTs} onEdit={onEdit} {...dragProps} />
                 : <ChartCard key={t.id} perRow={perRow} tracker={t} entries={entries.filter(e=>e.trackerId===t.id)} rangeDays={rangeFor(t)} endTs={endTs} onEdit={onEdit} onOpenDay={onOpenDay} {...dragProps} />;
             })}
+            {/* Les graphes de Finance ne sont pas dans le rail : un filtre actif les écarte. */}
+            {!filterSet && <FinanceVueCards rangeDays={range} endTs={endTs} all={rangeMode==='all'} perRow={perRow} />}
           </div>
 
           {visibleTrackers.length === 0 && <div className="empty"><span className="em-serif">Pas de tracker.</span></div>}

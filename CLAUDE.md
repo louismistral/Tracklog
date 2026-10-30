@@ -147,7 +147,7 @@ Une ligne = une définition. Le *pourquoi* d'une fonctionnalité est dans
 | **Taxe acheteur reversée** | La taxe payée par le client : elle entre avec la vente (colonne TVA) et repart aussitôt sur sa propre ligne — net zéro, comme la page « Bénéfices » d'Etsy. |
 | **Hors commandes** | Ce qui ne dépend d'aucune vente : pub, mises en ligne, renouvellements, frais uniques et externes. Résultat = net des commandes + hors commandes. |
 | **Frais externes** (`finance_extra`) | Un frais qu'aucun service ne connaît (matériel, domaine, abonnement), saisi dans la page. **Unique** (`is_unique`) ou courant ; les uniques se masquent d'un bouton. |
-| **Graphe de Finance** (`useFinanceCharts`) | Le chiffre d'affaires (ventes HT) et le bénéfice (Total de toutes les lignes = Résultat) vus comme des trackers, en tête de Finance : comme un **tracker virtuel de Food**, id `fin:`, réglages dans `prefs.financeCharts`, entrées fabriquées jour par jour (zéro compris) depuis les lignes de la période. Cumulés par défaut : la courbe finit sur le chiffre clé correspondant. |
+| **Graphe de Finance** (`useFinanceCharts`) | Le chiffre d'affaires (ventes HT) et le bénéfice (Total de toutes les lignes = Résultat) vus comme des trackers, en tête de Finance : comme un **tracker virtuel de Food**, id `fin:`, réglages dans `prefs.financeCharts`, une entrée par jour où l'argent a bougé (un point par changement, pas un par jour). Cumulés par défaut : la courbe finit sur le chiffre clé correspondant. Aussi dans **Vues** → Graphes (`FinanceVueCards`), parmi les cartes des trackers, tant qu'aucun filtre du rail n'est actif. |
 | **Pas de statut TVA** | La TVA payée sur les frais est un coût : le résultat se lit dans la colonne **Total**, pas HT. |
 
 ### Compte et apparence
