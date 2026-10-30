@@ -33,9 +33,52 @@ const finMoney = (v) => finEur.format(v || 0);
 // Dans un tableau, le « € » est dans l'en-tête : sans lui à chaque case, quatre colonnes tiennent sur un téléphone.
 const finNum = new Intl.NumberFormat('fr-FR', { minimumFractionDigits:2, maximumFractionDigits:2 });
 const finAmount = (v) => finNum.format(Math.abs(v) < 0.005 ? 0 : v);
-const finMonth = (m, withYear) => new Intl.DateTimeFormat('fr-FR', { month:'short', ...(withYear ? { year:'2-digit' } : {}), timeZone:'UTC' })
-  .format(new Date(m + '-15T00:00:00Z'));
 const finSign = (v) => v < 0 ? 'fin-neg' : '';
+const finMonthLong = (m) => new Intl.DateTimeFormat('fr-FR', { month:'long', year:'numeric', timeZone:'UTC' })
+  .format(new Date(m + '-15T00:00:00Z'));
+
+/* Le chiffre d'affaires et le bénéfice vus comme des trackers, sur le modèle
+   des graphes de Food (`useFoodCharts`) : même `ChartCard`, même engrenage,
+   réglages dans `prefs.financeCharts`, jamais dans la table `trackers` — on ne
+   les remplit pas, ils se lisent dans les lignes d'argent. CA = ventes HT,
+   bénéfice = le Résultat de la page (Total de toutes les lignes) : leurs
+   cumuls sur la période valent les chiffres clés juste en dessous. */
+const FIN_CHARTS = [
+  { key:'ca',       label:'Chiffre d’affaires', color:'oklch(0.62 0.11 250)', of:(l) => l.ligne === 'Ventes' ? l.ht : 0 },
+  { key:'benefice', label:'Bénéfice',           color:'oklch(0.62 0.14 150)', of:(l) => l.ht + l.tva },
+];
+
+/* @atelier technique — Le CA et le bénéfice vus comme des trackers, fabriqués à la volée. */
+function useFinanceCharts(){
+  const accountPrefs = useContext(AccountPrefsContext) || LOCAL_ONLY_PREFS;
+  const saved = accountPrefs.prefs.financeCharts || {};
+  const trackerFor = useCallback((spec) => ({
+    id: 'fin:' + spec.key, name: spec.label, color: spec.color, type: 'number', unit: '€',
+    daily: true, aggregate: 'avg', multiple: false, choices: null, members: null,
+    windowEnabled: false, jokerEnabled: false, goodDirection: 'up', targetValue: null,
+    // Cumulé par défaut : la courbe finit sur le total de la période.
+    curveStyle: 'line', chartGrain: 'day', cumulative: true,
+    ...(saved[spec.key] || {}),
+  }), [saved]);
+  const saveChart = useCallback((key, patch) => {
+    accountPrefs.savePrefs({ financeCharts: { ...saved, [key]: { ...(saved[key] || {}), ...patch } } });
+  }, [accountPrefs, saved]);
+  return { trackerFor, saveChart };
+}
+
+// Une entrée par jour de la période, zéro compris : un jour sans vente vaut 0 €,
+// ce n'est pas un trou. Midi comme horodatage, qu'un changement d'heure ne
+// fasse pas glisser un jour dans son voisin.
+function finEntries(lines, spec, startKey, endKey){
+  const byDay = {};
+  for (const l of lines){ const d = String(l.day).slice(0, 10); byDay[d] = (byDay[d] || 0) + spec.of(l); }
+  const out = [];
+  for (let ts = dayKeyToTs(startKey) + 43200000; dayKey(ts) <= endKey; ts += 86400000){
+    const d = dayKey(ts);
+    out.push({ id: `${spec.key}@${d}`, trackerId: 'fin:' + spec.key, value: +(byDay[d] || 0).toFixed(2), ts });
+  }
+  return out;
+}
 
 /* @atelier technique — Les données Finance du compte : lignes, commandes, frais externes, état des boutiques, et la synchro. */
 function useFinanceData(){
@@ -80,8 +123,14 @@ function useFinanceData(){
 function FinanceView(){
   const fin = useFinanceData();
   const [business, setBusiness] = useState('all');
-  const [period, setPeriod] = useState('all');
+  // Les mêmes périodes que l'onglet Vues, plus un mois précis.
+  const [rangeMode, setRangeMode] = useState('all'); // '7'|'30'|'90'|'365'|'ytd'|'all'|'month'|'custom'
+  const [month, setMonth] = useState('');             // vide = le dernier mois
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
   const [uniques, setUniques] = useState(true);
+  const [editKey, setEditKey] = useState(null);
+  const { trackerFor, saveChart } = useFinanceCharts();
 
   const inBiz = (r) => business === 'all' || r.business === business;
   // Les frais externes sont des lignes comme les autres, saisies en positif.
@@ -92,7 +141,25 @@ function FinanceView(){
   ], [fin.lines, fin.extra]);
 
   const months = useMemo(() => [...new Set(allLines.filter(inBiz).map(l => String(l.day).slice(0, 7)))].sort(), [allLines, business]);
-  const inPeriod = (day) => period === 'all' || String(day).slice(0, 7) === period;
+  const today = dayKey(Date.now());
+  const firstDay = useMemo(() => allLines.filter(inBiz).reduce((m, l) => { const d = String(l.day).slice(0, 10); return d < m ? d : m; }, today),
+    [allLines, business, today]);
+  const curMonth = month || months[months.length - 1] || today.slice(0, 7);
+  // Une période = deux jours `AAAA-MM-JJ`, comparés comme des chaînes.
+  const [startKey, endKey] = useMemo(() => {
+    const back = (n) => dayKey(startOfDay(Date.now()) - (n - 1) * 86400000);
+    if (rangeMode === 'all') return [firstDay, today];
+    if (rangeMode === 'ytd') return [today.slice(0, 4) + '-01-01', today];
+    if (rangeMode === 'month'){
+      const [y, m] = curMonth.split('-').map(Number);
+      const last = `${curMonth}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+      return [curMonth + '-01', last < today ? last : today];
+    }
+    if (rangeMode === 'custom') return [customStart || back(30), customEnd || today];
+    return [back(parseInt(rangeMode, 10)), today];
+  }, [rangeMode, curMonth, customStart, customEnd, firstDay, today]);
+  const inPeriod = (day) => { const d = String(day).slice(0, 10); return d >= startKey && d <= endKey; };
+  const rangeDays = Math.max(1, Math.round((dayKeyToTs(endKey) - dayKeyToTs(startKey)) / 86400000) + 1);
   const lines = allLines.filter(l => inBiz(l) && inPeriod(l.day) && (uniques || l.section !== 'Frais uniques'));
   const orders = fin.orders.filter(o => inBiz(o) && inPeriod(o.day)).sort((a, b) => String(b.day).localeCompare(String(a.day)));
 
@@ -100,25 +167,48 @@ function FinanceView(){
   const ventes = lines.filter(l => l.ligne === 'Ventes').reduce((s, l) => s + l.ht, 0);
   const hors = lines.filter(l => !l.commande);
   const kpi = { ventes, net: sum(lines.filter(l => l.commande)), hors: sum(hors), result: sum(lines) };
-  const oneYear = months.length && months[0].slice(0, 4) === months[months.length - 1].slice(0, 4);
 
   return (
     <div className="fin">
       <div className="log-subnav fin-bar">
         <Segmented size="compact">
-          <button className={business==='all'?'on':''} onClick={()=>{ setBusiness('all'); setPeriod('all'); }}>Tout</button>
+          <button className={business==='all'?'on':''} onClick={()=>{ setBusiness('all'); setMonth(''); }}>Tout</button>
           {FIN_BUSINESSES.map(b => (
-            <button key={b.id} className={business===b.id?'on':''} onClick={()=>{ setBusiness(b.id); setPeriod('all'); }}>{b.label}</button>
+            <button key={b.id} className={business===b.id?'on':''} onClick={()=>{ setBusiness(b.id); setMonth(''); }}>{b.label}</button>
           ))}
         </Segmented>
       </div>
-      <div className="fin-bar">
-        <Segmented size="small" scrollx>
-          <button className={period==='all'?'on':''} onClick={()=>setPeriod('all')}>Tout</button>
-          {months.map(m => (
-            <button key={m} className={period===m?'on':''} onClick={()=>setPeriod(m)}>{finMonth(m, !oneYear)}</button>
-          ))}
-        </Segmented>
+      <div className="fin-bar range">
+        {['7','30','90','365'].map(r => (
+          <button key={r} className={rangeMode===r?'on':''} onClick={()=>setRangeMode(r)}>{r}j</button>
+        ))}
+        <button className={rangeMode==='ytd'?'on':''} onClick={()=>setRangeMode('ytd')}>YTD</button>
+        <button className={rangeMode==='all'?'on':''} onClick={()=>setRangeMode('all')}>Tout</button>
+        <button className={rangeMode==='month'?'on':''} onClick={()=>setRangeMode('month')}>Mois</button>
+        <button className={rangeMode==='custom'?'on':''} onClick={()=>setRangeMode('custom')}>Personnalisé</button>
+        {rangeMode === 'month' && (
+          <select className="range-custom-date" aria-label="Mois" value={curMonth} onChange={e=>setMonth(e.target.value)}>
+            {months.slice().reverse().map(m => <option key={m} value={m}>{finMonthLong(m)}</option>)}
+          </select>
+        )}
+        {rangeMode === 'custom' && (
+          <>
+            <input type="date" className="range-custom-date" aria-label="Du"
+              value={customStart} max={customEnd || today} onChange={e=>setCustomStart(e.target.value)} />
+            <span className="range-custom-sep">→</span>
+            <input type="date" className="range-custom-date" aria-label="Au"
+              value={customEnd} min={customStart} max={today} onChange={e=>setCustomEnd(e.target.value)} />
+          </>
+        )}
+      </div>
+
+      <div className="chart-grid-layout" data-per="2">
+        {FIN_CHARTS.map(sp => (
+          <ChartCard key={sp.key} perRow={2} tracker={trackerFor(sp)}
+            entries={finEntries(lines, sp, startKey, endKey)}
+            rangeDays={rangeDays} endTs={dayKeyToTs(endKey) + 86400000 - 1}
+            onEdit={()=>setEditKey(sp.key)} />
+        ))}
       </div>
 
       <div className="fin-kpis">
@@ -166,6 +256,12 @@ function FinanceView(){
 
       <FinExtraCard extra={fin.extra.filter(inBiz)} business={business} onChange={fin.load} />
       <FinShopsCard fin={fin} />
+
+      {editKey && (
+        <TrackerModal scope="display" tracker={trackerFor(FIN_CHARTS.find(x => x.key === editKey))}
+          onClose={()=>setEditKey(null)}
+          onSave={(patch)=>{ saveChart(editKey, patch); setEditKey(null); }} />
+      )}
     </div>
   );
 }

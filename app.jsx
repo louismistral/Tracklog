@@ -2712,7 +2712,9 @@ function TrackerModal({ tracker, allTrackers = [], onClose, onSave, onDelete, on
         <div className="fd-add-head-txt">
           <h2>{display ? 'Réglages du graphe' : isEdit ? 'Modifier le tracker' : 'Nouveau tracker'}</h2>
           <div className="modal-sub">{display
-            ? 'Un graphe de Food est un tracker : ce qu’il suit vient de ce que vous mangez, seule sa lecture se règle.'
+            ? String(tracker.id).startsWith('fin:')
+              ? 'Un graphe de Finance est un tracker : ce qu’il suit se lit dans les comptes des business, seule sa lecture se règle.'
+              : 'Un graphe de Food est un tracker : ce qu’il suit vient de ce que vous mangez, seule sa lecture se règle.'
             : 'Le cœur définit ce que vous mesurez, les paramètres comment.'}</div>
         </div>
         <button className="icon-btn fd-add-close" onClick={onClose} aria-label="Fermer">✕</button>
