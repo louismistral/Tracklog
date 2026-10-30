@@ -82,7 +82,6 @@ function FinanceView(){
   const [business, setBusiness] = useState('all');
   const [period, setPeriod] = useState('all');
   const [uniques, setUniques] = useState(true);
-  const [openOrder, setOpenOrder] = useState(null);
 
   const inBiz = (r) => business === 'all' || r.business === business;
   // Les frais externes sont des lignes comme les autres, saisies en positif.
@@ -153,16 +152,10 @@ function FinanceView(){
 
       <div className="card fd-card">
         <p className="section-label">Par commande · {orders.length}</p>
-        <p className="tc-empty-note fin-note">Prix HT moins frais Etsy (TVA comprise) et coût de production. Pub, mises en ligne et frais externes sont hors commandes.</p>
-        {orders.length === 0 && <span className="tc-empty-note">Aucune commande sur cette période.</span>}
-        <div className="fin-orders">
-          {orders.map(o => (
-            <FinOrder key={o.business + o.commande} o={o} showBiz={business==='all'}
-              open={openOrder === o.business + o.commande}
-              onToggle={()=>setOpenOrder(k => k === o.business + o.commande ? null : o.business + o.commande)}
-              />
-          ))}
-        </div>
+        <p className="tc-empty-note fin-note">Net = prix HT moins frais Etsy (TVA comprise) et production + envoi. La taxe de l’acheteur, comprise dans le TTC, repart aussitôt. Pub, mises en ligne et frais externes sont hors commandes.</p>
+        {orders.length === 0
+          ? <span className="tc-empty-note">Aucune commande sur cette période.</span>
+          : <FinOrdersTable orders={orders} showBiz={business==='all'} />}
       </div>
 
       <div className="card fd-card">
@@ -217,30 +210,33 @@ function FinTable({ lines }){
   );
 }
 
-/* @atelier molecule — Une commande : produit et net ; dépliée, son détail. */
-function FinOrder({ o, showBiz, open, onToggle }){
-  const d = String(o.day);
+/* @atelier organisme — Le tableau des commandes : date, produit, variante, prix TTC, frais Etsy, production + envoi, net. Défile de côté sur téléphone plutôt que de serrer sept colonnes. */
+function FinOrdersTable({ orders, showBiz }){
+  const n = (v) => Number(v) || 0;
   return (
-    <div className={`fin-order ${o.statut ? 'fin-cancel' : ''}`}>
-      <button type="button" className="fin-order-head" onClick={onToggle}>
-        <span className="fin-order-main">
-          <span className="fin-order-name">{o.produit || 'Commande'}</span>
-          <span className="fin-order-sub">
-            {d.slice(8, 10)}/{d.slice(5, 7)} · {o.variante || '—'}{showBiz ? ` · ${o.business === 'arro' ? 'Arro' : 'Redline'}` : ''}{o.statut ? ` · ${o.statut}` : ''}
-          </span>
-        </span>
-        <span className={`fin-order-net ${finSign(Number(o.net))}`}>{finMoney(Number(o.net))}</span>
-      </button>
-      {open && (
-        <div className="fin-order-body">
-          <div className="fin-kv"><span>Prix HT</span><b>{finMoney(Number(o.prix_ht))}</b></div>
-          <div className="fin-kv"><span>Taxe acheteur (reversée)</span><b>{finMoney(Number(o.taxe_acheteur))}</b></div>
-          <div className="fin-kv"><span>Frais Etsy</span><b>{finMoney(Number(o.frais_etsy))}</b></div>
-          <div className="fin-kv"><span>{o.business === 'redline' ? 'Gelato' : 'Production + timbre'}</span><b>{finMoney(Number(o.couts))}</b></div>
-          <div className="fin-kv fin-strong"><span>Net</span><b className={finSign(Number(o.net))}>{finMoney(Number(o.net))}</b></div>
-          {/^\d+$/.test(o.commande) && <span className="tc-empty-note">Commande n° {o.commande}</span>}
-        </div>
-      )}
+    <div className="fin-scroll">
+      <table className="fin-otable">
+        <thead><tr>
+          <th>Date</th><th className="fin-txt">Produit</th><th className="fin-txt">Variante</th>
+          <th>Prix TTC</th><th>Frais Etsy</th><th>Prod. + envoi</th><th>Net</th>
+        </tr></thead>
+        <tbody>
+          {orders.map(o => {
+            const d = String(o.day);
+            return (
+              <tr key={o.business + o.commande} className={o.statut ? 'fin-cancel' : ''} title={o.statut || undefined}>
+                <td>{d.slice(8, 10)}/{d.slice(5, 7)}/{d.slice(2, 4)}</td>
+                <td className="fin-txt"><span className="fin-clamp">{o.produit || 'Commande'}</span>{showBiz ? <span className="fin-biz">{o.business === 'arro' ? 'Arro' : 'Redline'}</span> : null}</td>
+                <td className="fin-txt fin-muted">{o.variante || '—'}</td>
+                <td>{finAmount(n(o.prix_ht) + n(o.taxe_acheteur))}</td>
+                <td>{finAmount(n(o.frais_etsy))}</td>
+                <td>{finAmount(n(o.couts))}</td>
+                <td className={`fin-strong ${finSign(n(o.net))}`}>{finAmount(n(o.net))}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
