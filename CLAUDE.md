@@ -51,19 +51,21 @@ Fiches complètes dans `.claude/skills/<rôle>/SKILL.md`, récapitulées dans
 
 | Fichier | Rôle |
 |---|---|
-| `Tracklog.html` | Page unique. Charge `styles.css`, puis les `<script>` qui chargent React/Supabase/Babel depuis un CDN et les six `.jsx` en JSX brut — transformé dans le navigateur par Babel standalone, pas de build. |
+| `Tracklog.html` | Page unique. Charge `styles.css`, puis les `<script>` qui chargent React/Supabase/Babel depuis un CDN et les sept `.jsx` en JSX brut — transformé dans le navigateur par Babel standalone, pas de build. |
 | `styles.css` | Tout le CSS (thème « Aristide » et les autres styles). Chargé par un `<link>` posé avant `<body>`, au même endroit que l'ancien `<style>` inline — le script de tête qui pose `data-theme` et l'accent s'exécute avant, la feuille se charge donc sans jamais faire flasher le mauvais thème. |
 | `app.core.jsx` | **Le socle, chargé en premier** : modèle trackers/entries, registres (types, agrégats, styles, onglets, courbes, granularités, services extérieurs, tris/groupements), client Supabase et appel aux fonctions Edge, mappers de lignes, helpers de calcul et de format, préférences de compte. Règle d'entrée : **ça ne rend rien**. ~570 lignes. |
 | `app.ui.jsx` | **Les briques d'interface partagées** — celles que `ui.md` décrit (`Segmented`, `BoolPill`, `IconBar`, `GearIcon`, `InfoBubble`, `SwatchGrid`, `ColorEditor`) plus celles que l'atelier montre au même titre (`NumPill`, `ChevronDown`, `DragHandle`, `useDragReorder`). ~580 lignes. |
 | `app.charts.jsx` | **Ce qui dessine les données** : `ChartCard` et son infobulle, échelles d'axe, formes de tracé, granularité, normalisation et tendance, masters (`MasterStrip`, `MasterTrackerCard`), calendrier heatmap, grille. ~1270 lignes. |
 | `app.jsx` | L'app elle-même : `App` et son état, les écrans (Jour, Historique, Chrono, Vues, Paramètres), les modales d'entrée et de tracker, la connexion, `Root`/`mountTracklog`. ~3400 lignes. |
+| `app.finance.jsx` | **Page Finance** : bénéfice des business (Redline, Arro) par période et par commande, frais externes, connexion des boutiques. ~330 lignes. |
 | `app.food.jsx` | Page Food : bibliothèque d'aliments, scanner de code-barres, journal de repas, objectifs. ~4900 lignes. |
+| `app.finance.jsx` | **Page Finance** : bénéfice des business (Redline, Arro) par période et par commande, frais externes, connexion des boutiques Etsy. ~330 lignes. |
 | `app.atelier.jsx` | **L'atelier**, page `#atelier`. Il **relit les cinq `.jsx` et `styles.css` à l'exécution** (`fetch`) et en tire **deux inventaires qui ne se recouvrent pas** : les **composants** (une brique du code, trouvée par son annotation `@atelier`) et les **apparitions** (une combinaison de classes qui existe vraiment quelque part — `button.icon-btn.cal-nav`, qui n'est aucun composant). Plus les jetons et l'audit des classes. Rien n'y est écrit à la main sauf les spécimens de composants. Pas un onglet — une page pour celui qui fabrique l'app. ~1540 lignes. |
 | `index.html` | Redirige vers `Tracklog.html`. |
 | `foods-ref.json` | Table Ciqual 2025 (ANSES) compactée en colonnes — 3341 aliments crus/cuits avec micronutriments, servie en statique pour la recherche d'aliments sans étiquette. |
 | `manifest.json`, `icon-*.png`, `apple-touch-icon.png` | PWA — installable sur téléphone. |
 | `tools/ciqual/` | Source Excel d'origine de la table Ciqual (génère `foods-ref.json`). |
-| `supabase/functions/etsy/` | La passerelle vers Etsy — l'API d'Etsy ne répond pas aux navigateurs, et un jeton Etsy ne doit jamais descendre dans la page. Déployée `--no-verify-jwt` (Etsy y renvoie le navigateur sans session Supabase), elle vérifie donc la session elle-même sur toutes ses routes sauf `/callback`. Secret : `ETSY_CLIENT_ID`. |
+| `supabase/functions/finance/` | **Les comptes des business**, lus chez Etsy (une boutique par business, OAuth) et Gelato. Relit tout l'historique à chaque synchro et **remplace** `finance_lines`/`finance_orders` de ce business — un remboursement d'Etsy après coup se corrige sans logique de rattrapage. Déployée `--no-verify-jwt` (Etsy renvoie le navigateur sur `/callback` sans session) ; vérifie la session sur toutes les autres routes. Secrets : `ETSY_CLIENT_ID`, `ETSY_SECRET`, `GELATO_API_KEY`. |
 | `supabase/functions/analyse-repas/` | Appelle Claude pour décomposer un repas décrit en texte ou en photo. Existe pour que la clé API reste côté serveur. `verify_jwt` actif. Secret : `ANTHROPIC_API_KEY`. |
 | `supabase/functions/tracklog-mcp/` | **Le carnet, ouvert à Claude.** Serveur MCP branché en connecteur personnalisé : « rentre ça dans Tracklog » écrit la ligne dans le journal. Deux outils — `tracklog_ajout_rapide` (écrire), `tracklog_journee` (lire). `--no-verify-jwt`. Secrets : `TRACKLOG_MCP_TOKEN`, `TRACKLOG_MCP_USER_ID`. |
 | `tools/tracklog-mcp/` | Son banc d'essai (doublures de Deno et PostgREST). Le seul test automatisé du projet, parce que c'est le seul code qu'on ne peut pas essayer dans un navigateur. |
@@ -93,8 +95,6 @@ Une ligne = une définition. Le *pourquoi* d'une fonctionnalité est dans
 | **Joker** | Marqueur posé sur une journée (`value:'__joker__'`) qui **exclut** ce jour de tous les calculs — pas un zéro. Option par tracker (`jokerEnabled`), sans effet sur un quotidien. |
 | **Fenêtre d'activité** (`windowEnabled`, `startDate`/`endDate`) | Hors de ces bornes, un tracker n'influence ni les graphes ni les moyennes. `startDate` = date de création par défaut, `endDate` posé à l'archivage. |
 | **Archiver** | Masque un tracker du Jour et le range dans Paramètres → Archives, sans supprimer ses entrées. Réversible depuis le même `TrackerModal`. |
-| **Source extérieure** (`externalSource`) | Un tracker `number` rempli par un service du dehors. Seule la **saisie** change : les valeurs arrivent en `entries` ordinaires, graphes et masters ne savent pas d'où vient le chiffre. Registre unique `EXTERNAL_SERVICES` (app.core.jsx) — un service = une fonction Edge du même nom exposant `/start` `/status` `/disconnect` `/sync`, plus une ligne du tableau. Rien d'autre dans l'app ne connaît le mot « Etsy ». |
-| **Donnée récupérée** (`externalMetric`) | Ce qu'on va chercher. Etsy : `net` (bénéfice — ventes moins frais Etsy, **avant** coût d'impression) · `revenue` (ventes) · `orders`. En changer remet `externalLastSync` à zéro. |
 | **Chrono** | Chronomètre synchronisé par compte (table `chronos` + Realtime) : seul l'horodatage de départ voyage, le décompte reste calculé localement. Réordonnable, liable à un tracker `duration`. **Solo** = démarrer met les autres en pause ; **Multi** = ils tournent en parallèle. |
 
 ### Vues et affichage
@@ -139,6 +139,18 @@ Une ligne = une définition. Le *pourquoi* d'une fonctionnalité est dans
 | **Réglages d'affichage seuls** (`TrackerModal scope="display"`) | La page de réglages d'un tracker réduite à ce qui a un sens pour un tracker qu'on ne remplit pas soi-même : nom, courbe, granularité, cumul, couleur. Genre, type, fréquence, période et suppression disparaissent — ils n'ont rien à proposer. |
 | **Écriture optimiste** | Toute écriture de Food pose l'état local d'abord et envoie derrière. En échec, elle **défait** ce qu'elle a affiché et le dit (`writeFailed`) — un échec muet serait pire que l'attente. |
 
+### Finance
+
+| Terme | Définition |
+|---|---|
+| **Business** | Une activité dont on suit l'argent, une boutique Etsy chacune : `redline` (Redline Editions, production Gelato) · `arro` (Arro Designs, impression 3D maison). Registre `BUSINESSES` côté fonction, `FIN_BUSINESSES` côté page. |
+| **Ligne d'argent** (`finance_lines`) | Un mouvement lu chez Etsy ou Gelato, en **HT** et **TVA** séparés, rangé par section (Etsy, Gelato, Production, Frais uniques) et rattaché à une commande quand il en dépend. Écrite par la fonction seule ; la page ne fait que lire. |
+| **Taxe acheteur reversée** | La taxe payée par le client : elle entre avec la vente (colonne TVA) et repart aussitôt sur sa propre ligne — net zéro, comme la page « Bénéfices » d'Etsy. |
+| **Hors commandes** | Ce qui ne dépend d'aucune vente : pub, mises en ligne, renouvellements, frais uniques et externes. Résultat = net des commandes + hors commandes. |
+| **Frais externes** (`finance_extra`) | Un frais qu'aucun service ne connaît (matériel, domaine, abonnement), saisi dans la page. **Unique** (`is_unique`) ou courant ; les uniques se masquent d'un bouton. |
+| **Coût corrigé** (`finance_order_costs`) | Pour un business qui produit lui-même : production et timbre réels d'une commande, à la place des valeurs par défaut (taille 10×10 / 18×18). |
+| **Pas de statut TVA** | La TVA payée sur les frais est un coût : le résultat se lit dans la colonne **Total**, pas HT. |
+
 ### Compte et apparence
 
 | Terme | Définition |
@@ -159,9 +171,9 @@ Les briques d'interface elles-mêmes — `Segmented`, `IconBar`, `NumField`,
 ## Architecture technique
 
 - **Aucun build.** JSX transformé dans le navigateur par `@babel/standalone` : toute modif d'un `.jsx` est visible au rechargement.
-- **Cache-busting manuel** — le `?v=N` s'incrémente à la main dans `Tracklog.html`, pour **sept** fichiers : les six `.jsx` et `styles.css`. Un oubli laisse des utilisateurs sur l'ancienne version sans rien signaler.
-- **Un seul espace de noms, et l'ordre de chargement EST l'ordre des dépendances.** `app.core.jsx` → `app.ui.jsx` → `app.charts.jsx` → `app.jsx` → `app.food.jsx` → `app.atelier.jsx`, montés ensemble par `mountTracklog()`. C'est `app.core.jsx` qui pose le scope global (React, `supabase`, `dayKey`, `uid`, `startOfDay`…) ; chaque fichier ne voit que ce que les précédents ont déclaré. Seuls les **initialiseurs** s'exécutent au chargement — un corps de fonction peut appeler un nom déclaré plus loin. Un seul jeu d'aides Babel pour tout le monde (voir `pieges.md`).
-- **Persistance : Supabase** (Postgres + auth). Tables : `trackers`, `entries`, `chronos`, `foods`, `food_logs`, `nutrition_goals` (clé `(user_id, from_day)`), `meals`, `user_settings`, `feedback`, `service_connections` + `oauth_pending`. Clé anonyme publique dans `app.core.jsx` — protégée par RLS, pas un secret.
+- **Cache-busting manuel** — le `?v=N` s'incrémente à la main dans `Tracklog.html`, pour **huit** fichiers : les sept `.jsx` et `styles.css`. Un oubli laisse des utilisateurs sur l'ancienne version sans rien signaler.
+- **Un seul espace de noms, et l'ordre de chargement EST l'ordre des dépendances.** `app.core.jsx` → `app.ui.jsx` → `app.charts.jsx` → `app.jsx` → `app.food.jsx` → `app.finance.jsx` → `app.atelier.jsx`, montés ensemble par `mountTracklog()`. C'est `app.core.jsx` qui pose le scope global (React, `supabase`, `dayKey`, `uid`, `startOfDay`…) ; chaque fichier ne voit que ce que les précédents ont déclaré. Seuls les **initialiseurs** s'exécutent au chargement — un corps de fonction peut appeler un nom déclaré plus loin. Un seul jeu d'aides Babel pour tout le monde (voir `pieges.md`).
+- **Persistance : Supabase** (Postgres + auth). Tables : `trackers`, `entries`, `chronos`, `foods`, `food_logs`, `nutrition_goals` (clé `(user_id, from_day)`), `meals`, `user_settings`, `feedback`, `finance_lines`, `finance_orders`, `finance_sync`, `finance_extra`, `finance_order_costs`, `service_connections` + `oauth_pending`. Clé anonyme publique dans `app.core.jsx` — protégée par RLS, pas un secret.
 - **`service_connections` : RLS activée sans aucune policy.** La clé anon ne peut ni lire ni écrire les jetons OAuth, même pour leur propriétaire ; seule la fonction Edge, en clé de service, y touche. `oauth_pending` est son pendant éphémère (vérifieur PKCE + `state`).
 - **Ajouter un réglage de tracker = une migration SQL.** `trackerToRow` envoie des colonnes nommées : toute propriété persistée demande un `alter table trackers add column …` **avant** déploiement, sinon tout enregistrement de tracker échoue — y compris la simple modification d'un tracker existant. Les colonnes doivent accepter `null`, le mapper applique le défaut à la lecture.
 - **Les migrations s'appliquent directement.** Le connecteur Supabase (MCP) donne accès au projet `drrmqrhsfgermgblndzz` : `apply_migration` (DDL), `execute_sql` (inspection), `deploy_edge_function`. Le faire directement évite l'écart entre « le code est poussé » et « la base suit », qui a déjà cassé l'enregistrement des trackers. Exception : les **secrets** se posent à la main.

@@ -17,6 +17,7 @@ Navigation par onglets en haut (`tab`), certains avec sous-onglets (`Sub`).
 | | Chrono | `ChronoView` → `ChronoCard` | Chronomètres, liés ou non à un tracker durée. Fenêtre flottante (Picture-in-Picture navigateur) pour garder les chronos visibles pendant qu'on fait autre chose. |
 | **Food** | Jour | `FoodDayView` | Repas du jour par catégorie, barres de progression vers les objectifs (**ce qu'il reste**, pas ce qu'on a mangé), panneau détail/micronutriments dépliable, navigation jour précédent/suivant. |
 | | Vues | `FoodVuesView` | Trois sous-onglets — **Macros** (les quatre `ChartCard`, une par macro) · **Répartition** (`MacroSplitCard`) · **Micros** (une carte par micronutriment, filtrables par `MicroPicker`). Mêmes cartes, même curseur de densité et mêmes échelles de période que l'onglet Vues. |
+| **Finance** | — | `FinanceView` → `FinKpi`/`FinTable`/`FinOrder`/`FinExtraCard`/`FinShopsCard` | Les comptes des business. En tête : business (Tout / Redline / Arro) puis période (Tout + un bouton par mois, `scrollx`). Quatre chiffres (ventes HT, net des commandes, hors commandes, résultat), le tableau **Gains et coûts** (HT · TVA · Total, un total par section, bascule frais uniques), **Par commande** (une ligne dépliable ; Arro y corrige production et timbre), **Hors commandes**, **Frais externes** (liste + ajout), **Boutiques** (connecter un compte Etsy, actualiser). Relit Etsy et Gelato à l'ouverture. |
 | **Vues** | Graphes / Tendance / Calendrier / Grille | `VuesView` → `ChartCard`/`MasterTrackerCard`/`TrendChart`/`CalendarCard`/`GridSummary` | Visualisation multi-tracker sur une période choisie (7/30/90/365j, YTD, tout, personnalisé) : une carte par tracker (densité au curseur), moyenne normalisée lissée, heatmap calendrier, grille de KPI. **Quatre vues à plat** — la barre « Affichage » qui vivait sous « Graphes » a disparu : ce n'étaient pas des réglages de Graphes mais des vues à part entière, et deux niveaux de bascule l'un sous l'autre demandaient de retenir dans quel sous-onglet on se trouvait. L'overlay **Master** (`MasterChart`) est parti avec elle : un master a déjà sa carte parmi les cartes. |
 | **Training** | — | `TrainingView` | Réservé — le suivi d'entraînement viendra ici. Masquable tant qu'il est vide. |
 | **AI analyst** | — | `AnalystView` | Réservé — Claude y lira les trackers ensemble (corrélations, régularités, ce qu'un master doit à un seul membre). L'onglet existe, le contenu viendra. |
@@ -40,7 +41,7 @@ l'occasion.
 
 `TrackerModal` (créer/éditer un tracker ou master) est, malgré son nom et
 comme `AddFoodModal`/`MealEditModal`, une **page entière** (`.fd-add-page`) —
-cinq cadres en cartes (Cœur, Paramètres, Source, Vues, Couleur — Source n'apparaît que pour un tracker de type nombre) plutôt qu'une boîte
+quatre cadres en cartes (Cœur, Paramètres, Vues, Couleur) plutôt qu'une boîte
 étroite au-dessus du Log : les champs à choix (genre, fréquence, courbe,
 granularité) y sont des pastilles pleine largeur (`Segmented size="compact"`),
 pas des chips à leur contour. Les champs à saisir suivent le même principe :

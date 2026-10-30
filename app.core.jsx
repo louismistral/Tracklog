@@ -161,11 +161,12 @@ const isTheme = (id) => THEMES.some(s => s.id === id);
 const TOGGLEABLE_TABS = [
   { id:'log',      label:'Log',      hint:'remplir la journée, l’historique, les chronos' },
   { id:'food',     label:'Food',     hint:'suivi nutritionnel, scanner, aliments et repas' },
+  { id:'finance',  label:'Finance',  hint:'ventes, frais et bénéfice des business (Redline, Arro)' },
   { id:'vues',     label:'Vues',     hint:'graphes, calendrier, grille de KPI' },
   { id:'training', label:'Training', hint:'à venir' },
   { id:'analyst',  label:'AI analyst', hint:'lecture des données par Claude — corrélations entre trackers ; à venir' },
 ];
-const DEFAULT_TABS = { log:true, food:true, vues:true, training:true, analyst:true };
+const DEFAULT_TABS = { log:true, food:true, finance:true, vues:true, training:true, analyst:true };
 
 /* Les onglets de la barre du haut, dans leur ordre par défaut. L'ordre affiché
    vient du compte (prefs.tabOrder) : il se réarrange en maintenant un onglet,
@@ -174,6 +175,7 @@ const DEFAULT_TABS = { log:true, food:true, vues:true, training:true, analyst:tr
 const NAV_TABS = [
   { id:'log',      label:'Log' },
   { id:'food',     label:'Food' },
+  { id:'finance',  label:'Finance' },
   { id:'training', label:'Training' },
   { id:'vues',     label:'Vues' },
   { id:'analyst',  label:'AI analyst' },
@@ -192,34 +194,6 @@ const GRAINS = [
   { id:'week',  label:'Semaine' },
   { id:'month', label:'Mois' },
 ];
-
-/* ---- Sources extérieures ---------------------------------------------------
-   Un tracker peut être rempli par un service du dehors plutôt qu'à la main :
-   même objet, mêmes graphes, mêmes entrées — c'est la SAISIE qui change, pas
-   la nature de la chose suivie. D'où une section de plus dans ses réglages, et
-   surtout pas un « type » de tracker à part : un bénéfice se lit comme
-   n'importe quel nombre.
-
-   `metrics` liste ce qu'un service sait rendre. Un service = une fonction Edge
-   du même nom, qui expose /start /status /disconnect /sync ; en ajouter un
-   revient à écrire cette fonction et une ligne ici. Rien d'autre dans l'app ne
-   connaît le nom « Etsy ». */
-const EXTERNAL_SERVICES = [
-  { id:'etsy', label:'Etsy', metrics:[
-    // Trois mots courts : la piste compacte ne doit jamais passer sur deux
-    // lignes, et « Chiffre d'affaires » la faisait déborder de sa carte.
-    // Ce que chacun veut dire exactement est dans la bulle, pas dans le bouton.
-    { id:'net',     label:'Bénéfice',  unit:'€',
-      hint:'Ce qui reste des ventes du jour une fois les frais Etsy retirés — mais avant le coût d’impression, qu’Etsy ne connaît pas.' },
-    { id:'revenue', label:'Ventes',    unit:'€',
-      hint:'Ce que les acheteurs ont payé ce jour-là, frais compris.' },
-    { id:'orders',  label:'Commandes', unit:'',
-      hint:'Le nombre de commandes passées ce jour-là.' },
-  ] },
-];
-const serviceById = (id) => EXTERNAL_SERVICES.find(s => s.id === id) || null;
-const metricOf = (serviceId, metricId) =>
-  serviceById(serviceId)?.metrics.find(m => m.id === metricId) || null;
 
 /* ============================================================
    Supabase — cloud persistence + auth
@@ -255,10 +229,10 @@ async function callFunction(name, route, { method = 'POST', body } = {}){
 }
 
 function trackerFromRow(r){
-  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMin:r.scale_min ?? undefined, scaleMax:r.scale_max || undefined, scaleStep:r.scale_step || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, jokerEnabled:!!r.joker_enabled, cumulative:!!r.cumulative, curveStyle:isCurveStyle(r.curve_style) ? r.curve_style : 'line', chartGrain:GRAINS.some(g => g.id === r.chart_grain) ? r.chart_grain : 'day', goodDirection:r.good_direction || undefined, targetValue:r.target_value ?? undefined, externalSource:r.external_source || undefined, externalMetric:r.external_metric || undefined, externalLastSync:r.external_last_sync ?? undefined, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
+  return { id:r.id, name:r.name, type:r.type, unit:r.unit || undefined, scaleMin:r.scale_min ?? undefined, scaleMax:r.scale_max || undefined, scaleStep:r.scale_step || undefined, choices:Array.isArray(r.choices) ? r.choices : undefined, multiple:!!r.multiple, daily:!!r.daily, aggregate:r.aggregate || 'avg', members:Array.isArray(r.members) ? r.members : undefined, archived:!!r.archived, startDate:r.start_date || undefined, endDate:r.end_date || undefined, windowEnabled:r.window_enabled !== false, jokerEnabled:!!r.joker_enabled, cumulative:!!r.cumulative, curveStyle:isCurveStyle(r.curve_style) ? r.curve_style : 'line', chartGrain:GRAINS.some(g => g.id === r.chart_grain) ? r.chart_grain : 'day', goodDirection:r.good_direction || undefined, targetValue:r.target_value ?? undefined, order:r.order_index ?? 0, color:r.color, createdAt:r.created_at };
 }
 function trackerToRow(t, userId){
-  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_min:t.scaleMin ?? null, scale_max:t.scaleMax || null, scale_step:t.scaleStep || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, joker_enabled:!!t.jokerEnabled, cumulative:!!t.cumulative, curve_style:isCurveStyle(t.curveStyle) ? t.curveStyle : 'line', chart_grain:GRAINS.some(g => g.id === t.chartGrain) ? t.chartGrain : 'day', good_direction:t.goodDirection || null, target_value:t.targetValue ?? null, external_source:t.externalSource || null, external_metric:t.externalMetric || null, external_last_sync:t.externalLastSync ?? null, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
+  return { id:t.id, user_id:userId, name:t.name, type:t.type, unit:t.unit || null, scale_min:t.scaleMin ?? null, scale_max:t.scaleMax || null, scale_step:t.scaleStep || null, choices:(t.choices && t.choices.length) ? t.choices : null, multiple:!!t.multiple, daily:!!t.daily, aggregate:t.aggregate || 'avg', members:(t.members && t.members.length) ? t.members : null, archived:!!t.archived, start_date:t.startDate || null, end_date:t.endDate || null, window_enabled:t.windowEnabled !== false, joker_enabled:!!t.jokerEnabled, cumulative:!!t.cumulative, curve_style:isCurveStyle(t.curveStyle) ? t.curveStyle : 'line', chart_grain:GRAINS.some(g => g.id === t.chartGrain) ? t.chartGrain : 'day', good_direction:t.goodDirection || null, target_value:t.targetValue ?? null, order_index:t.order ?? 0, color:t.color, created_at:t.createdAt };
 }
 function entryFromRow(r){
   return { id:r.id, trackerId:r.tracker_id, value:r.value, note:r.note || '', ts:r.ts };
@@ -497,13 +471,17 @@ function useAccountPrefs(userId){
   const tabs = { ...DEFAULT_TABS, ...stored, ...legacy };
   const setTab = (id, on) => savePrefs({ tabs: { ...tabs, [id]: on } });
 
-  // L'ordre des onglets : les ids connus, dans l'ordre enregistré, suivis de
-  // ceux qui n'y sont pas encore (un onglet ajouté par une mise à jour se range
-  // à sa place par défaut plutôt que de disparaître).
+  // L'ordre des onglets : les ids connus, dans l'ordre enregistré. Un onglet
+  // ajouté par une mise à jour se glisse juste après celui qui le précède dans
+  // NAV_TABS (Finance après Food), plutôt que de tomber au bout de la barre.
   const storedOrder = Array.isArray(prefs && prefs.tabOrder) ? prefs.tabOrder : [];
   const known = NAV_TABS.map(t => t.id);
-  const tabOrder = [...storedOrder.filter(id => known.includes(id)),
-                    ...known.filter(id => !storedOrder.includes(id))];
+  const tabOrder = storedOrder.filter(id => known.includes(id));
+  known.forEach((id, i) => {
+    if (tabOrder.includes(id)) return;
+    const prev = i > 0 ? tabOrder.indexOf(known[i - 1]) : -1;
+    tabOrder.splice(prev + 1, 0, id);
+  });
   const setTabOrder = (order) => savePrefs({ tabOrder: order });
 
   return { ready: prefs !== null, prefs: prefs || {}, savePrefs, tabs, setTab, tabOrder, setTabOrder };

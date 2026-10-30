@@ -2254,3 +2254,53 @@
     .at-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
     .at-card[data-span="2"]{grid-column:span 1}
   }
+
+  /* ---- Finance ---------------------------------------------------------------
+     Une page de chiffres : tout est en colonnes de nombres alignés (tnum), le
+     négatif en rouge, et rien ne dépasse la largeur d'un téléphone — le tableau
+     garde ses quatre colonnes en serrant les montants, il ne défile pas. */
+  .fin-bar{margin-bottom:14px;min-width:0}
+  .fin-bar .seg-track{max-width:100%}
+  .fin-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+  @media (max-width:640px){ .fin-kpis{grid-template-columns:repeat(2,minmax(0,1fr))} }
+  .fin-kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+  .fin-kpi-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:var(--muted-foreground-2)}
+  .fin-kpi-value{font-family:var(--font-mono);font-feature-settings:"tnum";font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fin-kpi.fin-strong{border-color:var(--border-strong)}
+  .fin-neg{color:var(--destructive)}
+  .fin-strong{font-weight:600}
+  .fin-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .fin-head .section-label{margin:0}
+  .fin-note{display:block;margin:-4px 0 12px}
+  .fin-table{display:flex;flex-direction:column;font-feature-settings:"tnum"}
+  .fin-row{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,minmax(0,auto));gap:4px 12px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;align-items:baseline}
+  .fin-row>span{font-family:var(--font-mono);text-align:right;white-space:nowrap;min-width:4.4em}
+  .fin-row>.fin-label{font-family:var(--font-sans);text-align:left;white-space:normal;min-width:0;padding-left:14px;color:var(--muted-foreground)}
+  .fin-row.fin-sec{padding-top:12px}
+  .fin-row.fin-sec>.fin-label{padding-left:0;color:var(--foreground);font-weight:600}
+  .fin-th{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted-foreground-2);border-bottom-color:var(--border-strong)}
+  .fin-th>span{font-family:var(--font-sans)}
+  .fin-th>span:first-child{text-align:left}
+  .fin-ctl-label{font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted-foreground-2)}
+  @media (max-width:440px){ .fin-row{font-size:12px;gap:4px 8px} .fin-row>span{min-width:3.9em} .fin-row>.fin-label{padding-left:8px} }
+  .fin-recap{display:grid;grid-template-columns:1fr auto;gap:6px 12px;margin-top:14px;font-size:13px}
+  .fin-recap b{font-family:var(--font-mono);font-weight:400;text-align:right}
+  .fin-recap .fin-strong{font-weight:600;border-top:1px solid var(--border-strong);padding-top:8px}
+  .fin-orders{display:flex;flex-direction:column}
+  .fin-order{border-bottom:1px solid var(--border)}
+  .fin-order-head{display:flex;align-items:center;gap:12px;width:100%;padding:10px 0;text-align:left;background:none;border:0;color:inherit;cursor:pointer}
+  .fin-order-main{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+  .fin-order-name{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fin-order-sub{font-size:11px;color:var(--muted-foreground-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fin-order-net{font-family:var(--font-mono);font-feature-settings:"tnum";white-space:nowrap}
+  .fin-cancel .fin-order-name{text-decoration:line-through;color:var(--muted-foreground)}
+  .fin-order-body{display:flex;flex-direction:column;gap:6px;padding:0 0 14px}
+  .fin-kv{display:flex;justify-content:space-between;gap:12px;font-size:13px}
+  .fin-kv b{font-family:var(--font-mono);font-weight:400}
+  .fin-kv.fin-strong b{font-weight:600}
+  .fin-edit{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+  .fin-extra{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+  .fin-extra .fin-neg{font-family:var(--font-mono);white-space:nowrap}
+  .fin-form{margin-bottom:12px}
+  .fin-input{flex:1;min-width:0;background:none;border:0;border-bottom:1px solid var(--border-strong);color:inherit;font:inherit;padding:4px 0;text-align:right}
+  .fin-shop{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}

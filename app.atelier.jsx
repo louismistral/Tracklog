@@ -51,7 +51,7 @@
 /* ---- Ce que l'atelier s'inspecte ------------------------------------------
    Les cinq fichiers de l'app, dans l'ordre de chargement. `app.atelier.jsx`
    n'y est pas : ses composants à lui sont l'étagère, pas la marchandise. */
-const ATELIER_SOURCES = ['app.core.jsx', 'app.ui.jsx', 'app.charts.jsx', 'app.jsx', 'app.food.jsx'];
+const ATELIER_SOURCES = ['app.core.jsx', 'app.ui.jsx', 'app.charts.jsx', 'app.jsx', 'app.food.jsx', 'app.finance.jsx'];
 
 /* Les familles, dans l'ordre où on les traverse. « Atomic Design », avec deux
    ajouts que l'app impose : une modale n'est pas un organisme comme un autre
