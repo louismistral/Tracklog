@@ -58,7 +58,7 @@ Fiches complètes dans `.claude/skills/<rôle>/SKILL.md`, récapitulées dans
 | `app.charts.jsx` | **Ce qui dessine les données** : `ChartCard` et son infobulle, échelles d'axe, formes de tracé, granularité, normalisation et tendance, masters (`MasterStrip`, `MasterTrackerCard`), calendrier heatmap, grille. ~1270 lignes. |
 | `app.jsx` | L'app elle-même : `App` et son état, les écrans (Jour, Historique, Chrono, Vues, Paramètres), les modales d'entrée et de tracker, la connexion, `Root`/`mountTracklog`. ~3400 lignes. |
 | `app.food.jsx` | Page Food : bibliothèque d'aliments, scanner de code-barres, journal de repas, objectifs. ~4900 lignes. |
-| `app.finance.jsx` | **Page Finance** : bénéfice des business (Redline, Arro) par période et par commande, frais externes, connexion des boutiques Etsy. ~330 lignes. |
+| `app.finance.jsx` | **Page Finance** : bénéfice des business (Redline, Arro, File Drawer) par période et par commande, frais externes, connexion des boutiques Etsy. ~330 lignes. |
 | `app.atelier.jsx` | **L'atelier**, page `#atelier`. Il **relit les cinq `.jsx` et `styles.css` à l'exécution** (`fetch`) et en tire **deux inventaires qui ne se recouvrent pas** : les **composants** (une brique du code, trouvée par son annotation `@atelier`) et les **apparitions** (une combinaison de classes qui existe vraiment quelque part — `button.icon-btn.cal-nav`, qui n'est aucun composant). Plus les jetons et l'audit des classes. Rien n'y est écrit à la main sauf les spécimens de composants. Pas un onglet — une page pour celui qui fabrique l'app. ~1540 lignes. |
 | `index.html` | Redirige vers `Tracklog.html`. |
 | `foods-ref.json` | Table Ciqual 2025 (ANSES) compactée en colonnes — 3341 aliments crus/cuits avec micronutriments, servie en statique pour la recherche d'aliments sans étiquette. |
@@ -143,7 +143,7 @@ Une ligne = une définition. Le *pourquoi* d'une fonctionnalité est dans
 
 | Terme | Définition |
 |---|---|
-| **Business** | Une activité dont on suit l'argent : `redline` (Redline Editions, boutique Etsy + production Gelato, relue par la fonction) · `arro` (Arro Designs, impression 3D maison, **arrêté** : `archived` dans `FIN_BUSINESSES`, chiffres importés une fois depuis le tableau Notion et les relevés Etsy, jamais relus). |
+| **Business** | Une activité dont on suit l'argent : `redline` (Redline Editions, boutique Etsy + production Gelato, relue par la fonction) · `arro` (Arro Designs, impression 3D maison, **arrêté** : `archived` dans `FIN_BUSINESSES`, chiffres importés une fois depuis le tableau Notion et les relevés Etsy, jamais relus) · `filedrawer` (The File Drawer, boutique Etsy de fichiers digitaux, relue par la fonction ; ni Gelato ni production, seulement les frais Etsy). |
 | **Ligne d'argent** (`finance_lines`) | Un mouvement lu chez Etsy ou Gelato, en **HT** et **TVA** séparés, rangé par section (Etsy, Gelato, Production, Frais uniques) et rattaché à une commande quand il en dépend. Écrite par la fonction seule ; la page ne fait que lire. |
 | **Taxe acheteur reversée** | La taxe payée par le client : elle entre avec la vente (colonne TVA) et repart aussitôt sur sa propre ligne — net zéro, comme la page « Bénéfices » d'Etsy. |
 | **Hors commandes** | Ce qui ne dépend d'aucune vente : pub, mises en ligne, renouvellements, frais uniques et externes. Résultat = net des commandes + hors commandes. |

@@ -52,6 +52,7 @@ const API_KEY = ETSY_SECRET ? `${ETSY_CLIENT_ID}:${ETSY_SECRET}` : ETSY_CLIENT_I
 const BUSINESSES: Record<string, { label: string; gelato?: boolean; unitCosts?: boolean }> = {
   redline: { label: 'Redline Editions', gelato: true },
   arro: { label: 'Arro Designs', unitCosts: true },
+  filedrawer: { label: 'The File Drawer' },   // fichiers digitaux : ni Gelato ni production, que les frais Etsy
 };
 
 // Le fuseau qui découpe les journées (une vente de 23 h 40 reste ce jour-là).

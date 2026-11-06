@@ -1,7 +1,7 @@
 /* ============================================================
    Tracklog — Finance
    ------------------------------------------------------------
-   Les comptes des business (Redline Editions, Arro Designs) :
+   Les comptes des business (Redline Editions, Arro Designs, The File Drawer) :
    ventes, frais Etsy, production, taxes, par mois et par
    commande. Les chiffres ne se saisissent pas, ils se LISENT
    chez Etsy et Gelato par la fonction Edge `finance`, qui
@@ -22,7 +22,9 @@
 const FIN_BUSINESSES = [
   { id:'redline', label:'Redline' },
   { id:'arro',    label:'Arro', archived:true },
+  { id:'filedrawer', label:'File Drawer' },
 ];
+const finBizLabel = (id) => (FIN_BUSINESSES.find(b => b.id === id) || FIN_BUSINESSES[0]).label;
 const FIN_SECTIONS = ['Etsy', 'Site', 'Gelato', 'Production', 'Frais externes', 'Frais uniques'];
 const FIN_LINE_ORDER = ['Ventes', 'Taxe acheteur reversée', 'Frais de transaction', 'Frais de paiement',
   'Frais réglementaires', 'Mise en ligne', 'Renouvellement après vente', 'Pub Etsy Ads', 'Pub hors Etsy',
@@ -362,7 +364,7 @@ function FinOrdersTable({ orders, showBiz }){
               <React.Fragment key={k}>
                 <tr className={`fin-orow ${o.statut ? 'fin-cancel' : ''} ${isOpen ? 'open' : ''}`} onClick={()=>setOpen(isOpen ? null : k)}>
                   <td>{String(o.day)}</td>
-                  <td className="fin-txt"><span className="fin-clamp">{o.produit || 'Commande'}</span>{showBiz ? <span className="fin-biz">{o.business === 'arro' ? 'Arro' : 'Redline'}</span> : null}</td>
+                  <td className="fin-txt"><span className="fin-clamp">{o.produit || 'Commande'}</span>{showBiz ? <span className="fin-biz">{finBizLabel(o.business)}</span> : null}</td>
                   <td className="fin-txt fin-muted">{o.variante || '—'}</td>
                   <td className={`fin-strong ${finSign(n(o.net))}`}>{finAmount(n(o.net))}</td>
                 </tr>
@@ -446,7 +448,7 @@ function FinExtraCard({ extra, business, onChange }){
           <div key={x.id} className="fin-extra">
             <span className="fin-order-main">
               <span className="fin-order-name">{x.libelle}</span>
-              <span className="fin-order-sub">{String(x.day)} · {x.business === 'arro' ? 'Arro' : 'Redline'} · {x.is_unique ? 'unique' : 'courant'}</span>
+              <span className="fin-order-sub">{String(x.day)} · {finBizLabel(x.business)} · {x.is_unique ? 'unique' : 'courant'}</span>
             </span>
             <span className="fin-neg">{finMoney(-(Number(x.ht) + Number(x.tva)))}</span>
             <button type="button" className="icon-btn sm" aria-label="Supprimer" onClick={()=>remove(x.id)}>×</button>
