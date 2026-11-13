@@ -43,7 +43,17 @@ const ETSY_SCOPES = 'transactions_r shops_r billing_r';
 const ETSY_API = 'https://openapi.etsy.com/v3/application';
 const ETSY_TOKEN = 'https://api.etsy.com/v3/public/oauth/token';
 const GELATO_ORDER = 'https://order.gelatoapis.com/v4';
-const API_KEY = ETSY_SECRET ? `${ETSY_CLIENT_ID}:${ETSY_SECRET}` : ETSY_CLIENT_ID;
+/* Une app Etsy par boutique : tant qu'elle n'a pas l'accès commercial, seul le
+   compte qui l'a créée peut l'autoriser (« Only the app owner may authorize »).
+   ETSY_CLIENT_ID_<BUSINESS> / ETSY_SECRET_<BUSINESS> (ex. _FILEDRAWER) si posés,
+   sinon l'app par défaut (Redline). */
+type App = { id: string; key: string };
+const appOf = (service: string): App => {
+  const sfx = `_${service.replace(/^etsy:/, '').toUpperCase()}`;
+  const id = Deno.env.get(`ETSY_CLIENT_ID${sfx}`) || ETSY_CLIENT_ID;
+  const secret = Deno.env.get(`ETSY_CLIENT_ID${sfx}`) ? (Deno.env.get(`ETSY_SECRET${sfx}`) ?? '') : ETSY_SECRET;
+  return { id, key: secret ? `${id}:${secret}` : id };
+};
 
 /* Les business connus. `gelato` : ses commandes Gelato sont le coût de
    production. `unitCosts` : un business qui produit lui-même (Arro, impression
@@ -110,23 +120,23 @@ const connOf = async (userId: string, business: string): Promise<Conn | null> =>
 const freshToken = async (c: Conn) => {
   if (c.expires_at && c.expires_at > Date.now() + 60_000) return c.access_token;
   if (!c.refresh_token) return c.access_token;
-  const t = await etsyToken({ grant_type: 'refresh_token', client_id: ETSY_CLIENT_ID, refresh_token: c.refresh_token });
+  const t = await etsyToken({ grant_type: 'refresh_token', client_id: appOf(c.service).id, refresh_token: c.refresh_token });
   const patch = { access_token: t.access_token, refresh_token: t.refresh_token || c.refresh_token,
                   expires_at: Date.now() + (Number(t.expires_in) || 3600) * 1000 };
   await db(`service_connections?user_id=eq.${c.user_id}&service=eq.${c.service}`, { method: 'PATCH', body: JSON.stringify(patch) });
   return patch.access_token;
 };
 
-const etsyGet = async (token: string, path: string) => {
-  const r = await fetch(`${ETSY_API}${path}`, { headers: { Authorization: `Bearer ${token}`, 'x-api-key': API_KEY } });
+const etsyGet = async (app: App, token: string, path: string) => {
+  const r = await fetch(`${ETSY_API}${path}`, { headers: { Authorization: `Bearer ${token}`, 'x-api-key': app.key } });
   const text = await r.text();
   if (!r.ok) throw new Error(`etsy ${path.split('?')[0]}: ${r.status} ${text.slice(0, 200)}`);
   return JSON.parse(text);
 };
-const etsyAll = async (token: string, path: string) => {
+const etsyAll = async (app: App, token: string, path: string) => {
   const out: any[] = [];
   for (let off = 0; off < 20000; off += 100){
-    const page = await etsyGet(token, `${path}${path.includes('?') ? '&' : '?'}limit=100&offset=${off}`);
+    const page = await etsyGet(app, token,`${path}${path.includes('?') ? '&' : '?'}limit=100&offset=${off}`);
     out.push(...(page?.results || []));
     if ((page?.results || []).length < 100) break;
   }
@@ -161,13 +171,13 @@ const NO_SERVICE_VAT = new Set(['PAYMENT_GROSS', 'REFUND_GROSS', 'PAYMENT_PROCES
 // Ce qui se rattache à une commande (sinon : hors commandes).
 const ORDER_TYPES = /^(PAYMENT_|REFUND_|transaction|regulatory|offsite_ads)/;
 
-type Line = { key: string; day: string; section: string; ligne: string; commande: string | null; ht: number; tva: number; _t?: string; _ref?: string };
+type Line = { key: string; day: string; section: string; ligne: string; commande: string | null; ht: number; tva: number; ts?: number; _t?: string; _ref?: string };
 
-const ledgerLines = async (token: string, shopId: string, since: number) => {
+const ledgerLines = async (app: App, token: string, shopId: string, since: number) => {
   const now = Math.floor(Date.now() / 1000);
   const seen = new Map<number, any>();
   for (let t = since; t < now; t += 2_600_000){   // l'API refuse plus de 31 jours par fenêtre
-    for (const e of await etsyAll(token, `/shops/${shopId}/payment-account/ledger-entries?min_created=${t}&max_created=${Math.min(t + 2_600_000, now)}`))
+    for (const e of await etsyAll(app, token,`/shops/${shopId}/payment-account/ledger-entries?min_created=${t}&max_created=${Math.min(t + 2_600_000, now)}`))
       seen.set(e.entry_id, e);
   }
   const entries = [...seen.values()].sort((a, b) => a.sequence_number - b.sequence_number);
@@ -191,7 +201,7 @@ const ledgerLines = async (token: string, shopId: string, since: number) => {
     const lab = LABEL[k];
     if (!lab){ unknown.add(k); continue; }
     const l: Line = { key: `e${e.entry_id}`, day: dayOf(Number(e.create_date)), section: lab[0], ligne: lab[1],
-                      commande: null, ht: amt, tva: 0, _t: k, _ref: ref };
+                      commande: null, ht: amt, tva: 0, ts: Number(e.create_date) * 1000, _t: k, _ref: ref };
     if (k === 'REFUND_GROSS' && e.payment_adjustments?.[0]) l._ref = String(e.payment_adjustments[0].payment_id);
     if (!NO_SERVICE_VAT.has(k)) open.push(l);
     lines.push(l);
@@ -231,18 +241,19 @@ const syncBusiness = async (userId: string, business: string) => {
   const conn = await connOf(userId, business);
   if (!conn) throw new Error(`${conf.label} : boutique Etsy non connectée.`);
   const token = await freshToken(conn);
+  const app = appOf(conn.service);
   const shopId = conn.external_id!;
-  const shop = await etsyGet(token, `/shops/${shopId}`);
+  const shop = await etsyGet(app, token, `/shops/${shopId}`);
   const since = Number(shop.create_date || shop.created_timestamp || 0) - 86400;
 
-  const { lines, taxes, unknown } = await ledgerLines(token, shopId, since);
-  const receipts = await etsyAll(token, `/shops/${shopId}/receipts`);
+  const { lines, taxes, unknown } = await ledgerLines(app, token, shopId, since);
+  const receipts = await etsyAll(app, token, `/shops/${shopId}/receipts`);
 
   // Références Etsy → numéro de commande : paiement (ventes, frais de paiement), transaction (frais de transaction).
   const pays = [...new Set(lines.filter(l => /^(PAYMENT_|REFUND_)/.test(l._t!)).map(l => l._ref!))];
   const payToReceipt = new Map<string, string>();
   for (let i = 0; i < pays.length; i += 100){
-    const r = await etsyGet(token, `/shops/${shopId}/payments?payment_ids=${pays.slice(i, i + 100).join(',')}`);
+    const r = await etsyGet(app, token, `/shops/${shopId}/payments?payment_ids=${pays.slice(i, i + 100).join(',')}`);
     for (const p of r.results || []) payToReceipt.set(String(p.payment_id), String(p.receipt_id));
   }
   const txToReceipt = new Map<string, string>();
@@ -268,7 +279,7 @@ const syncBusiness = async (userId: string, business: string) => {
       if (tax){
         l.tva = r2(tax); l.ht = r2(l.ht - tax);
         // Comme sur Etsy : la taxe de l'acheteur entre avec la vente et repart aussitôt.
-        extra.push({ key: `${l.key}t`, day: l.day, section: 'Etsy', ligne: 'Taxe acheteur reversée', commande: l.commande, ht: 0, tva: -tax });
+        extra.push({ key: `${l.key}t`, day: l.day, section: 'Etsy', ligne: 'Taxe acheteur reversée', commande: l.commande, ht: 0, tva: -tax, ts: l.ts });
       }
     } else if (l._t === 'PAYMENT_PROCESSING_FEE'){
       l.tva = r2(l.tva + (t.vat_on_processing_fees || 0)); delete t.vat_on_processing_fees;
@@ -293,7 +304,7 @@ const syncBusiness = async (userId: string, business: string) => {
       const total = Number(o.totalInclVat || 0);
       const ref = MANUAL[o.orderReferenceId] || o.orderReferenceId;
       prodLines.push({ key: `g${o.id}`, day: dayOf(Date.parse(o.createdAt) / 1000), section: 'Gelato', ligne: 'Production + livraison',
-                       commande: /^\d+$/.test(ref) ? ref : null, ht: -r2(ht), tva: -r2(total - ht) });
+                       commande: /^\d+$/.test(ref) ? ref : null, ht: -r2(ht), tva: -r2(total - ht), ts: Date.parse(o.createdAt) });
     }
   }
   let overrides = new Map<string, any>();
@@ -304,7 +315,7 @@ const syncBusiness = async (userId: string, business: string) => {
 
   const orders = receipts.map((rc: any) => {
     const k = String(rc.receipt_id), t = rc.transactions?.[0] || {};
-    const day = dayOf(Number(rc.created_timestamp ?? rc.create_timestamp));
+    const ts = Number(rc.created_timestamp ?? rc.create_timestamp) * 1000, day = dayOf(ts / 1000);
     const variante = (t.variations || []).map((v: any) => v.formatted_value).join(' · ');
     const canceled = rc.status === 'Canceled';
     if (conf.unitCosts && !canceled){
@@ -313,10 +324,10 @@ const syncBusiness = async (userId: string, business: string) => {
         return { production: s.production + d.production * (tr.quantity || 1), postage: Math.max(s.postage, d.postage) };
       }, { production: 0, postage: 0 });
       const production = ov?.production ?? def.production, postage = ov?.postage ?? def.postage;
-      prodLines.push({ key: `p${k}`, day, section: 'Production', ligne: 'Impression + emballage', commande: k, ht: -r2(production), tva: 0 });
-      prodLines.push({ key: `s${k}`, day, section: 'Production', ligne: 'Timbre', commande: k, ht: -r2(postage), tva: 0 });
+      prodLines.push({ key: `p${k}`, day, section: 'Production', ligne: 'Impression + emballage', commande: k, ht: -r2(production), tva: 0, ts });
+      prodLines.push({ key: `s${k}`, day, section: 'Production', ligne: 'Timbre', commande: k, ht: -r2(postage), tva: 0, ts });
     }
-    return { commande: k, day, produit: String(t.title || '').split('|')[0].trim() + ((rc.transactions || []).length > 1 ? ` +${rc.transactions.length - 1}` : ''),
+    return { commande: k, day, ts, produit: String(t.title || '').split('|')[0].trim() + ((rc.transactions || []).length > 1 ? ` +${rc.transactions.length - 1}` : ''),
              variante, statut: canceled ? 'Annulée' : '', edited: overrides.has(k) };
   });
   lines.push(...prodLines);
@@ -334,7 +345,7 @@ const syncBusiness = async (userId: string, business: string) => {
 
   // Remplacer ce business en entier : effacer puis écrire.
   const rows = lines.map(l => ({ user_id: userId, business, key: l.key, day: l.day, section: l.section, ligne: l.ligne,
-                                 commande: l.commande, ht: r2(l.ht), tva: r2(l.tva) }));
+                                 commande: l.commande, ht: r2(l.ht), tva: r2(l.tva), ts: l.ts ?? null }));
   await db(`finance_lines?user_id=eq.${userId}&business=eq.${business}`, { method: 'DELETE' });
   for (let i = 0; i < rows.length; i += 500) await db('finance_lines', { method: 'POST', body: JSON.stringify(rows.slice(i, i + 500)) });
   await db(`finance_orders?user_id=eq.${userId}&business=eq.${business}`, { method: 'DELETE' });
@@ -366,10 +377,11 @@ Deno.serve(async (req) => {
       const p = (await db(`oauth_pending?state=eq.${encodeURIComponent(state)}&select=*`))?.[0];
       if (!p) return page('Demande expirée', 'Recommencez depuis Tracklog.');
       await db(`oauth_pending?state=eq.${encodeURIComponent(state)}`, { method: 'DELETE' });
-      const t = await etsyToken({ grant_type: 'authorization_code', client_id: ETSY_CLIENT_ID, redirect_uri: REDIRECT_URI,
+      const app = appOf(p.service);
+      const t = await etsyToken({ grant_type: 'authorization_code', client_id: app.id, redirect_uri: REDIRECT_URI,
                                   code, code_verifier: p.verifier });
       const etsyUser = String(t.access_token).split('.')[0];
-      const shops = await etsyGet(t.access_token, `/users/${etsyUser}/shops`);
+      const shops = await etsyGet(app, t.access_token,`/users/${etsyUser}/shops`);
       const shop = shops?.results?.[0] || shops;
       if (!shop?.shop_id) return page('Pas de boutique', "Ce compte Etsy n'a pas de boutique.");
       await db('service_connections', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
@@ -389,7 +401,7 @@ Deno.serve(async (req) => {
       if (!business) return json({ error: 'Quel business ?' }, 400);
       const verifier = randomToken(), state = randomToken();
       await db('oauth_pending', { method: 'POST', body: JSON.stringify({ state, user_id: userId, service: `etsy:${business}`, verifier, created_at: Date.now() }) });
-      const q = new URLSearchParams({ response_type: 'code', client_id: ETSY_CLIENT_ID, redirect_uri: REDIRECT_URI, scope: ETSY_SCOPES,
+      const q = new URLSearchParams({ response_type: 'code', client_id: appOf(business).id, redirect_uri: REDIRECT_URI, scope: ETSY_SCOPES,
         state, code_challenge: await challengeOf(verifier), code_challenge_method: 'S256' });
       return json({ url: `https://www.etsy.com/oauth/connect?${q}` });
     }

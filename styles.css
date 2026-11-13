@@ -2261,6 +2261,14 @@
      garde ses quatre colonnes en serrant les montants, il ne défile pas. */
   .fin-bar{margin-bottom:14px;min-width:0}
   .fin-bar .seg-track{max-width:100%}
+  .fin-bar.range .fin-pip-open{margin-left:auto}
+  /* La fenêtre flottante de Finance : un carré noir, le résultat au centre, quel que soit le thème. */
+  body.fin-pip-body{margin:0;height:100vh;display:grid;place-items:center;background:#000;color:#fff;overflow:hidden}
+  body.fin-pip-body::before{display:none}
+  .fin-pip{text-align:center;font-family:var(--font-sans);font-variant-numeric:tabular-nums}
+  .fin-pip-parts{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 12px;font-size:12px;color:rgba(255,255,255,.55)}
+  .fin-pip-total{font-size:min(20vw,46vh);font-weight:600;line-height:1.1}
+  .fin-pip-total.neg{color:#ff6b6b}
   .fin-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
   @media (max-width:640px){ .fin-kpis{grid-template-columns:repeat(2,minmax(0,1fr))} }
   .fin-kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}

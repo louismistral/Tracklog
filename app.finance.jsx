@@ -36,6 +36,9 @@ const finMoney = (v) => finEur.format(v || 0);
 const finNum = new Intl.NumberFormat('fr-FR', { minimumFractionDigits:2, maximumFractionDigits:2 });
 const finAmount = (v) => finNum.format(Math.abs(v) < 0.005 ? 0 : v);
 const finSign = (v) => v < 0 ? 'fin-neg' : '';
+const finSigned = new Intl.NumberFormat('fr-FR', { style:'currency', currency:'EUR', signDisplay:'exceptZero', maximumFractionDigits:0 });
+// L'heure exacte lue chez Etsy/Gelato (`ts`) ; à défaut (frais externes, lignes d'avant la colonne), minuit du jour.
+const finTs = (r) => r.ts != null ? Number(r.ts) : dayKeyToTs(String(r.day).slice(0, 10));
 const finMonthLong = (m) => new Intl.DateTimeFormat('fr-FR', { month:'long', year:'numeric', timeZone:'UTC' })
   .format(new Date(m + '-15T00:00:00Z'));
 
@@ -138,7 +141,7 @@ function useFinanceData(){
   const load = useCallback(async () => {
     const read = async (q) => { const { data:d, error } = await q; return error ? [] : (d || []); };
     const [lines, orders, extra] = await Promise.all([
-      read(supabase.from('finance_lines').select('business,day,section,ligne,commande,ht,tva').limit(20000)),
+      read(supabase.from('finance_lines').select('business,day,section,ligne,commande,ht,tva,ts').limit(20000)),
       read(supabase.from('finance_orders').select('*').limit(5000)),
       read(supabase.from('finance_extra').select('*').order('day', { ascending:false })),
     ]);
@@ -171,10 +174,12 @@ function FinanceView(){
   const fin = useFinanceData();
   const [business, setBusiness] = useState('all');
   // Les mêmes périodes que l'onglet Vues, plus un mois précis.
-  const [rangeMode, setRangeMode] = useState('all'); // '7'|'30'|'90'|'365'|'ytd'|'all'|'month'|'custom'
+  const [rangeMode, setRangeMode] = useState('all'); // '24h'|'today'|'7'|'30'|'90'|'365'|'ytd'|'all'|'month'|'custom'
   const [month, setMonth] = useState('');             // vide = le dernier mois
   const [customStart, setCustomStart] = useState('');
-  const [customEnd, setCustomEnd] = useState('');
+  const [customEnd, setCustomEnd] = useState('');    // vide = maintenant
+  const [pipWin, setPipWin] = useState(null);
+  const [now, setNow] = useState(() => Date.now());
   const [uniques, setUniques] = useState(true);
   const [editKey, setEditKey] = useState(null);
   const { trackerFor, saveChart } = useFinanceCharts();
@@ -183,32 +188,56 @@ function FinanceView(){
   const allLines = useMemo(() => finAllLines(fin.lines, fin.extra), [fin.lines, fin.extra]);
 
   const months = useMemo(() => [...new Set(allLines.filter(inBiz).map(l => String(l.day).slice(0, 7)))].sort(), [allLines, business]);
-  const today = dayKey(Date.now());
+  const today = dayKey(now);
   const firstDay = useMemo(() => allLines.filter(inBiz).reduce((m, l) => { const d = String(l.day).slice(0, 10); return d < m ? d : m; }, today),
     [allLines, business, today]);
   const curMonth = month || months[months.length - 1] || today.slice(0, 7);
-  // Une période = deux jours `AAAA-MM-JJ`, comparés comme des chaînes.
-  const [startKey, endKey] = useMemo(() => {
-    const back = (n) => dayKey(startOfDay(Date.now()) - (n - 1) * 86400000);
-    if (rangeMode === 'all') return [firstDay, today];
-    if (rangeMode === 'ytd') return [today.slice(0, 4) + '-01-01', today];
+  // Une période = deux instants ; une borne « maintenant » avance avec `now`.
+  const [startTs, endTs] = useMemo(() => {
+    const dayEnd = (k) => dayKeyToTs(k) + 86400000 - 1;
+    const back = (n) => startOfDay(now) - (n - 1) * 86400000;
+    if (rangeMode === '24h') return [now - 86400000, now];
+    if (rangeMode === 'today') return [startOfDay(now), now];
+    if (rangeMode === 'all') return [dayKeyToTs(firstDay), now];
+    if (rangeMode === 'ytd') return [dayKeyToTs(today.slice(0, 4) + '-01-01'), now];
     if (rangeMode === 'month'){
       const [y, m] = curMonth.split('-').map(Number);
-      const last = `${curMonth}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
-      return [curMonth + '-01', last < today ? last : today];
+      return [dayKeyToTs(curMonth + '-01'), Math.min(dayEnd(`${curMonth}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`), now)];
     }
-    if (rangeMode === 'custom') return [customStart || back(30), customEnd || today];
-    return [back(parseInt(rangeMode, 10)), today];
-  }, [rangeMode, curMonth, customStart, customEnd, firstDay, today]);
-  const inPeriod = (day) => { const d = String(day).slice(0, 10); return d >= startKey && d <= endKey; };
+    if (rangeMode === 'custom') return [customStart ? new Date(customStart).getTime() : back(30), customEnd ? new Date(customEnd).getTime() : now];
+    return [back(parseInt(rangeMode, 10)), now];
+  }, [rangeMode, curMonth, customStart, customEnd, firstDay, today, now]);
+  const startKey = dayKey(startTs), endKey = dayKey(endTs);
+  const inPeriod = (r) => { const t = finTs(r); return t >= startTs && t <= endTs; };
   const rangeDays = Math.max(1, Math.round((dayKeyToTs(endKey) - dayKeyToTs(startKey)) / 86400000) + 1);
-  const lines = allLines.filter(l => inBiz(l) && inPeriod(l.day) && (uniques || l.section !== 'Frais uniques'));
-  const orders = fin.orders.filter(o => inBiz(o) && inPeriod(o.day)).sort((a, b) => String(b.day).localeCompare(String(a.day)));
+  const periodLines = allLines.filter(l => inPeriod(l) && (uniques || l.section !== 'Frais uniques'));
+  const lines = periodLines.filter(inBiz);
+  const orders = fin.orders.filter(o => inBiz(o) && inPeriod(o)).sort((a, b) => String(b.day).localeCompare(String(a.day)));
 
   const sum = (ls) => ls.reduce((s, l) => s + l.ht + l.tva, 0);
   const ventes = lines.filter(l => l.ligne === 'Ventes').reduce((s, l) => s + l.ht, 0);
   const hors = lines.filter(l => !l.commande);
   const kpi = { ventes, net: sum(lines.filter(l => l.commande)), hors: sum(hors), result: sum(lines) };
+
+  // Fenêtre flottante : le résultat de la période choisie ici, tous business confondus.
+  const openPip = async () => {
+    if (!PIP_SUPPORTED || pipWin) return;
+    try {
+      const win = await window.documentPictureInPicture.requestWindow({ width: 260, height: 140 });
+      copyStylesTo(win);
+      win.document.body.classList.add('fin-pip-body');
+      win.addEventListener('pagehide', () => setPipWin(null));
+      setPipWin(win);
+    } catch { /* fenêtre refusée */ }
+  };
+  // Tant qu'elle est ouverte : la borne « maintenant » avance et la base se relit chaque minute ;
+  // Etsy et Gelato tous les quarts d'heure (une synchro relit tout l'historique : pas plus souvent).
+  useEffect(() => {
+    if (!pipWin) return;
+    const tick = setInterval(() => { setNow(Date.now()); fin.load(); }, 60000);
+    const sync = setInterval(() => fin.sync(), 15 * 60000);
+    return () => { clearInterval(tick); clearInterval(sync); };
+  }, [pipWin]);
 
   return (
     <div className="fin">
@@ -221,6 +250,8 @@ function FinanceView(){
         </Segmented>
       </div>
       <div className="fin-bar range">
+        <button className={rangeMode==='24h'?'on':''} onClick={()=>setRangeMode('24h')}>24h</button>
+        <button className={rangeMode==='today'?'on':''} onClick={()=>setRangeMode('today')}>Auj.</button>
         {['7','30','90','365'].map(r => (
           <button key={r} className={rangeMode===r?'on':''} onClick={()=>setRangeMode(r)}>{r}j</button>
         ))}
@@ -235,12 +266,21 @@ function FinanceView(){
         )}
         {rangeMode === 'custom' && (
           <>
-            <input type="date" className="range-custom-date" aria-label="Du"
-              value={customStart} max={customEnd || today} onChange={e=>setCustomStart(e.target.value)} />
+            <input type="datetime-local" className="range-custom-date" aria-label="Du"
+              value={customStart} onChange={e=>setCustomStart(e.target.value)} />
             <span className="range-custom-sep">→</span>
-            <input type="date" className="range-custom-date" aria-label="Au"
-              value={customEnd} min={customStart} max={today} onChange={e=>setCustomEnd(e.target.value)} />
+            {customEnd && (
+              <input type="datetime-local" className="range-custom-date" aria-label="Au"
+                value={customEnd} min={customStart} onChange={e=>setCustomEnd(e.target.value)} />
+            )}
+            {/* Allumé, la fin suit l'heure : une vente qui arrive compte aussitôt. Éteint, une date fixe. */}
+            <button className={!customEnd?'on':''} title="Fin = maintenant"
+              onClick={()=>setCustomEnd(customEnd ? '' : new Date(now - new Date(now).getTimezoneOffset() * 60000).toISOString().slice(0, 16))}>Maintenant</button>
           </>
+        )}
+        {PIP_SUPPORTED && (
+          <button className={`fin-pip-open ${pipWin?'on':''}`} title="Le résultat de la période dans une fenêtre flottante"
+            onClick={()=> pipWin ? pipWin.close() : openPip()}>⧉</button>
         )}
       </div>
 
@@ -304,6 +344,24 @@ function FinanceView(){
           onClose={()=>setEditKey(null)}
           onSave={(patch)=>{ saveChart(editKey, patch); setEditKey(null); }} />
       )}
+      {pipWin && ReactDOM.createPortal(<FinPip lines={periodLines} />, pipWin.document.body)}
+    </div>
+  );
+}
+
+/* @atelier molecule — La fenêtre flottante de Finance : le résultat en grand, la part de chaque business au-dessus. */
+function FinPip({ lines }){
+  const by = {};
+  for (const l of lines) by[l.business] = (by[l.business] || 0) + l.ht + l.tva;
+  const total = Object.values(by).reduce((s, v) => s + v, 0);
+  return (
+    <div className="fin-pip">
+      <div className="fin-pip-parts">
+        {FIN_BUSINESSES.filter(b => Math.abs(by[b.id] || 0) >= 0.5).map(b => (
+          <span key={b.id}>{b.label} {finSigned.format(by[b.id])}</span>
+        ))}
+      </div>
+      <div className={`fin-pip-total ${total < 0 ? 'neg' : ''}`}>{finSigned.format(total)}</div>
     </div>
   );
 }
