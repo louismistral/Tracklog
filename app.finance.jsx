@@ -223,7 +223,7 @@ function FinanceView(){
   const openPip = async () => {
     if (!PIP_SUPPORTED || pipWin) return;
     try {
-      const win = await window.documentPictureInPicture.requestWindow({ width: 260, height: 140 });
+      const win = await window.documentPictureInPicture.requestWindow({ width: 280, height: 190 });
       copyStylesTo(win);
       win.document.body.classList.add('fin-pip-body');
       win.addEventListener('pagehide', () => setPipWin(null));
@@ -344,26 +344,41 @@ function FinanceView(){
           onClose={()=>setEditKey(null)}
           onSave={(patch)=>{ saveChart(editKey, patch); setEditKey(null); }} />
       )}
-      {pipWin && ReactDOM.createPortal(<FinPip lines={periodLines} />, pipWin.document.body)}
+      {pipWin && ReactDOM.createPortal(<FinPip lines={periodLines} label={finPeriodLabel(rangeMode, curMonth, startTs, customEnd ? endTs : null, today)} />, pipWin.document.body)}
     </div>
   );
 }
 
 /* @atelier molecule — La fenêtre flottante de Finance : le résultat en grand, la part de chaque business au-dessus. */
-function FinPip({ lines }){
+function FinPip({ lines, label }){
   const by = {};
   for (const l of lines) by[l.business] = (by[l.business] || 0) + l.ht + l.tva;
   const total = Object.values(by).reduce((s, v) => s + v, 0);
   return (
     <div className="fin-pip">
-      <div className="fin-pip-parts">
-        {FIN_BUSINESSES.filter(b => Math.abs(by[b.id] || 0) >= 0.5).map(b => (
-          <span key={b.id}>{b.label} {finSigned.format(by[b.id])}</span>
-        ))}
-      </div>
+      {FIN_BUSINESSES.filter(b => Math.abs(by[b.id] || 0) >= 0.5).map(b => (
+        <div key={b.id} className="fin-pip-small">{finSigned.format(by[b.id])} {b.label}</div>
+      ))}
       <div className={`fin-pip-total ${total < 0 ? 'neg' : ''}`}>{finSigned.format(total)}</div>
+      <div className="fin-pip-small">{label}</div>
     </div>
   );
+}
+
+// La période en mots, sous le chiffre de la fenêtre flottante. `endTs` null = la fin suit l'heure.
+function finPeriodLabel(mode, month, startTs, endTs, today){
+  const when = (t) => new Intl.DateTimeFormat('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }).format(t);
+  if (mode === '24h') return 'over the last 24 hours';
+  if (mode === 'today') return 'today';
+  if (mode === 'ytd') return 'since January 1st';
+  if (mode === 'all') return 'all time';
+  if (mode === 'month'){
+    const [y, m] = month.split('-').map(Number);
+    const name = new Intl.DateTimeFormat('en-GB', { month:'long', timeZone:'UTC' }).format(new Date(Date.UTC(y, m - 1, 15)));
+    return `for the month of ${name}${String(y) === today.slice(0, 4) ? '' : ' ' + y}`;
+  }
+  if (mode === 'custom') return `from ${when(startTs)} to ${endTs ? when(endTs) : 'now'}`;
+  return `over the last ${mode} days`;
 }
 
 /* @atelier molecule — Un chiffre clé de Finance, en rouge s’il est négatif. */
